@@ -1,0 +1,21 @@
+export default {
+  app: { title: 'Piano FX', theme: 'Toggle Theme', language: 'Language' },
+  piano: {
+    title: 'Piano FX', subtitle: 'MIDI-powered falling notes visualization with built-in songs and custom upload',
+    uploadMidi: 'Upload MIDI', uploadMidiMusic: 'Upload MIDI/Audio', loading: 'Loading...', converting: 'Converting...',
+    noteAreaSettings: 'Note Area', noteColor: 'Note Color', activeColor: 'Active Color',
+    noteEffect: 'Effect', effectSmoke: 'Burn & Smoke', effectDiffuse: 'Diffuse Aura',
+    glow: 'Glow', opacity: 'Opacity',
+    bgSettings: 'Background', custom: 'Custom', clearBg: 'Clear Background',
+    pianoAreaSettings: 'Piano Area', whiteKey: 'White Keys', blackKey: 'Black Keys', active: 'Active', inactive: 'Inactive',
+    otherSettings: 'Other Settings', hideControls: 'Hide controls in fullscreen',
+    divider: 'Divider', dividerSize: 'Thickness',
+    bpParams: 'Audio to MIDI Params', bpParamsHint: 'Re-upload audio after adjustment to take effect',
+    onsetThresh: 'Onset Threshold', onsetThreshHint: 'Higher reduces false note onsets, keeps long notes intact',
+    frameThresh: 'Frame Threshold', frameThreshHint: 'Higher keeps only high-confidence notes, filters noise',
+    minNoteLen: 'Min Note Length', minNoteLenHint: 'Shorter fragments are discarded, higher = cleaner notes',
+    exportVideo: 'Export Video', exportHint: 'Export current track as 1080p 30fps 16:9 MP4 video',
+    startExport: 'Start Export', exporting: 'Exporting...', etaPrefix: 'ETA',
+    autoMode: 'Auto', interactiveMode: 'Interactive',
+  },
+}
