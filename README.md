@@ -1,61 +1,210 @@
-# 特效钢琴 · Piano FX
+# 🎹 Piano FX
 
-> MIDI 驱动的音符掉落可视化钢琴，带「燃烧烟雾 / 扩散光环」粒子特效、音频转 MIDI、MP4 视频导出。纯前端实现，无需后端。
+> MIDI-powered falling-notes piano visualizer with particle effects, audio-to-MIDI transcription, and MP4 export.  
+> Built with Vue 3 + Vite + Web Audio + WebCodecs. 100% client-side — no backend, no registration.
 
-![tech](https://img.shields.io/badge/Vue-3-42b883) ![tech](https://img.shields.io/badge/Vite-5-646cff) ![tech](https://img.shields.io/badge/TypeScript-5-3178c6) ![license](https://img.shields.io/badge/license-MIT-blue)
+<p align="center">
+  <img src="https://img.shields.io/badge/Vue-3.x-42b883?logo=vuedotjs" alt="Vue" />
+  <img src="https://img.shields.io/badge/Vite-5.x-646cff?logo=vite" alt="Vite" />
+  <img src="https://img.shields.io/badge/TypeScript-5.x-3178c6?logo=typescript" alt="TS" />
+  <img src="https://img.shields.io/badge/Web_Audio-supported-ff69b4" alt="Web Audio" />
+  <img src="https://img.shields.io/badge/WebCodecs-supported-00bcd4" alt="WebCodecs" />
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
+</p>
 
-## ✨ 功能
+<p align="center">
+  <img src="./images/image.png" alt="Piano FX Screenshot" width="800" />
+</p>
 
-- **音符掉落可视化** —— 解析 MIDI，按音高着色，琴键同步点亮。
-- **两种接触特效**
-  - `燃烧烟雾`：音符接触琴键时点燃，沿本体自下而上燃尽，伴随白热前沿、解体碎片、烟雾、火星拖尾。
-  - `扩散光环`：接触瞬间多彩扩散光环 + 持续激活色矩形。
-- **音频转 MIDI** —— 上传任意音频（mp3/m4a/wav/ogg/flac），用 [Spotify Basic Pitch](https://github.com/spotify/basic-pitch) 实时转录为 MIDI 并播放。
-- **MP4 导出** —— 离屏逐帧渲染 + 真实音频合成，导出 1080p 30fps 16:9 视频（支持流式写盘，省内存）。
-- **可定制** —— 音符/钢琴键激活色、发光、不透明度、分割线、背景图/视频。
-- **全屏播放** —— 沉浸式瀑布流，可隐藏操作区。
-- **中英双语 + 深色模式**。
+> 🚀 **[Try it online →](https://tools.lishiyuan.cn/)** &nbsp;|&nbsp; 📖 [中文文档](./README_zh-CN.md)
 
-## 🚀 快速开始
+---
 
-```bash
-npm install
-npm run dev      # 开发服务器
-npm run build    # 生产构建
-npm run preview  # 预览构建产物
+## ✨ Features
+
+### Core Visualization
+- **Falling-notes waterfall** — parses MIDI files and drops color-coded notes onto a realistic piano keyboard.
+- **Real-time keyboard highlight** — keys light up with configurable glow and pulse as notes strike.
+- **Three built-in tracks** — Canon, Kiss The Rain, Rivers Flow In You. Drag & drop your own MIDI or audio files.
+
+### Contact Effects (two modes)
+
+| Mode | Behavior |
+|---|---|
+| 🔥 **Burn & Smoke** | Notes ignite at keyboard contact. A heat front climbs from bottom to top with white-hot glow. The note body burns away asymmetrically, releasing **debris shards** (flying outward), **smoke puffs** (rising & expanding), **sparks** (high-velocity particles), and a momentary **flash** at impact. The burn duration matches the note length — long notes take time to burn out; short notes vanish quickly. |
+| 💫 **Diffuse Aura** | A colorful radiating halo blooms at contact, fading within 0.6s, while the note rectangle stays lit in your chosen active color with glow. Cleaner, more ambient look. |
+
+### Audio → MIDI Transcription
+- Upload any audio file (mp3, m4a, wav, ogg, flac) and transcribe to MIDI using **Spotify Basic Pitch**.
+- Adjustable parameters: onset threshold, frame threshold, minimum note length.
+- The transcribed MIDI instantly loads and plays — no intermediate download required.
+
+### MP4 Video Export
+- Off-screen canvas rendering at **1920×1080** at **30 fps**, with real audio from smplr offline rendering.
+- Uses [mediabunny](https://github.com/codler/mediabunny) (WebCodecs-based) for H.264 + AAC multiplexing.
+- **Stream-to-disk** mode via `showSaveFilePicker` (low memory usage), with fallback to in-memory download.
+- Real-time progress bar + ETA.
+
+### Customization
+- **Note color** — pick any hex color for active notes.
+- **Keyboard color** — active/inactive white keys, active/inactive black keys — each independently set.
+- **Glow & opacity** — independent sliders for note glow, note opacity, keyboard glow, keyboard opacity (0–240px glow, 10%–100% opacity).
+- **Divider line** — configurable thickness (1–10px), with animated wave + multi-layer gradient glow.
+- **Background** — choose from built-in presets (starry sky image, ocean waves video) or upload your own image/video. Toggle dark overlay transparency.
+- **Fullscreen mode** — immersive canvas with optional control hiding.
+
+### Localization & UI
+- **中文 / English** bilingual with real-time switching.
+- **Dark / light theme** toggle with persistent preference.
+- Full playlist management — add tracks, switch tracks, single-track repeat.
+- **Speed control not yet exposed in UI** — but the playback engine supports variable speed internally.
+
+---
+
+## 🏗 Architecture
+
+```
+┌──────────────────────────────────────────────────┐
+│                    PianoView.vue                 │
+│   (1176 lines — UI state, canvas render,         │
+│    playback control, export orchestration)       │
+├──────────────────────────────────────────────────┤
+│  🎵 Audio Engine          │  🎬 Export Pipeline  │
+│  smplr → Web Audio API   │  smplr renderOffline  │
+│  (real-time synthesis)   │  → AudioBuffer → AAC  │
+│                          │  + canvas per-frame   │
+│                          │  → H.264 → MP4 mux    │
+├──────────────────────────────────────────────────┤
+│  🎼 MIDI Layer            │  🤖 ML (optional)    │
+│  @tonejs/midi parser      │  @spotify/basic-pitch│
+│  → NoteEvent[] sorted     │  + TensorFlow.js     │
+│    by time                │  → audio → MIDI      │
+├──────────────────────────────────────────────────┤
+│  🎨 Canvas 2D Rendering   │  📦 Shared Components│
+│  requestAnimationFrame    │  Btn / Modal /       │
+│  devicePixelRatio-aware   │  AppCheckbox         │
+└──────────────────────────────────────────────────┘
 ```
 
-> 需要 Node.js 18+。推荐 Chrome / Edge 浏览器（导出视频用到 WebCodecs 与 `showSaveFilePicker`）。
+---
 
-## 🎼 内置曲库
+## 🚀 Quick Start
 
-`public/midi/` 下附带三首示例 MIDI：Canon、Kiss The Rain、Rivers Flow In You。可自行替换或上传自己的 MIDI/音频文件。
+```bash
+git clone <repo-url> piano-fx
+cd piano-fx
+npm install
+npm run dev
+```
 
-## 📦 资源说明
+Open `http://localhost:5173` in Chrome or Edge.
 
-本仓库为开箱即用，已内置运行所需资源（约 49MB）：
+### Requirements
 
-| 路径 | 说明 | 来源 |
-| --- | --- | --- |
-| `public/samples/sfzinstruments-splendid-grand-piano/` | 钢琴音色采样（smplr） | [smplr](https://github.com/djipco/smplr) / sfzinstruments |
-| `public/models/basic-pitch/` | 音频转 MIDI 模型 | [Spotify Basic Pitch](https://github.com/spotify/basic-pitch) |
-| `public/wallpaper/` | 背景图 / 视频 | — |
-| `public/midi/` | 示例 MIDI | — |
+| Dependency | Why |
+|---|---|
+| Node.js 18+ | Build toolchain |
+| Chrome / Edge | WebCodecs (export), `showSaveFilePicker` (streaming export), AudioContext |
+| ~50 MB disk | Piano samples + ML model + MIDI files |
 
-> 钢琴采样文件名含 `#`，Vite 默认静态服务会失败，故 `vite.config.ts` 内置了一个 `/samples/` 中间件，dev 与 preview 均生效。
+### Production Build
 
-## 🙏 致谢
+```bash
+npm run build      # type-check + Vite build
+npm run preview    # local preview of dist/
+```
 
-本项目站在巨人的肩膀上：
+The build output in `dist/` is a static site — deploy to any static hosting (GitHub Pages, Vercel, Netlify, Nginx, etc.).
 
-- [smplr](https://github.com/djipco/smplr) —— Web Audio 钢琴采样合成
-- [@tonejs/midi](https://github.com/Tonejs/Midi) —— MIDI 解析
-- [Spotify Basic Pitch](https://github.com/spotify/basic-pitch) —— 音频转 MIDI
-- [mediabunny](https://github.com/codler/mediabunny) —— WebCodecs MP4 封装
-- [TensorFlow.js](https://www.tensorflow.org/js) —— Basic Pitch 推理后端
+---
+
+## 📦 Bundled Assets
+
+| Path | Size | Description | Source License |
+|---|---|---|---|
+| `public/samples/sfzinstruments-splendid-grand-piano/` | ~43 MB | Grand piano soundfont (453 `.m4a`/`.ogg` files) | [smplr](https://github.com/djipco/smplr), sfzinstruments |
+| `public/models/basic-pitch/` | ~900 KB | Spotify Basic Pitch TensorFlow.js model | [Apache-2.0](https://github.com/spotify/basic-pitch) |
+| `public/midi/` | ~28 KB | 3 demo MIDI files | — |
+| `public/wallpaper/` | ~5 MB | Star background image + ocean wave video | — |
+
+> The piano sample filenames contain `#` characters which Vite's static file server mishandles. A custom middleware in `vite.config.ts` intercepts `/samples/` requests and serves them correctly. This works in both `dev` and `preview` modes.
+
+---
+
+## 🧪 Development
+
+```bash
+npm run dev         # Vite dev server with HMR
+npm run type-check  # vue-tsc type checking only
+npm run build       # type-check + production build
+npm run preview     # serve dist/ locally
+```
+
+### Project Layout
+
+```
+src/
+├── views/PianoView.vue         # Main piano SFC (composition API)
+├── components/
+│   ├── Btn.vue                 # Glass-morphism button
+│   ├── Model.vue               # Modal dialog with open/close animation
+│   └── AppCheckbox.vue         # Styled checkbox
+├── util/
+│   └── audio-to-midi.ts        # Lazy-loaded: audio → MIDI via Basic Pitch
+├── locales/
+│   ├── zh-CN.ts                 # Chinese locale (piano.* + app.*)
+│   └── en.ts                   # English locale
+├── assets/tailwind.css          # Tailwind + modal/glass utility classes
+├── App.vue                     # Root: background gradient + PianoView + floating controls
+├── main.ts                     # Entry: Vue app + i18n (no router, no Pinia, no analytics)
+└── i18n.ts                     # vue-i18n setup with zh-CN/en, locale detection
+```
+
+---
+
+## ❓ FAQ
+
+**Q: Why is the sound delayed / silent on first click?**  
+A: Browsers require a user gesture to resume an `AudioContext`. Click the ▶ Play button after loading a track — the piano will init and audio will start.
+
+**Q: My MIDI file sounds wrong / notes are off?**  
+A: The piano keyboard range is auto-calculated from the MIDI file. Very large files (>1 hour) may have cumulative timing drift in the canvas, but audio scheduling is precise.
+
+**Q: Export takes a long time — can I speed it up?**  
+A: Video export renders every frame through Canvas 2D — it's CPU-bound. Close other tabs. Use the stream-to-disk mode (`showSaveFilePicker` dialog) to avoid building a giant in-memory buffer.
+
+**Q: Audio-to-MIDI transcription produces noisy / fragmented notes?**  
+A: Adjust the parameters in "Other Settings" → "Audio to MIDI Params":
+- Increase **onset threshold** to reduce false onsets.
+- Increase **frame threshold** to keep only high-confidence notes.
+- Increase **min note length** to discard short spurious fragments.
+Then re-upload your audio file.
+
+**Q: Can I use this without the bundled samples?**  
+A: The smplr `baseUrl` points to `/samples/sfzinstruments-splendid-grand-piano/samples`. You can replace this directory with any compatible SFZ soundfont or configure a CDN URL inline.
+
+---
+
+## 🙏 Credits
+
+Piano FX builds on several open-source projects:
+
+| Project | Role |
+|---|---|
+| [smplr](https://github.com/djipco/smplr) | Web Audio sampler with multi-velocity piano layers |
+| [@tonejs/midi](https://github.com/Tonejs/Midi) | MIDI file parser |
+| [Spotify Basic Pitch](https://github.com/spotify/basic-pitch) | Audio-to-MIDI transcription model |
+| [mediabunny](https://github.com/codler/mediabunny) | WebCodecs-based MP4 muxer |
+| [TensorFlow.js](https://www.tensorflow.org/js) | ML inference runtime for Basic Pitch |
+| [Vue 3](https://vuejs.org/) + [Vite](https://vitejs.dev/) | Frontend framework & build tool |
+| [Tailwind CSS](https://tailwindcss.com/) | Utility-first CSS |
+| [Font Awesome](https://fontawesome.com/) | Icons |
+| [vue-i18n](https://vue-i18n.intlify.dev/) | Internationalization |
+
+---
 
 ## 📄 License
 
-[MIT](./LICENSE)
+This project is licensed under [MIT](./LICENSE).
 
-钢琴采样与 Basic Pitch 模型各自遵循其原始许可。
+Bundled third-party assets (piano samples, Basic Pitch model) retain their original licenses. See [Bundled Assets](#-bundled-assets) for details.
