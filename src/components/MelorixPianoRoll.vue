@@ -142,22 +142,40 @@ function onEditorKeyDown(e:KeyboardEvent){
   e.preventDefault();removeSelected()
  }
 }
-let dragging:{index:number;kind:'move'|'resize'|'velocity';x:number;y:number;original:MidiNoteEvent}|null=null
-function stopDrag(){if(dragging){dragging=null;commit()}window.removeEventListener('pointermove',moveDrag);window.removeEventListener('pointerup',stopDrag)}
+let dragging:{index:number;kind:'move'|'resize'|'velocity';x:number;y:number;original:MidiNoteEvent;before:MidiNoteEvent[];indices:number[]}|null=null
+function stopDrag(){
+ if(dragging){const snapshot=dragging.before;dragging=null;commit(snapshot)}
+ window.removeEventListener('pointermove',moveDrag)
+ window.removeEventListener('pointerup',stopDrag)
+}
 function startDrag(e:PointerEvent,index:number,kind:'move'|'resize'|'velocity'){
  if(props.disabled)return
- e.preventDefault();e.stopPropagation();selected.value=index
- dragging={index,kind,x:e.clientX,y:e.clientY,original:{...draft.value[index]}}
- window.addEventListener('pointermove',moveDrag);window.addEventListener('pointerup',stopDrag)
+ e.preventDefault();e.stopPropagation()
+ rollRoot.value?.focus({preventScroll:true})
+ if(kind==='move'&&(e.shiftKey||e.ctrlKey||e.metaKey)){
+  if(selectedIndices.value.includes(index))setSelection(selectedIndices.value.filter(i=>i!==index))
+  else setSelection([...selectedIndices.value,index])
+  return
+ }
+ if(kind!=='move'||!selectedIndices.value.includes(index))setSelection([index])
+ dragging={index,kind,x:e.clientX,y:e.clientY,original:{...draft.value[index]},before:cloneNotes(draft.value),indices:[...selectedIndices.value]}
+ window.addEventListener('pointermove',moveDrag)
+ window.addEventListener('pointerup',stopDrag)
 }
 function moveDrag(e:PointerEvent){
  const d=dragging;if(!d)return
  const n=d.original
- if(d.kind==='velocity'){const v=clampMidiVelocity(Math.round(n.velocity*127)+(d.y-e.clientY)*1.2);draft.value[d.index]={...n,velocity:v/127};return}
+ if(d.kind==='velocity'){
+  const v=clampMidiVelocity(Math.round(n.velocity*127)+(d.y-e.clientY)*1.2)
+  draft.value[d.index]={...n,velocity:v/127};return
+ }
  const dt=(e.clientX-d.x)/pixelsPerSecond.value
- if(d.kind==='resize'){draft.value[d.index]={...n,duration:Math.max(.04,snapMidiTime(n.duration+dt,snap.value))};return}
- const midi=Math.max(LOW,Math.min(HIGH,n.midi-Math.round((e.clientY-d.y)/ROW)))
- draft.value[d.index]={...n,midi,name:midiNoteName(midi),time:Math.max(0,snapMidiTime(n.time+dt,snap.value))}
+ const delta=snap.value?Math.round(dt/snap.value)*snap.value:dt
+ if(d.kind==='resize'){
+  draft.value[d.index]={...n,duration:Math.max(.04,n.duration+delta)};return
+ }
+ const shiftPitch=-Math.round((e.clientY-d.y)/ROW)
+ draft.value=moveMidiNotes(d.before,d.indices,delta,shiftPitch)
 }
 function removeNote(index:number){if(props.disabled)return;draft.value.splice(index,1);selected.value=-1;commit()}
 function onGridDouble(e:MouseEvent){
