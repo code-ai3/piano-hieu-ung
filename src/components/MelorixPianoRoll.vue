@@ -6,6 +6,8 @@ import { playheadLeft, rulerSeekTime } from '@/util/piano-roll-playhead'
 import { cloneNotes, sameNotes, copyMidiNotes, pasteMidiNotes, moveMidiNotes, selectMidiInBox } from '@/util/piano-roll-selection'
 import { midiGridStep, quantizeMidiNotes } from '@/util/piano-roll-quantize'
 import { setMidiVelocities, shiftMidiVelocities, rampMidiVelocities, humanizeMidiVelocities, drawMidiVelocityLine, velocityNumber } from '@/util/piano-roll-velocity'
+import { isPitchInScale, isScaleRoot, snapPitchToScale, correctMidiNotesToScale } from '@/util/piano-roll-scale'
+import type { ScaleMode } from '@/util/piano-roll-scale'
 const props=defineProps<{part:MidiPart; notes:MidiNoteEvent[]; duration:number; bpm:number; disabled:boolean; currentTime:number; playing:boolean}>()
 const emit=defineEmits<{(e:'change',notes:MidiNoteEvent[]):void;(e:'close'):void;(e:'seek',time:number):void;(e:'audition-start',midi:number):void;(e:'audition-stop'):void}>()
 const ROW=19, KEY_W=54, HIGH=108, LOW=21
@@ -24,7 +26,12 @@ const snapDivision=ref(16)
 const quantDivision=ref(16)
 const quantStrength=ref(100)
 const quantSwing=ref(0)
-const advancedPanel=ref<'none'|'quantize'|'velocity'>('none')
+const advancedPanel=ref<'none'|'quantize'|'velocity'|'scale'>('none')
+const scaleRoot=ref(0)
+const scaleMode=ref<ScaleMode>('major')
+const scaleHighlight=ref(true)
+const scaleSnap=ref(false)
+const scaleRootNames=['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B']
 const velocitySet=ref(95)
 const velocityFrom=ref(45)
 const velocityTo=ref(115)
@@ -80,6 +87,7 @@ function seekOnRuler(e:MouseEvent){
 function syncScroll(e:Event){gridScrollLeft.value=(e.target as HTMLElement).scrollLeft}
 function snapAt(x:number){return snapMidiTime((x-KEY_W)/pixelsPerSecond.value,snap.value)}
 function yToMidi(y:number){return Math.min(HIGH,Math.max(LOW,HIGH-Math.floor(y/ROW)))}
+function snapToCurrentScale(pitch:number){return scaleSnap.value?snapPitchToScale(pitch,scaleRoot.value,scaleMode.value,LOW,HIGH):pitch}
 function setSelection(indices:number[]){
  selectedIndices.value=[...new Set(indices.filter(i=>i>=0&&i<draft.value.length))]
  selected.value=selectedIndices.value.length===1?selectedIndices.value[0]:-1
@@ -139,7 +147,8 @@ function pasteSelection(atTime=props.currentTime){
  if(props.disabled||!clipboard.value.length)return
  const before=cloneNotes(draft.value)
  const start=draft.value.length
- const inserted=pasteMidiNotes(clipboard.value,props.part.id,snapMidiTime(atTime,snap.value))
+ let inserted=pasteMidiNotes(clipboard.value,props.part.id,snapMidiTime(atTime,snap.value))
+ if(scaleSnap.value)inserted=correctMidiNotesToScale(inserted,inserted.map((_,i)=>i),scaleRoot.value,scaleMode.value,LOW,HIGH)
  draft.value.push(...inserted)
  setSelection(inserted.map((_,i)=>start+i))
  commit(before)
@@ -153,9 +162,16 @@ function applyQuantize(){
  })
  commit(before)
 }
-function togglePanel(panel:'quantize'|'velocity'){
+function togglePanel(panel:'quantize'|'velocity'|'scale'){
  advancedPanel.value=advancedPanel.value===panel?'none':panel
  if(advancedPanel.value!=='velocity')velocityDrawing.value=false
+}
+function correctSelectionToScale(){
+ if(props.disabled||!draft.value.length)return
+ const before=cloneNotes(draft.value)
+ const indices=selectionCount.value?[...selectedIndices.value]:draft.value.map((_,i)=>i)
+ draft.value=correctMidiNotesToScale(draft.value,indices,scaleRoot.value,scaleMode.value,LOW,HIGH)
+ commit(before)
 }
 function velocityTargets(){return selectionCount.value?[...selectedIndices.value]:draft.value.map((_,i)=>i)}
 function applyVelocitySet(){
@@ -309,7 +325,10 @@ function moveDrag(e:PointerEvent){
  const anchor=Math.min(...d.indices.map(i=>d.before[i].time))
  // Snap absolute group onset, preserving relative offsets between selected notes.
  const delta=movedX?(snap.value?snapMidiTime(anchor+dt,snap.value)-anchor:dt):0
- draft.value=moveMidiNotes(d.before,d.indices,delta,shiftPitch)
+ const moved=moveMidiNotes(d.before,d.indices,delta,shiftPitch)
+ draft.value=scaleSnap.value&&shiftPitch!==0
+  ?correctMidiNotesToScale(moved,d.indices,scaleRoot.value,scaleMode.value,LOW,HIGH)
+  :moved
 }
 function removeNote(index:number){
  if(props.disabled)return
@@ -321,7 +340,7 @@ function removeNote(index:number){
 function onGridDouble(e:MouseEvent){
  if(props.disabled)return
  const grid=e.currentTarget as HTMLElement;const r=grid.getBoundingClientRect()
- const time=snapAt(e.clientX-r.left), pitch=yToMidi(e.clientY-r.top)
+ const time=snapAt(e.clientX-r.left), pitch=snapToCurrentScale(yToMidi(e.clientY-r.top))
  const before=cloneNotes(draft.value)
  draft.value.push({time,midi:pitch,name:midiNoteName(pitch),duration:Math.max(.08,snap.value||.25),velocity:95/127,trackId:props.part.id})
  setSelection([draft.value.length-1])
@@ -400,6 +419,7 @@ onUnmounted(()=>{stopDrag();painting=null;window.removeEventListener('pointermov
       <span class="mx-roll-separator"></span>
       <button type="button" :class="{ 'mx-roll-panel-active': advancedPanel==='quantize' }" :aria-expanded="advancedPanel==='quantize'" title="Bật/tắt công cụ căn nhịp" @click="togglePanel('quantize')"><i class="fas fa-align-left"></i> Nhịp <i class="fas fa-angle-down"></i></button>
       <button type="button" :class="{ 'mx-roll-panel-active': advancedPanel==='velocity' }" :aria-expanded="advancedPanel==='velocity'" title="Bật/tắt công cụ Velocity nâng cao" @click="togglePanel('velocity')"><i class="fas fa-sliders-h"></i> Velocity <i class="fas fa-angle-down"></i></button>
+      <button type="button" :class="{ 'mx-roll-panel-active': advancedPanel==='scale' }" :aria-expanded="advancedPanel==='scale'" title="Scale Assistant — Trợ lý âm giai" @click="togglePanel('scale')"><i class="fas fa-music"></i> Scale <i class="fas fa-angle-down"></i></button>
       <span class="mx-roll-grow"></span>
       <button type="button" title="Hoàn tác · Ctrl+Z" aria-label="Hoàn tác" :disabled="disabled || !undoHistory.length" @click="undoEdit"><i class="fas fa-undo"></i></button>
       <button type="button" title="Làm lại · Ctrl+Y" aria-label="Làm lại" :disabled="disabled || !redoHistory.length" @click="redoEdit"><i class="fas fa-redo"></i></button>
@@ -434,6 +454,25 @@ onUnmounted(()=>{stopDrag();painting=null;window.removeEventListener('pointermov
       <button type="button" title="Biến thiên lực đánh tự nhiên trong biên độ đã chọn" :disabled="disabled || !draft.length" @click="applyVelocityHumanize">Humanize</button>
       <button type="button" :class="{ 'mx-roll-panel-active': velocityDrawing }" :aria-pressed="velocityDrawing" title="Vẽ đường thẳng bằng cách kéo chuột trên làn Velocity" :disabled="disabled" @click="velocityDrawing=!velocityDrawing"><i class="fas fa-pencil-alt"></i> Vẽ</button>
     </div>
+    <div v-if="advancedPanel==='scale'" class="mx-roll-quantbar mx-roll-compact-panel mx-roll-scale-tools" aria-label="Scale Assistant — Trợ lý âm giai">
+      <label>Chủ âm <select v-model.number="scaleRoot" aria-label="Chủ âm">
+        <option v-for="(name,index) in scaleRootNames" :key="index" :value="index">{{ name }}</option>
+      </select></label>
+      <label>Âm giai <select v-model="scaleMode" aria-label="Loại âm giai">
+        <option value="major">Major (Trưởng)</option>
+        <option value="naturalMinor">Natural Minor (Thứ)</option>
+        <option value="harmonicMinor">Harmonic Minor</option>
+        <option value="dorian">Dorian</option>
+        <option value="mixolydian">Mixolydian</option>
+        <option value="majorPentatonic">Pentatonic Trưởng</option>
+        <option value="minorPentatonic">Pentatonic Thứ</option>
+      </select></label>
+      <label class="mx-roll-scale-toggle"><input v-model="scaleHighlight" type="checkbox" aria-label="Tô sáng âm giai"> Tô sáng</label>
+      <label class="mx-roll-scale-toggle" title="Khi vẽ, kéo hoặc dán sẽ căn vào nốt đúng âm giai"><input v-model="scaleSnap" type="checkbox" aria-label="Hút nốt đúng âm giai"> Hút nốt</label>
+      <span class="mx-roll-grow"></span>
+      <span class="mx-roll-quant-scope">{{ selectionCount ? selectionCount + ' nốt' : 'Cả track' }}</span>
+      <button type="button" class="mx-roll-quant-apply" title="Sửa nốt nằm ngoài âm giai; Ctrl+Z hoàn tác" :disabled="disabled || !draft.length" @click="correctSelectionToScale"><i class="fas fa-magic"></i> Sửa nốt lệch</button>
+    </div>
     <div class="mx-roll-ruler" @click="seekOnRuler">
       <div :style="{ width: gridWidth + 'px', transform: 'translateX(-' + gridScrollLeft + 'px)' }">
         <span v-for="sec in ticks" :key="sec" :style="{ left: KEY_W + sec * pixelsPerSecond + 'px' }">{{ sec }}s</span>
@@ -446,9 +485,14 @@ onUnmounted(()=>{stopDrag();painting=null;window.removeEventListener('pointermov
           @pointerdown.stop="onKeyPointerDown" @pointermove.stop="onKeyPointerMove"
           @pointerup.stop="onKeyPointerUp" @pointercancel.stop="onKeyPointerUp"
           @lostpointercapture="onKeyLostCapture">
-          <div v-for="pitch in keyList" :key="pitch" :class="['mx-roll-key', { black: keyLabel(pitch).includes('#'), auditioning: auditionPitch === pitch }]" :style="{ height: ROW + 'px' }">{{ pitch % 12 === 0 ? keyLabel(pitch) : '' }}</div>
+          <div v-for="pitch in keyList" :key="pitch" :class="['mx-roll-key', { black: keyLabel(pitch).includes('#'), auditioning: auditionPitch === pitch, 'scale-out': scaleHighlight && !isPitchInScale(pitch,scaleRoot,scaleMode), 'scale-tonic': scaleHighlight && isScaleRoot(pitch,scaleRoot) }]" :style="{ height: ROW + 'px' }">{{ pitch % 12 === 0 ? keyLabel(pitch) : '' }}</div>
         </div>
-        <div v-for="(note, i) in draft" :key="i" class="mx-roll-note" :class="{ selected: selectedIndices.includes(i), sounding: playing && currentTime >= note.time && currentTime < note.time + note.duration }"
+        <div v-if="scaleHighlight" class="mx-roll-scale-overlay" aria-hidden="true">
+          <div v-for="pitch in keyList" :key="pitch" class="mx-roll-scale-row"
+            :class="{ 'scale-row-out': !isPitchInScale(pitch,scaleRoot,scaleMode), 'scale-row-tonic': isScaleRoot(pitch,scaleRoot) }"
+            :style="{ height: ROW + 'px' }"></div>
+        </div>
+        <div v-for="(note, i) in draft" :key="i" class="mx-roll-note" :class="{ selected: selectedIndices.includes(i), sounding: playing && currentTime >= note.time && currentTime < note.time + note.duration, 'off-scale': scaleHighlight && !isPitchInScale(note.midi,scaleRoot,scaleMode) }"
           :title="note.name + ' · ' + note.time.toFixed(2) + 's · Velocity ' + Math.round(note.velocity * 127)"
           :style="{ left: KEY_W + note.time * pixelsPerSecond + 'px', top: (HIGH - note.midi) * ROW + 1 + 'px', width: Math.max(5, note.duration * pixelsPerSecond) + 'px', height: ROW - 2 + 'px', backgroundColor: part.color }"
           @pointerdown.stop="noteDown($event, i)" @dblclick.stop="noteDbl($event, i)">
@@ -476,6 +520,6 @@ onUnmounted(()=>{stopDrag();painting=null;window.removeEventListener('pointermov
           @pointerdown.prevent="velocityBarDown($event, i)"></span>
       </div>
     </div>
-    <div class="mx-roll-hint">Nhấp đúp thêm nốt · Kéo để sửa · Ctrl+Z hoàn tác · Nhịp / Velocity: mở công cụ nâng cao</div>
+    <div class="mx-roll-hint">Nhấp đúp thêm nốt · Kéo để sửa · Ctrl+Z hoàn tác · Nhịp / Velocity / Scale: mở công cụ nâng cao</div>
   </section>
 </template>
