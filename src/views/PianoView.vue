@@ -771,8 +771,12 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
   // ---- 绘制钢琴键盘 ----
   // 构建每个键的最新按下时间（取自 notes，无需额外状态）
   const latestPress: Record<number, number> = {}
+  const latestPower: Record<number, number> = {}
   for (const n of notes.value) {
-    if (n.time <= targetTime && n.time > (latestPress[n.midi] || 0)) latestPress[n.midi] = n.time
+    if (n.time <= targetTime && (latestPress[n.midi] === undefined || n.time >= latestPress[n.midi])) {
+      latestPress[n.midi] = n.time
+      latestPower[n.midi] = visualPower(n.velocity)
+    }
   }
   // 白键
   const whiteKeysArr = getWhiteKeys(min, max)
@@ -781,11 +785,12 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     const x = i * keyW
     const active = keyState.value[midi]
     if (active) {
+      const power = latestPower[midi] ?? 1
       const age = targetTime - (latestPress[midi] || 0)
-      const pulse = Math.max(0, 1 - age / 0.3) * Math.exp(-age * 5)
+      const pulse = Math.max(0, 1 - age / 0.3) * Math.exp(-age * 5) * power
       const c = pianoActiveColor.value
       const pr = parseInt(c.slice(1,3), 16), pg = parseInt(c.slice(3,5), 16), pb = parseInt(c.slice(5,7), 16)
-      const a = pianoOpacity.value / 100
+      const a = (pianoOpacity.value / 100) * (0.3 + 0.7 * power)
       ctx.fillStyle = `rgba(${pr},${pg},${pb},${a})`
       ctx.fillRect(x, notesAreaH, keyW - 1, actualPianoH)
       if (pulse > 0.01) {
@@ -793,7 +798,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
         ctx.fillRect(x, notesAreaH, keyW - 1, actualPianoH)
       }
       ctx.shadowColor = `rgba(${pr},${pg},${pb},${a + pulse * 0.5})`
-      ctx.shadowBlur = pianoGlow.value + pulse * 40
+      ctx.shadowBlur = pianoGlow.value * (0.3 + 0.7 * power) + pulse * 40
       ctx.fillStyle = `rgba(${pr},${pg},${pb},0.01)`
       ctx.fillRect(x, notesAreaH, keyW - 1, actualPianoH)
       ctx.shadowBlur = 0
@@ -817,11 +822,12 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     const bw = keyW * 0.55; const bh = actualPianoH * 0.62
     const active = keyState.value[bMidi]
     if (active) {
+      const power = latestPower[bMidi] ?? 1
       const age = targetTime - (latestPress[bMidi] || 0)
-      const pulse = Math.max(0, 1 - age / 0.3) * Math.exp(-age * 5)
+      const pulse = Math.max(0, 1 - age / 0.3) * Math.exp(-age * 5) * power
       const c = pianoBlackActiveColor.value
       const pr = parseInt(c.slice(1,3), 16), pg = parseInt(c.slice(3,5), 16), pb = parseInt(c.slice(5,7), 16)
-      const a = pianoOpacity.value / 100
+      const a = (pianoOpacity.value / 100) * (0.3 + 0.7 * power)
       ctx.fillStyle = `rgba(${pr},${pg},${pb},${a})`
       ctx.fillRect(x, notesAreaH, bw, bh)
       if (pulse > 0.01) {
@@ -829,7 +835,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
         ctx.fillRect(x, notesAreaH, bw, bh)
       }
       ctx.shadowColor = `rgba(${pr},${pg},${pb},${a + pulse * 0.5})`
-      ctx.shadowBlur = Math.round(pianoGlow.value * 0.7) + pulse * 30
+      ctx.shadowBlur = Math.round(pianoGlow.value * 0.7 * (0.3 + 0.7 * power)) + pulse * 30
       ctx.fillStyle = `rgba(${pr},${pg},${pb},0.01)`
       ctx.fillRect(x, notesAreaH, bw, bh)
       ctx.shadowBlur = 0
