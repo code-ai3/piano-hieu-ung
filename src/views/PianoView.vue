@@ -94,6 +94,13 @@ let rafId = 0
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const canvasAreaRef = ref<HTMLDivElement | null>(null)
 const isInspectorOpen = ref(false)
+const isTimelineOpen = ref(false)
+function closeMenuAfterAction(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  if (!target.closest('button, label')) return
+  const details = target.closest('details')
+  if (details) details.open = false
+}
 const fittedPreview = ref({ width: 960, height: 540 })
 let previewResizeObserver: ResizeObserver | null = null
 
@@ -1127,53 +1134,55 @@ watch(() => currentTime.value, (t) => {
   <div class="mx-shell" :class="isFullscreen ? 'mx-fullscreen' : ''">
     <header v-if="!isFullscreen" class="mx-topline">
       <div class="mx-brand"><span class="mx-brand-mark"><i class="fas fa-music"></i></span><span>MELORIX</span></div>
-      <nav class="mx-menu" aria-label="Menu chính">
+      <nav class="mx-menu" aria-label="Menu MELORIX" @click="closeMenuAfterAction">
         <details><summary>Tệp</summary><div class="mx-menu-pop">
-          <label><i class="fas fa-file-import mr-2"></i>Nhập MIDI / Âm thanh<input class="hidden" type="file" accept=".mid,.midi,audio/*" @change="onFileUpload"></label>
-          <button type="button" @click="showPlaylist = !showPlaylist">Mở thư viện bài mẫu</button>
-          <button type="button" @click="showExport = true">Xuất video MP4</button>
+          <label><i class="fas fa-file-import mr-2"></i> Nhập MIDI
+            <input type="file" class="hidden" accept=".mid,.midi" :disabled="loadingMidi || converting || exporting" @change="onFileUpload">
+          </label>
+          <label><i class="fas fa-wave-square mr-2"></i> Nhập âm thanh
+            <input type="file" class="hidden" accept="audio/*" :disabled="loadingMidi || converting || exporting" @change="onFileUpload">
+          </label>
+          <button type="button" @click="showPlaylist = !showPlaylist"><i class="fas fa-folder-open mr-2"></i> Thư viện bài nhạc</button>
+          <button type="button" :disabled="exporting" @click="showExport = true"><i class="fas fa-file-video mr-2"></i> Xuất video MP4</button>
         </div></details>
         <details><summary>Chỉnh sửa</summary><div class="mx-menu-pop">
-          <button type="button" @click="setAllParts(true)">Bật tất cả track</button>
-          <button type="button" @click="setAllParts(false)">Tắt tất cả track</button>
+          <button type="button" :disabled="exporting" @click="setAllParts(true)">Bật tất cả track</button>
+          <button type="button" :disabled="exporting" @click="setAllParts(false)">Tắt tất cả track</button>
+          <button type="button" @click="showOtherSettings = true">Thiết lập MIDI và AI</button>
+        </div></details>
+        <details><summary>Phát lại</summary><div class="mx-menu-pop">
+          <button type="button" :disabled="!notes.length || exporting" @click="togglePlay">{{ playState === 'playing' ? 'Tạm dừng' : 'Phát nhạc' }}</button>
+          <button type="button" @click="stop">Dừng / về đầu</button>
+          <button type="button" @click="nextTrack">Bài tiếp theo</button>
+          <button type="button" @click="repeat = !repeat">{{ repeat ? '✓ ' : '' }}Lặp lại bài</button>
+        </div></details>
+        <details><summary>Track MIDI</summary><div class="mx-menu-pop">
+          <button type="button" :aria-pressed="isTimelineOpen" @click="isTimelineOpen = !isTimelineOpen">{{ isTimelineOpen ? '✓ ' : '' }}Hiện dòng thời gian</button>
+          <button type="button" :aria-pressed="isInspectorOpen" @click="isInspectorOpen = !isInspectorOpen">{{ isInspectorOpen ? '✓ ' : '' }}Hiện bảng thuộc tính</button>
+          <button type="button" :disabled="exporting" @click="setAllParts(true)">Bật toàn bộ nhạc cụ</button>
+          <button type="button" :disabled="exporting" @click="setAllParts(false)">Tắt toàn bộ nhạc cụ</button>
+          <div class="mx-menu-caption">{{ midiParts.length }} track · {{ enabledPartCount }} đang bật</div>
         </div></details>
         <details><summary>Công cụ</summary><div class="mx-menu-pop">
-          <button type="button" @click="showBgSettings = true">Hiệu ứng nốt</button>
+          <button type="button" @click="showBgSettings = true">Hiệu ứng nốt rơi</button>
           <button type="button" @click="showPianoSettings = true">Bàn phím Piano</button>
-          <button type="button" @click="showOtherSettings = true">Cài đặt MIDI & AI</button>
+          <button type="button" @click="isInspectorOpen = !isInspectorOpen">{{ isInspectorOpen ? 'Ẩn' : 'Mở' }} bảng chỉnh trực tiếp</button>
+          <button type="button" @click="showOtherSettings = true">Cài đặt nâng cao / AI</button>
         </div></details>
         <details><summary>Hiển thị</summary><div class="mx-menu-pop">
-          <button type="button" @click="videoFormat = 'landscape'">Video ngang 16:9</button>
-          <button type="button" @click="videoFormat = 'portrait'">Video dọc 9:16</button>
-          <button type="button" @click="toggleFullscreen">Toàn màn hình</button>
+          <button type="button" :aria-pressed="isTimelineOpen" @click="isTimelineOpen = !isTimelineOpen">{{ isTimelineOpen ? '✓ ' : '' }}Timeline MIDI</button>
+          <button type="button" :aria-pressed="isInspectorOpen" @click="isInspectorOpen = !isInspectorOpen">{{ isInspectorOpen ? '✓ ' : '' }}Bảng thuộc tính bên phải</button>
+          <button type="button" :aria-pressed="videoFormat === 'landscape'" @click="videoFormat = 'landscape'">{{ videoFormat === 'landscape' ? '✓ ' : '' }}Video ngang 16:9</button>
+          <button type="button" :aria-pressed="videoFormat === 'portrait'" @click="videoFormat = 'portrait'">{{ videoFormat === 'portrait' ? '✓ ' : '' }}Video dọc 9:16</button>
+          <button type="button" @click="toggleFullscreen">Xem toàn màn hình</button>
+        </div></details>
+        <details><summary>Xuất</summary><div class="mx-menu-pop">
+          <button type="button" :disabled="exporting" @click="showExport = true">Xuất MP4 (15 giây / 30 giây / cả bài)</button>
+          <button type="button" @click="captureFrame">Lưu khung hình PNG</button>
         </div></details>
       </nav>
       <span class="mx-head-meta">MIDI · VIDEO VISUAL STUDIO</span>
     </header>
-
-    <div v-if="!isFullscreen" class="mx-toolbar" role="toolbar" aria-label="Thanh công cụ MELORIX">
-      <label class="mx-btn mx-btn-blue" :aria-disabled="loadingMidi || converting || exporting">
-        <i class="fas fa-file-import"></i> Nhập MIDI
-        <input type="file" accept=".mid,.midi" class="hidden" :disabled="loadingMidi || converting || exporting" @change="onFileUpload">
-      </label>
-      <label class="mx-btn" :aria-disabled="loadingMidi || converting || exporting">
-        <i class="fas fa-wave-square"></i> Nhập âm thanh
-        <input type="file" accept="audio/*" class="hidden" :disabled="loadingMidi || converting || exporting" @change="onFileUpload">
-      </label>
-      <span class="mx-divider"></span>
-      <button class="mx-btn mx-btn-icon" type="button" title="Chọn bài mẫu" @click="showPlaylist = !showPlaylist"><i class="fas fa-folder-open"></i></button>
-      <button class="mx-btn mx-btn-icon" type="button" title="Dừng và về đầu bài" @click="stop"><i class="fas fa-undo-alt"></i></button>
-      <span class="mx-divider"></span>
-      <button class="mx-btn mx-btn-play" type="button" :disabled="!notes.length || exporting" :aria-label="playState === 'playing' ? 'Tạm dừng' : 'Phát nhạc'" @click="togglePlay"><i :class="playState === 'playing' ? 'fas fa-pause' : 'fas fa-play'"></i></button>
-      <button class="mx-btn mx-btn-icon" type="button" title="Dừng" @click="stop"><i class="fas fa-stop"></i></button>
-      <button class="mx-btn mx-btn-icon" type="button" title="Bài tiếp theo" @click="nextTrack"><i class="fas fa-step-forward"></i></button>
-      <span class="mx-clock">{{ fmtTime(currentTime) }} / {{ fmtTime(duration) }}</span>
-      <div class="mx-spacer"></div>
-      <span class="mx-format">{{ videoFormat === 'portrait' ? '9:16' : '16:9' }} · 30 FPS</span>
-      <button class="mx-btn" type="button" @click="toggleFullscreen"><i class="fas fa-expand"></i> Xem trước</button>
-      <button class="mx-btn mx-inspector-trigger" type="button" :aria-expanded="isInspectorOpen" @click="isInspectorOpen = !isInspectorOpen"><i class="fas fa-sliders-h"></i> Thuộc tính</button>
-      <button class="mx-btn mx-btn-primary" type="button" :disabled="exporting" @click="showExport = true"><i class="fas fa-file-export"></i>{{ exporting ? 'Đang xuất...' : 'Xuất video' }}</button>
-    </div>
 
     <div v-if="!isFullscreen && uploadError" role="alert" class="mx-warning mx-error">
       {{ uploadError }} <button class="mx-track-mini" type="button" @click="uploadError = ''">{{ t('piano.dismissError') }}</button>
@@ -1182,16 +1191,7 @@ watch(() => currentTime.value, (t) => {
     <div class="mx-workspace" :class="{ 'mx-inspector-open': isInspectorOpen }">
       <div v-if="isInspectorOpen && !isFullscreen" class="mx-inspector-backdrop" @click="isInspectorOpen = false" aria-hidden="true"></div>
       <div class="mx-stage">
-        <nav v-if="!isFullscreen" class="mx-tabs" aria-label="Bảng làm việc">
-          <button type="button" class="mx-tab mx-tab-active" @click="showTrackPanel = !showTrackPanel"><i class="fas fa-layer-group"></i> Track MIDI <span>({{ midiParts.length }})</span></button>
-          <button type="button" class="mx-tab" @click="showBgSettings = true"><i class="fas fa-music"></i> Hiệu ứng nốt</button>
-          <button type="button" class="mx-tab" @click="showPianoSettings = true"><i class="fas fa-keyboard"></i> Bàn phím Piano</button>
-          <button type="button" class="mx-tab" @click="showBgSettings = true"><i class="fas fa-image"></i> Cảnh nền</button>
-          <button type="button" class="mx-tab" @click="showOtherSettings = true"><i class="fas fa-sliders-h"></i> Cài đặt</button>
-          <button type="button" class="mx-tab" @click="showExport = true"><i class="fas fa-file-video"></i> Xuất video</button>
-        </nav>
-
-        <section v-if="!isFullscreen" class="mx-timeline" aria-label="Dòng thời gian MIDI">
+        <section v-if="!isFullscreen && isTimelineOpen" class="mx-timeline" aria-label="Dòng thời gian MIDI">
           <div class="mx-timeline-head">
             <div class="mx-timeline-title"><i class="fas fa-stream mr-2"></i> TRACKS · {{ enabledPartCount }}/{{ midiParts.length }} đang bật</div>
             <div class="mx-ruler"><span v-for="(tick,i) in timelineTicks" :key="i">{{ tick }}</span></div>
@@ -1480,7 +1480,7 @@ watch(() => currentTime.value, (t) => {
       </div>
         </section> <!-- preview -->
       </div> <!-- workspace stage -->
-      <aside v-if="!isFullscreen" class="mx-inspector" aria-label="Thuộc tính MELORIX">
+      <aside v-if="!isFullscreen && isInspectorOpen" class="mx-inspector" aria-label="Thuộc tính MELORIX">
         <div class="mx-inspector-top"><i class="fas fa-sliders-h"></i> Cài đặt <span style="margin-left:auto;font-weight:400;color:#929eae">Thuộc tính</span>
           <button type="button" class="mx-inspector-close mx-track-mini" aria-label="Đóng thuộc tính" @click="isInspectorOpen = false"><i class="fas fa-times"></i></button>
         </div>
