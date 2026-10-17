@@ -36,6 +36,10 @@ export default {
     landscapeFormat: 'YouTube (16:9)', portraitKeyboardLabel: 'Dải phím trên video dọc',
     portraitKeyboardAuto: 'Tự động — ưu tiên nốt trong bài', portraitKeyboardAll: 'Hiển thị tất cả nốt (phím nhỏ)',
     notesOutsideFrame: '{count} nốt nằm ngoài dải phím đang chọn. Đổi dải phím hoặc chọn Hiển thị tất cả.',
+    velocityVisualTitle: 'Biểu cảm theo lực đánh (Velocity)',
+    velocityVisualHint: 'Nốt mạnh sáng hơn và nhiều hiệu ứng hơn; nốt nhẹ dịu hơn.',
+    velocityMode_off: 'Tắt', velocityMode_natural: 'Tự nhiên', velocityMode_expressive: 'Nổi bật',
+    velocitySensitivity: 'Độ phản ứng', velocitySourceHint: 'Dùng Velocity từ MIDI; không tự tạo biểu cảm nếu mọi nốt có lực đánh giống nhau.',
     dismissError: 'Đóng',
   },
 }
