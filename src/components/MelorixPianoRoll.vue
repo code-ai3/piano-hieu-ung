@@ -4,7 +4,7 @@ import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
 import { midiNoteName, snapMidiTime, clampMidiVelocity } from '@/util/midi-edit'
 import { playheadLeft, rulerSeekTime } from '@/util/piano-roll-playhead'
 const props=defineProps<{part:MidiPart; notes:MidiNoteEvent[]; duration:number; bpm:number; disabled:boolean; currentTime:number; playing:boolean}>()
-const emit=defineEmits<{(e:'change',notes:MidiNoteEvent[]):void;(e:'close'):void;(e:'seek',time:number):void}>()
+const emit=defineEmits<{(e:'change',notes:MidiNoteEvent[]):void;(e:'close'):void;(e:'seek',time:number):void;(e:'audition-start',midi:number):void;(e:'audition-stop'):void}>()
 const ROW=19, KEY_W=54, HIGH=108, LOW=21
 const scroll=ref<HTMLElement|null>(null)
 const gridScrollLeft=ref(0)
