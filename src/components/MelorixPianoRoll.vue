@@ -3,6 +3,7 @@ import { computed, ref, watch, nextTick, onUnmounted } from 'vue'
 import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
 import { midiNoteName, snapMidiTime, clampMidiVelocity } from '@/util/midi-edit'
 import { playheadLeft, rulerSeekTime } from '@/util/piano-roll-playhead'
+import { cloneNotes, sameNotes, copyMidiNotes, pasteMidiNotes, moveMidiNotes, selectMidiInBox } from '@/util/piano-roll-selection'
 const props=defineProps<{part:MidiPart; notes:MidiNoteEvent[]; duration:number; bpm:number; disabled:boolean; currentTime:number; playing:boolean}>()
 const emit=defineEmits<{(e:'change',notes:MidiNoteEvent[]):void;(e:'close'):void;(e:'seek',time:number):void;(e:'audition-start',midi:number):void;(e:'audition-stop'):void}>()
 const ROW=19, KEY_W=54, HIGH=108, LOW=21
@@ -21,6 +22,13 @@ const snapDivision=ref(16)
 const tool=ref<'select'|'draw'|'erase'>('select')
 const draft=ref<MidiNoteEvent[]>([])
 const selected=ref(-1)
+const selectedIndices=ref<number[]>([])
+const clipboard=ref<MidiNoteEvent[]>([])
+const undoHistory=ref<MidiNoteEvent[][]>([])
+const redoHistory=ref<MidiNoteEvent[][]>([])
+const marquee=ref<{x1:number;y1:number;x2:number;y2:number;additive:boolean}|null>(null)
+const rollRoot=ref<HTMLElement|null>(null)
+const selectionCount=computed(()=>selectedIndices.value.length)
 const auditionPitch=ref<number|null>(null)
 let auditionPointerId:number|null=null
 
@@ -32,11 +40,16 @@ const ticks=computed(()=>Array.from({length:Math.min(2000,Math.ceil(totalWidth.v
 const keyList=Array.from({length:HIGH-LOW+1},(_,i)=>HIGH-i)
 let previousTrackId: number | null = null
 watch(()=>[props.part.id,props.notes],()=>{
-  const switched = previousTrackId !== props.part.id
-  previousTrackId = props.part.id
-  draft.value = props.notes.map(n=>({...n}))
-  if (switched || selected.value >= draft.value.length) selected.value = -1
-  if (switched) void nextTick(()=>{ centerKeys(); followPlayhead(true) })
+  const switched=previousTrackId!==props.part.id
+  previousTrackId=props.part.id
+  if(switched||!sameNotes(draft.value,props.notes))draft.value=cloneNotes(props.notes)
+  if(switched){
+    selectedIndices.value=[];selected.value=-1
+    undoHistory.value=[];redoHistory.value=[];clipboard.value=[]
+    void nextTick(()=>{centerKeys();followPlayhead(true)})
+  } else if(selectedIndices.value.some(i=>i>=draft.value.length)){
+    selectedIndices.value=[];selected.value=-1
+  }
 },{immediate:true})
 function centerKeys(){
  const e=scroll.value; if(!e)return
@@ -53,31 +66,166 @@ function seekOnRuler(e:MouseEvent){
 function syncScroll(e:Event){gridScrollLeft.value=(e.target as HTMLElement).scrollLeft}
 function snapAt(x:number){return snapMidiTime((x-KEY_W)/pixelsPerSecond.value,snap.value)}
 function yToMidi(y:number){return Math.min(HIGH,Math.max(LOW,HIGH-Math.floor(y/ROW)))}
-function commit(){if(!props.disabled)emit('change',draft.value.map(n=>({...n})))}
-let dragging:{index:number;kind:'move'|'resize'|'velocity';x:number;y:number;original:MidiNoteEvent}|null=null
-function stopDrag(){if(dragging){dragging=null;commit()}window.removeEventListener('pointermove',moveDrag);window.removeEventListener('pointerup',stopDrag)}
+function setSelection(indices:number[]){
+ selectedIndices.value=[...new Set(indices.filter(i=>i>=0&&i<draft.value.length))]
+ selected.value=selectedIndices.value.length===1?selectedIndices.value[0]:-1
+}
+function commit(before?:MidiNoteEvent[]){
+ if(props.disabled)return
+ if(before&&sameNotes(before,draft.value))return
+ if(before){
+  undoHistory.value.push(cloneNotes(before))
+  if(undoHistory.value.length>60)undoHistory.value.shift()
+  redoHistory.value=[]
+ }
+ const keep=new Set(selectedIndices.value.map(i=>draft.value[i]))
+ draft.value.sort((a,b)=>a.time-b.time||a.midi-b.midi)
+ setSelection(draft.value.flatMap((note,i)=>keep.has(note)?[i]:[]))
+ emit('change',cloneNotes(draft.value))
+}
+function gridPointer(e:PointerEvent){
+ const el=gridRef.value
+ if(!el)return {x:0,y:0}
+ const rect=el.getBoundingClientRect()
+ return {x:Math.max(KEY_W,e.clientX-rect.left),y:Math.max(0,e.clientY-rect.top)}
+}
+const gridRef=ref<HTMLElement|null>(null)
+function startMarquee(e:PointerEvent){
+ if(props.disabled||e.button!==0)return
+ e.preventDefault()
+ rollRoot.value?.focus({preventScroll:true})
+ const p=gridPointer(e)
+ marquee.value={x1:p.x,x2:p.x,y1:p.y,y2:p.y,additive:e.shiftKey||e.ctrlKey||e.metaKey}
+ window.addEventListener('pointermove',moveMarquee)
+ window.addEventListener('pointerup',stopMarquee)
+}
+function moveMarquee(e:PointerEvent){
+ if(!marquee.value)return
+ const p=gridPointer(e)
+ marquee.value={...marquee.value,x2:p.x,y2:p.y}
+}
+function stopMarquee(e:PointerEvent){
+ if(marquee.value){
+  const box={...marquee.value,...gridPointer(e)}
+  box.x2=gridPointer(e).x
+  box.y2=gridPointer(e).y
+  const found=Math.abs(box.x2-box.x1)>3||Math.abs(box.y2-box.y1)>3
+   ?selectMidiInBox(draft.value,box,pixelsPerSecond.value,KEY_W,HIGH,ROW):[]
+  setSelection(box.additive?[...selectedIndices.value,...found]:found)
+  marquee.value=null
+ }
+ window.removeEventListener('pointermove',moveMarquee)
+ window.removeEventListener('pointerup',stopMarquee)
+}
+function copySelection(){
+ if(!selectionCount.value)return
+ clipboard.value=copyMidiNotes(draft.value,selectedIndices.value)
+}
+function pasteSelection(atTime=props.currentTime){
+ if(props.disabled||!clipboard.value.length)return
+ const before=cloneNotes(draft.value)
+ const start=draft.value.length
+ const inserted=pasteMidiNotes(clipboard.value,props.part.id,atTime)
+ draft.value.push(...inserted)
+ setSelection(inserted.map((_,i)=>start+i))
+ commit(before)
+}
+function removeSelected(){
+ if(props.disabled||!selectionCount.value)return
+ const before=cloneNotes(draft.value)
+ const toDelete=new Set(selectedIndices.value)
+ draft.value=draft.value.filter((_,i)=>!toDelete.has(i))
+ setSelection([])
+ commit(before)
+}
+function cutSelection(){copySelection();removeSelected()}
+function duplicateSelection(){
+ if(!selectionCount.value)return
+ copySelection()
+ const chosen=selectedIndices.value.map(i=>draft.value[i])
+ const end=Math.max(...chosen.map(n=>n.time+n.duration))
+ pasteSelection(end+Math.max(snap.value,.125))
+}
+function undoEdit(){
+ if(props.disabled||!undoHistory.value.length)return
+ redoHistory.value.push(cloneNotes(draft.value))
+ draft.value=undoHistory.value.pop()!
+ setSelection([])
+ emit('change',cloneNotes(draft.value))
+}
+function redoEdit(){
+ if(props.disabled||!redoHistory.value.length)return
+ undoHistory.value.push(cloneNotes(draft.value))
+ draft.value=redoHistory.value.pop()!
+ setSelection([])
+ emit('change',cloneNotes(draft.value))
+}
+function onEditorKeyDown(e:KeyboardEvent){
+ if(props.disabled)return
+ if((e.target as HTMLElement).closest('input,select,textarea,[contenteditable="true"]'))return
+ const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase()
+ if(mod){
+  if(key==='a'){e.preventDefault();setSelection(draft.value.map((_,i)=>i))}
+  else if(key==='c'&&selectionCount.value){e.preventDefault();copySelection()}
+  else if(key==='x'&&selectionCount.value){e.preventDefault();cutSelection()}
+  else if(key==='v'&&clipboard.value.length){e.preventDefault();pasteSelection()}
+  else if(key==='d'&&selectionCount.value){e.preventDefault();duplicateSelection()}
+  else if(key==='z'){e.preventDefault();if(e.shiftKey)redoEdit();else undoEdit()}
+  else if(key==='y'){e.preventDefault();redoEdit()}
+ }else if((e.key==='Delete'||e.key==='Backspace')&&selectionCount.value){
+  e.preventDefault();removeSelected()
+ }
+}
+let dragging:{index:number;kind:'move'|'resize'|'velocity';x:number;y:number;original:MidiNoteEvent;before:MidiNoteEvent[];indices:number[]}|null=null
+function stopDrag(){
+ if(dragging){const snapshot=dragging.before;dragging=null;commit(snapshot)}
+ window.removeEventListener('pointermove',moveDrag)
+ window.removeEventListener('pointerup',stopDrag)
+}
 function startDrag(e:PointerEvent,index:number,kind:'move'|'resize'|'velocity'){
  if(props.disabled)return
- e.preventDefault();e.stopPropagation();selected.value=index
- dragging={index,kind,x:e.clientX,y:e.clientY,original:{...draft.value[index]}}
- window.addEventListener('pointermove',moveDrag);window.addEventListener('pointerup',stopDrag)
+ e.preventDefault();e.stopPropagation()
+ rollRoot.value?.focus({preventScroll:true})
+ if(kind==='move'&&(e.shiftKey||e.ctrlKey||e.metaKey)){
+  if(selectedIndices.value.includes(index))setSelection(selectedIndices.value.filter(i=>i!==index))
+  else setSelection([...selectedIndices.value,index])
+  return
+ }
+ if(kind!=='move'||!selectedIndices.value.includes(index))setSelection([index])
+ dragging={index,kind,x:e.clientX,y:e.clientY,original:{...draft.value[index]},before:cloneNotes(draft.value),indices:[...selectedIndices.value]}
+ window.addEventListener('pointermove',moveDrag)
+ window.addEventListener('pointerup',stopDrag)
 }
 function moveDrag(e:PointerEvent){
  const d=dragging;if(!d)return
  const n=d.original
- if(d.kind==='velocity'){const v=clampMidiVelocity(Math.round(n.velocity*127)+(d.y-e.clientY)*1.2);draft.value[d.index]={...n,velocity:v/127};return}
+ if(d.kind==='velocity'){
+  const v=clampMidiVelocity(Math.round(n.velocity*127)+(d.y-e.clientY)*1.2)
+  draft.value[d.index]={...n,velocity:v/127};return
+ }
  const dt=(e.clientX-d.x)/pixelsPerSecond.value
- if(d.kind==='resize'){draft.value[d.index]={...n,duration:Math.max(.04,snapMidiTime(n.duration+dt,snap.value))};return}
- const midi=Math.max(LOW,Math.min(HIGH,n.midi-Math.round((e.clientY-d.y)/ROW)))
- draft.value[d.index]={...n,midi,name:midiNoteName(midi),time:Math.max(0,snapMidiTime(n.time+dt,snap.value))}
+ const delta=snap.value?Math.round(dt/snap.value)*snap.value:dt
+ if(d.kind==='resize'){
+  draft.value[d.index]={...n,duration:Math.max(.04,n.duration+delta)};return
+ }
+ const shiftPitch=-Math.round((e.clientY-d.y)/ROW)
+ draft.value=moveMidiNotes(d.before,d.indices,delta,shiftPitch)
 }
-function removeNote(index:number){if(props.disabled)return;draft.value.splice(index,1);selected.value=-1;commit()}
+function removeNote(index:number){
+ if(props.disabled)return
+ const before=cloneNotes(draft.value)
+ draft.value.splice(index,1)
+ setSelection([])
+ commit(before)
+}
 function onGridDouble(e:MouseEvent){
  if(props.disabled)return
  const grid=e.currentTarget as HTMLElement;const r=grid.getBoundingClientRect()
  const time=snapAt(e.clientX-r.left), pitch=yToMidi(e.clientY-r.top)
+ const before=cloneNotes(draft.value)
  draft.value.push({time,midi:pitch,name:midiNoteName(pitch),duration:Math.max(.08,snap.value||.25),velocity:95/127,trackId:props.part.id})
- selected.value=draft.value.length-1;commit()
+ setSelection([draft.value.length-1])
+ commit(before)
 }
 function noteDown(e:PointerEvent,index:number){if(tool.value==='erase'){removeNote(index);return}startDrag(e,index,'move')}
 function noteDbl(e:MouseEvent,index:number){e.stopPropagation();removeNote(index)}
@@ -121,11 +269,11 @@ function onKeyLostCapture(e:PointerEvent){
 }
 function keyLabel(midi:number){return midiNoteName(midi)}
 watch(()=>props.disabled,disabled=>{if(disabled)stopKeyAudition()})
-onUnmounted(()=>{stopDrag();stopKeyAudition()})
+onUnmounted(()=>{stopDrag();window.removeEventListener('pointermove',moveMarquee);window.removeEventListener('pointerup',stopMarquee);stopKeyAudition()})
 </script>
 
 <template>
-  <section class="mx-roll" aria-label="Trình chỉnh sửa MIDI Piano Roll">
+  <section ref="rollRoot" class="mx-roll" tabindex="0" @keydown="onEditorKeyDown" aria-label="Trình chỉnh sửa MIDI Piano Roll">
     <div class="mx-roll-top">
       <strong><i class="fas fa-keyboard"></i> Piano Roll</strong>
       <span class="mx-roll-track" :style="{ color: part.color }">{{ part.name }}</span>
@@ -141,6 +289,17 @@ onUnmounted(()=>{stopDrag();stopKeyAudition()})
       <label>Zoom <input v-model.number="pixelsPerSecond" type="range" min="18" max="140" step="2"></label>
       <button type="button" title="Đóng Piano Roll" @click="emit('close')"><i class="fas fa-times"></i></button>
     </div>
+    <div class="mx-roll-editbar" aria-label="Công cụ soạn MIDI">
+      <strong>{{ selectionCount }} nốt được chọn</strong>
+      <button type="button" title="Ctrl+A" :disabled="disabled || !draft.length" @click="setSelection(draft.map((_,i)=>i))">Chọn tất cả</button>
+      <button type="button" title="Ctrl+C" :disabled="disabled || !selectionCount" @click="copySelection"><i class="fas fa-copy"></i> Sao chép</button>
+      <button type="button" title="Ctrl+V · Dán tại vạch Playhead" :disabled="disabled || !clipboard.length" @click="pasteSelection()"><i class="fas fa-paste"></i> Dán</button>
+      <button type="button" title="Ctrl+D · Nhân đôi sau nhóm đang chọn" :disabled="disabled || !selectionCount" @click="duplicateSelection">Nhân đôi</button>
+      <button type="button" title="Delete" :disabled="disabled || !selectionCount" @click="removeSelected"><i class="fas fa-trash"></i> Xóa</button>
+      <span class="mx-roll-grow"></span>
+      <button type="button" title="Ctrl+Z" :disabled="disabled || !undoHistory.length" @click="undoEdit"><i class="fas fa-undo"></i> Hoàn tác</button>
+      <button type="button" title="Ctrl+Y hoặc Ctrl+Shift+Z" :disabled="disabled || !redoHistory.length" @click="redoEdit"><i class="fas fa-redo"></i> Làm lại</button>
+    </div>
     <div class="mx-roll-ruler" @click="seekOnRuler">
       <div :style="{ width: gridWidth + 'px', transform: 'translateX(-' + gridScrollLeft + 'px)' }">
         <span v-for="sec in ticks" :key="sec" :style="{ left: KEY_W + sec * pixelsPerSecond + 'px' }">{{ sec }}s</span>
@@ -148,20 +307,24 @@ onUnmounted(()=>{stopDrag();stopKeyAudition()})
       </div>
     </div>
     <div ref="scroll" class="mx-roll-scroll" @scroll="syncScroll">
-      <div class="mx-roll-grid" :style="{ width: gridWidth + 'px', height: ROW * (HIGH - LOW + 1) + 'px', backgroundSize: (60 / Math.max(20, bpm) * pixelsPerSecond) + 'px ' + ROW + 'px' }" @dblclick.self="onGridDouble">
+      <div ref="gridRef" class="mx-roll-grid" @pointerdown.self="startMarquee" :style="{ width: gridWidth + 'px', height: ROW * (HIGH - LOW + 1) + 'px', backgroundSize: (60 / Math.max(20, bpm) * pixelsPerSecond) + 'px ' + ROW + 'px' }" @dblclick.self="onGridDouble">
         <div class="mx-roll-keys" role="group" aria-label="Bàn phím Piano để nghe thử nốt"
           @pointerdown.stop="onKeyPointerDown" @pointermove.stop="onKeyPointerMove"
           @pointerup.stop="onKeyPointerUp" @pointercancel.stop="onKeyPointerUp"
           @lostpointercapture="onKeyLostCapture">
           <div v-for="pitch in keyList" :key="pitch" :class="['mx-roll-key', { black: keyLabel(pitch).includes('#'), auditioning: auditionPitch === pitch }]" :style="{ height: ROW + 'px' }">{{ pitch % 12 === 0 ? keyLabel(pitch) : '' }}</div>
         </div>
-        <div v-for="(note, i) in draft" :key="i" class="mx-roll-note" :class="{ selected: selected === i, sounding: playing && currentTime >= note.time && currentTime < note.time + note.duration }"
+        <div v-for="(note, i) in draft" :key="i" class="mx-roll-note" :class="{ selected: selectedIndices.includes(i), sounding: playing && currentTime >= note.time && currentTime < note.time + note.duration }"
           :title="note.name + ' · ' + note.time.toFixed(2) + 's · Velocity ' + Math.round(note.velocity * 127)"
           :style="{ left: KEY_W + note.time * pixelsPerSecond + 'px', top: (HIGH - note.midi) * ROW + 1 + 'px', width: Math.max(5, note.duration * pixelsPerSecond) + 'px', height: ROW - 2 + 'px', backgroundColor: part.color }"
           @pointerdown.stop="noteDown($event, i)" @dblclick.stop="noteDbl($event, i)">
           <span class="mx-roll-note-label">{{ note.name }}</span>
           <span class="mx-roll-resize" title="Kéo để đổi độ dài" @pointerdown.stop="startDrag($event, i, 'resize')"></span>
         </div>
+        <div v-if="marquee" class="mx-roll-marquee" :style="{
+          left: Math.min(marquee.x1,marquee.x2)+'px', top: Math.min(marquee.y1,marquee.y2)+'px',
+          width: Math.abs(marquee.x2-marquee.x1)+'px', height: Math.abs(marquee.y2-marquee.y1)+'px'
+        }" aria-hidden="true"></div>
         <span class="mx-roll-grid-cursor" :style="{left:playheadX+'px'}"></span>
       </div>
     </div>
@@ -173,7 +336,7 @@ onUnmounted(()=>{stopDrag();stopKeyAudition()})
     <div class="mx-roll-velocity-window">
       <div class="mx-roll-velocity-inner" :style="{ width: gridWidth + 'px', transform: 'translateX(-' + gridScrollLeft + 'px)' }">
         <span class="mx-roll-velocity-cursor" :style="{left:playheadX+'px'}"></span>
-        <span v-for="(note, i) in draft" :key="i" class="mx-roll-velocity-bar" :class="{ selected: selected === i }"
+        <span v-for="(note, i) in draft" :key="i" class="mx-roll-velocity-bar" :class="{ selected: selectedIndices.includes(i) }"
           :title="note.name + ' · Velocity ' + Math.round(note.velocity * 127)"
           :style="{ left: KEY_W + note.time * pixelsPerSecond + 'px', height: (note.velocity * 100) + '%', backgroundColor: part.color }"
           @pointerdown.prevent="startDrag($event, i, 'velocity')"></span>
