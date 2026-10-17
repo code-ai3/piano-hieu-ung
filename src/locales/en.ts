@@ -32,6 +32,10 @@ export default {
     landscapeFormat: 'YouTube (16:9)', portraitKeyboardLabel: 'Keyboard range in portrait video',
     portraitKeyboardAuto: 'Auto — focus on most notes', portraitKeyboardAll: 'Show all notes (smaller keys)',
     notesOutsideFrame: '{count} notes are outside the selected keyboard range. Change range or choose Show all.',
+    velocityVisualTitle: 'Velocity expression',
+    velocityVisualHint: 'Strong notes glow and spark more; soft notes stay subtle.',
+    velocityMode_off: 'Off', velocityMode_natural: 'Natural', velocityMode_expressive: 'Expressive',
+    velocitySensitivity: 'Response', velocitySourceHint: 'Uses original MIDI velocities; equally strong notes cannot acquire missing musical dynamics.',
     dismissError: 'Dismiss',
   },
 }
