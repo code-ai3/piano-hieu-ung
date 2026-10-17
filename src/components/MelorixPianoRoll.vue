@@ -269,7 +269,7 @@ function onKeyLostCapture(e:PointerEvent){
 }
 function keyLabel(midi:number){return midiNoteName(midi)}
 watch(()=>props.disabled,disabled=>{if(disabled)stopKeyAudition()})
-onUnmounted(()=>{stopDrag();stopMarquee(new PointerEvent("pointerup"));stopKeyAudition()})
+onUnmounted(()=>{stopDrag();window.removeEventListener('pointermove',moveMarquee);window.removeEventListener('pointerup',stopMarquee);stopKeyAudition()})
 </script>
 
 <template>
@@ -288,6 +288,17 @@ onUnmounted(()=>{stopDrag();stopMarquee(new PointerEvent("pointerup"));stopKeyAu
       </select></label>
       <label>Zoom <input v-model.number="pixelsPerSecond" type="range" min="18" max="140" step="2"></label>
       <button type="button" title="Đóng Piano Roll" @click="emit('close')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="mx-roll-editbar" aria-label="Công cụ soạn MIDI">
+      <strong>{{ selectionCount }} nốt được chọn</strong>
+      <button type="button" title="Ctrl+A" :disabled="disabled || !draft.length" @click="setSelection(draft.map((_,i)=>i))">Chọn tất cả</button>
+      <button type="button" title="Ctrl+C" :disabled="disabled || !selectionCount" @click="copySelection"><i class="fas fa-copy"></i> Sao chép</button>
+      <button type="button" title="Ctrl+V · Dán tại vạch Playhead" :disabled="disabled || !clipboard.length" @click="pasteSelection()"><i class="fas fa-paste"></i> Dán</button>
+      <button type="button" title="Ctrl+D · Nhân đôi sau nhóm đang chọn" :disabled="disabled || !selectionCount" @click="duplicateSelection">Nhân đôi</button>
+      <button type="button" title="Delete" :disabled="disabled || !selectionCount" @click="removeSelected"><i class="fas fa-trash"></i> Xóa</button>
+      <span class="mx-roll-grow"></span>
+      <button type="button" title="Ctrl+Z" :disabled="disabled || !undoHistory.length" @click="undoEdit"><i class="fas fa-undo"></i> Hoàn tác</button>
+      <button type="button" title="Ctrl+Y hoặc Ctrl+Shift+Z" :disabled="disabled || !redoHistory.length" @click="redoEdit"><i class="fas fa-redo"></i> Làm lại</button>
     </div>
     <div class="mx-roll-ruler" @click="seekOnRuler">
       <div :style="{ width: gridWidth + 'px', transform: 'translateX(-' + gridScrollLeft + 'px)' }">
@@ -310,6 +321,10 @@ onUnmounted(()=>{stopDrag();stopMarquee(new PointerEvent("pointerup"));stopKeyAu
           <span class="mx-roll-note-label">{{ note.name }}</span>
           <span class="mx-roll-resize" title="Kéo để đổi độ dài" @pointerdown.stop="startDrag($event, i, 'resize')"></span>
         </div>
+        <div v-if="marquee" class="mx-roll-marquee" :style="{
+          left: Math.min(marquee.x1,marquee.x2)+'px', top: Math.min(marquee.y1,marquee.y2)+'px',
+          width: Math.abs(marquee.x2-marquee.x1)+'px', height: Math.abs(marquee.y2-marquee.y1)+'px'
+        }" aria-hidden="true"></div>
         <span class="mx-roll-grid-cursor" :style="{left:playheadX+'px'}"></span>
       </div>
     </div>
