@@ -1,0 +1,35 @@
+
+/* Docked MIDI Key Editor, inspired by familiar DAW piano-roll workflows. */
+.mx-roll-divider{flex:0 0 7px;cursor:ns-resize;border-top:1px solid #565e6e;border-bottom:1px solid #20252f;background:#303746;display:grid;place-items:center;color:#8997a8}
+.mx-roll-divider::before{content:"";display:block;width:54px;height:3px;border-radius:4px;background:#8894a7}
+.mx-roll{flex:none;min-height:160px;display:flex;flex-direction:column;min-width:0;overflow:hidden;border:1px solid #45505f;border-radius:6px;background:#171c24;color:#dce5ef}
+.mx-roll button,.mx-roll select{color:#dae2ed;background:#2c3440;border:1px solid #465363;border-radius:4px;cursor:pointer;font-size:11px;padding:4px 7px}
+.mx-roll button:disabled{opacity:.4;cursor:default}
+.mx-roll-top{flex:0 0 38px;display:flex;align-items:center;gap:9px;border-bottom:1px solid #424c59;background:#242b36;padding:0 9px;white-space:nowrap;overflow-x:auto;scrollbar-width:thin}
+.mx-roll-top strong{color:#ffab64;font-size:12px}
+.mx-roll-track{font-weight:650;font-size:12px}
+.mx-roll-stats{font-size:10px;color:#9baabd}
+.mx-roll-grow{flex:1}
+.mx-roll-top label{font-size:10px;display:flex;align-items:center;gap:5px}
+.mx-roll-top input{accent-color:#ff9b45;width:72px}
+.mx-roll-ruler{flex:0 0 23px;overflow:hidden;background:#191f28;color:#9baabd;font:10px ui-monospace,monospace}
+.mx-roll-ruler>div{height:100%;position:relative}
+.mx-roll-ruler span{position:absolute;top:3px;border-left:1px solid #47576b;padding-left:4px}
+.mx-roll-scroll{flex:1 1 0%;min-height:0;overflow:auto;scrollbar-color:#606e7d #171c25;overscroll-behavior:contain}
+.mx-roll-grid{position:relative;background:repeating-linear-gradient(to bottom,transparent 0px,transparent 17px,#ffffff17 17px,#ffffff17 18px),repeating-linear-gradient(to right,transparent 0,transparent calc(100% - 1px),#ffffff1a calc(100% - 1px),#ffffff1a 100%),#161c25;user-select:none}
+.mx-roll-keys{position:sticky;left:0;top:0;width:54px;height:100%;background:#343b45;z-index:2;border-right:1px solid #9da5af}
+.mx-roll-key{color:#29313a;font:bold 9px Arial;background:#dde5ee;padding:3px 5px;border-bottom:1px solid #a1adba;box-sizing:border-box}
+.mx-roll-key.black{background:#1b212a;color:#b5c2d2;border-bottom:1px solid #36404e}
+.mx-roll-note{position:absolute;border:1px solid #ffffff88;border-radius:3px;color:#09111c;cursor:move;touch-action:none;overflow:hidden;box-shadow:0 0 4px #0007}
+.mx-roll-note.selected{outline:2px solid #fff;z-index:3}
+.mx-roll-note-label{font:bold 9px Arial;padding-left:4px;pointer-events:none}
+.mx-roll-resize{position:absolute;right:0;top:0;bottom:0;width:7px;cursor:ew-resize;background:#ffffff44}
+.mx-roll-velocity-title{flex:0 0 26px;display:flex;align-items:center;justify-content:space-between;background:#272f39;border-top:1px solid #485361;padding:0 10px;gap:10px;white-space:nowrap;font-size:11px}
+.mx-roll-velocity-title>span:first-child{color:#ffaa5e;font-weight:600}
+.mx-roll-velocity-title>span:last-child{overflow:hidden;text-overflow:ellipsis;color:#aebcca}
+.mx-roll-velocity-window{flex:0 0 85px;position:relative;overflow:hidden;background:repeating-linear-gradient(to top,#ffffff17 0px,#ffffff17 1px,transparent 1px,transparent 21px),#151b24}
+.mx-roll-velocity-inner{height:100%;position:relative}
+.mx-roll-velocity-bar{position:absolute;bottom:0;width:5px;min-height:2px;cursor:ns-resize;opacity:.8;touch-action:none}
+.mx-roll-velocity-bar.selected{opacity:1;outline:1px solid #fff}
+.mx-roll-hint{flex:0 0 20px;font-size:10px;color:#8d9aaa;background:#1e252f;padding:3px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-height:620px){.mx-roll-velocity-window{flex-basis:59px}.mx-roll-hint{display:none}}
