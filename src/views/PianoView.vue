@@ -3,6 +3,8 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Midi } from '@tonejs/midi'
 import { extractMidiParts, filterMidiParts } from '@/util/midi-tracks'
 import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
+import { portraitKeyboardRange, videoDimensions } from '@/util/video-format'
+import type { VideoFormat, PortraitKeyboard } from '@/util/video-format'
 import { SplendidGrandPiano, renderOffline } from 'smplr'
 import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
@@ -27,6 +29,20 @@ const trackRgbMap = computed(() => new Map(midiParts.value.map(part => [part.id,
 const showTrackPanel = ref(false)
 const uploadError = ref('')
 const noteRange = ref({ min: 21, max: 108 })
+const videoFormat = ref<VideoFormat>('portrait')
+const portraitKeyboard = ref<PortraitKeyboard>('auto')
+const displayRange = computed(() => videoFormat.value === 'portrait'
+  ? portraitKeyboardRange(notes.value, portraitKeyboard.value, noteRange.value)
+  : noteRange.value)
+const formatDimensions = computed(() => videoDimensions(videoFormat.value))
+const hiddenPortraitNotes = computed(() => {
+  if (videoFormat.value !== 'portrait') return 0
+  const { min, max } = displayRange.value
+  return notes.value.reduce((count, n) => count + (n.midi < min || n.midi > max ? 1 : 0), 0)
+})
+function onKeyboardModeChange(event: Event) {
+  portraitKeyboard.value = (event.target as HTMLSelectElement).value as PortraitKeyboard
+}
 const duration = ref(0)
 const pianoLoaded = ref(false)
 const loadingMidi = ref(false)
@@ -127,16 +143,19 @@ const exportProgress = ref(0)
 const exportEta = ref(0)   // 剩余秒数
 
 async function exportVideo() {
+  if (exporting.value) return
   if (!notes.value.length) { uploadError.value = t('piano.noActiveTrack'); return }
   uploadError.value = ''
+  // Freeze the live timeline before encoding frames to prevent audio/video drift.
+  if (playState.value === 'playing') pause()
+  const savedTime = currentTime.value
   exporting.value = true
   exportProgress.value = 0
   exportEta.value = 0
   try {
-    const w = 1920, h = 1080
-    const fps = 30
+    const { width: w, height: h, fps } = formatDimensions.value
     const totalFrames = Math.ceil(duration.value * fps)
-    const fileName = `${currentTrack.value?.name || 'piano'}.mp4`
+    const fileName = `${currentTrack.value?.name || 'piano'}-${videoFormat.value === 'portrait' ? '9x16' : '16x9'}.mp4`
 
     // 选保存位置（支持时走流式写盘，省内存）
     let fileHandle: any = null
@@ -191,7 +210,6 @@ async function exportVideo() {
 
     // 离屏 canvas 渲染（独立于 DOM）+ 边渲边编码
     const offCanvas = document.createElement('canvas')
-    const savedTime = currentTime.value
     const t0 = performance.now()
     for (let frame = 0; frame < totalFrames; frame++) {
       currentTime.value = frame / fps
@@ -211,7 +229,6 @@ async function exportVideo() {
       exportEta.value = elapsed * (totalFrames - frame - 1) / (frame + 1)
     }
     vs.close()
-    currentTime.value = savedTime
     await output.finalize()
 
     if (fileWriter) {
@@ -228,6 +245,9 @@ async function exportVideo() {
     console.error(e)
     uploadError.value = t('piano.videoExportError')
   } finally {
+    // Always restore the preview timestamp, including failed/aborted exports.
+    currentTime.value = savedTime
+    keyState.value = {}
     exporting.value = false
     exportProgress.value = 0
     exportEta.value = 0
@@ -485,16 +505,18 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     cw = canvas.width / devicePixelRatio
     ch = canvas.height / devicePixelRatio
   }
-  // 导出模式（targetCanvas）按全屏 16:9 比例算钢琴高度
+  // Keep the same keyboard proportion for portrait preview and exported frames.
   const isExport = !!targetCanvas
-  const actualPianoH = isExport || isFullscreen.value ? Math.round(PIANO_H * (ch / CANVAS_H)) : PIANO_H
+  const isPortrait = videoFormat.value === 'portrait'
+  const actualPianoH = isPortrait ? Math.round(ch * 0.20)
+    : (isExport || isFullscreen.value ? Math.round(PIANO_H * (ch / CANVAS_H)) : PIANO_H)
   const notesAreaH = ch - actualPianoH
   ctx.clearRect(0, 0, cw, ch)
 
-  const { min, max } = noteRange.value
+  const { min, max } = displayRange.value
   const whiteCount = getWhiteKeys(min, max).length
   const keyW = cw / whiteCount
-  const visibleTime = 4 / speed.value
+  const visibleTime = (isPortrait ? 5 : 4) / speed.value
   const targetTime = currentTime.value / speed.value
   const timeTop = targetTime + visibleTime
   const timeBottom = targetTime
@@ -1194,11 +1216,41 @@ watch(() => currentTime.value, (t) => {
       </div>
     </Modal>
 
-    <!-- 导出视频 Modal -->
+    <!-- Video format is shared by the preview canvas and the export canvas. -->
     <Modal v-model:show="showExport" :title="t('piano.exportVideo')">
       <div class="flex flex-col gap-4 p-4 text-black/85 dark:text-white/90">
         <template v-if="!exporting">
-          <p class="text-sm text-black/60 dark:text-white/70 m-0">{{ t('piano.exportHint') }}</p>
+          <p class="text-sm font-medium">{{ t('piano.videoRatioLabel') }}</p>
+          <div class="grid grid-cols-2 gap-2" role="group" :aria-label="t('piano.videoRatioLabel')">
+            <button type="button" :aria-pressed="videoFormat === 'portrait'" @click="videoFormat = 'portrait'"
+              class="rounded-xl border p-3 text-left transition-colors"
+              :class="videoFormat === 'portrait' ? 'border-primary-500 bg-primary-500/10' : 'border-black/15 dark:border-white/15 hover:bg-primary-500/5'">
+              <span class="block text-sm font-semibold">{{ t('piano.portraitFormat') }}</span>
+              <span class="block text-xs opacity-65 mt-1">1080 × 1920 · 30 FPS</span>
+            </button>
+            <button type="button" :aria-pressed="videoFormat === 'landscape'" @click="videoFormat = 'landscape'"
+              class="rounded-xl border p-3 text-left transition-colors"
+              :class="videoFormat === 'landscape' ? 'border-primary-500 bg-primary-500/10' : 'border-black/15 dark:border-white/15 hover:bg-primary-500/5'">
+              <span class="block text-sm font-semibold">{{ t('piano.landscapeFormat') }}</span>
+              <span class="block text-xs opacity-65 mt-1">1920 × 1080 · 30 FPS</span>
+            </button>
+          </div>
+          <label v-if="videoFormat === 'portrait'" class="flex flex-col gap-2 text-sm">
+            <span class="font-medium">{{ t('piano.portraitKeyboardLabel') }}</span>
+            <select :value="portraitKeyboard" @change="onKeyboardModeChange($event)"
+              class="p-2 rounded-lg border border-black/15 dark:border-white/15 bg-white/80 text-black dark:bg-[#23232c] dark:text-white">
+              <option value="auto">{{ t('piano.portraitKeyboardAuto') }}</option>
+              <option value="24">C1–B4 (MIDI 24–71)</option>
+              <option value="36">C2–B5 (MIDI 36–83)</option>
+              <option value="48">C3–B6 (MIDI 48–95)</option>
+              <option value="60">C4–B7 (MIDI 60–107)</option>
+              <option value="all">{{ t('piano.portraitKeyboardAll') }}</option>
+            </select>
+          </label>
+          <p v-if="videoFormat === 'portrait' && hiddenPortraitNotes > 0" role="status" class="text-xs text-amber-700 dark:text-amber-300">
+            {{ t('piano.notesOutsideFrame', { count: hiddenPortraitNotes }) }}
+          </p>
+          <p class="text-xs text-black/60 dark:text-white/60 m-0">{{ t('piano.exportHint') }}</p>
           <Btn @click="exportVideo" type="primary">
             <i class="fas fa-download"></i>
             {{ t('piano.startExport') }}
@@ -1220,9 +1272,14 @@ watch(() => currentTime.value, (t) => {
       </div>
     </Modal>
 
+    <p v-if="!isFullscreen" class="text-xs opacity-65 text-center mb-2">{{ videoFormat === 'portrait' ? t('piano.portraitFormat') : t('piano.landscapeFormat') }} · {{ formatDimensions.width }} × {{ formatDimensions.height }} · 30 FPS</p>
     <!-- 展示区域 -->
     <div :class="['glass-card overflow-hidden flex-1 flex flex-col min-h-0 relative', isFullscreen ? '!rounded-none !border-0' : '']">
-      <canvas ref="canvasRef" class="w-full block bg-black/95 dark:bg-black" :class="isFullscreen ? 'flex-1' : 'flex-shrink-0'" :style="isFullscreen ? {} : { height: CANVAS_H + 'px' }"></canvas>
+      <canvas ref="canvasRef" class="block bg-black/95 dark:bg-black mx-auto"
+        :class="isFullscreen && videoFormat === 'landscape' ? 'flex-1 w-full' : 'flex-shrink-0'"
+        :style="videoFormat === 'portrait'
+          ? { aspectRatio: '9 / 16', width: isFullscreen ? 'min(100%, 50.625vh)' : 'min(100%, 414px)', height: 'auto' }
+          : (isFullscreen ? {} : { width: '100%', height: CANVAS_H + 'px' })"></canvas>
 
       <!-- 进度条 -->
       <div v-show="!(isFullscreen && hideControlsInFullscreen)" class="h-1.5 bg-black/10 dark:bg-white/[0.06] flex-shrink-0">
