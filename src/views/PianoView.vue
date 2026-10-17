@@ -515,7 +515,7 @@ function updatePianoRollNotes(edited: NoteEvent[]) {
   ].sort((a,b) => a.time-b.time || a.midi-b.midi)
   const part = midiParts.value.find(part => part.id === id)
   if (part) part.noteCount = edited.length
-  duration.value = Math.max(0,...allNotes.value.map(note => note.time + note.duration))
+  duration.value = allNotes.value.reduce((max, note) => Math.max(max, note.time + note.duration), 0)
   lastScheduledIdx = 0
   keyState.value = {}
   updateNoteRange()
@@ -1325,7 +1325,7 @@ watch(() => currentTime.value, (t) => {
               <span>{{ part.noteCount }} nốt</span>
               <input type="color" :value="part.color" :disabled="exporting" :aria-label="'Màu ' + part.name" @input="onPartColorInput(part.id, $event)">
             </div>
-            <div class="mx-track-side-minimap" :aria-label="'Tổng quan nốt của ' + part.name" role="img">
+            <div class="mx-track-side-minimap mx-editable-track" :aria-label="'Nhấp đúp để chỉnh từng nốt trong ' + part.name" :title="'Nhấp đúp để chỉnh Piano Roll: ' + part.name" role="button" tabindex="0" @dblclick.stop="openPianoRoll(part.id)" @keydown.enter="openPianoRoll(part.id)">
               <span v-for="(bar,idx) in part.bars" :key="idx" class="mx-track-side-mini-note" :style="{ left: bar.left + '%', width: bar.width + '%', backgroundColor: part.color }"></span>
             </div>
           </section>
@@ -1354,7 +1354,7 @@ watch(() => currentTime.value, (t) => {
                 <button type="button" class="mx-track-mini" :aria-pressed="part.enabled && enabledPartCount === 1" :disabled="exporting" @click="soloPart(part.id)">S</button>
                 <input type="color" class="mx-track-color" :value="part.color" :disabled="exporting" :aria-label="'Màu track ' + part.name" @input="onPartColorInput(part.id, $event)">
               </div>
-              <button type="button" class="mx-lane" :class="{ 'mx-lane-muted': !part.enabled }" :aria-label="'Chọn thời điểm cho ' + part.name" @click="seekFromTimeline">
+              <button type="button" class="mx-lane" :class="{ 'mx-lane-muted': !part.enabled }" :aria-label="'Chọn thời điểm cho ' + part.name" @click="seekFromTimeline" @dblclick.stop="openPianoRoll(part.id)">
                 <span v-for="(bar,index) in part.bars" :key="index" class="mx-note" :style="{ left: bar.left + '%', width: bar.width + '%', top: bar.top + 'px', background: part.color, color: part.color }"></span>
                 <span class="mx-cursor" :style="{ left: progressPct + '%' }"></span>
               </button>
@@ -1615,6 +1615,10 @@ watch(() => currentTime.value, (t) => {
 
       </div>
         </section> <!-- preview -->
+        <div v-if="!isFullscreen && pianoRollPart" class="mx-roll-divider" role="separator" aria-orientation="horizontal" title="Kéo lên/xuống để chỉnh chiều cao Piano Roll" @pointerdown="beginPianoRollResize"></div>
+        <MelorixPianoRoll v-if="!isFullscreen && pianoRollPart" :key="pianoRollPart.id" :style="{ height: pianoRollHeight + 'px' }"
+          :part="pianoRollPart" :notes="pianoRollNotes" :duration="duration" :bpm="midiTempo"
+          :disabled="exporting" @change="updatePianoRollNotes" @close="pianoRollTrackId = null" />
       </div> <!-- workspace stage -->
       <aside v-if="!isFullscreen && isInspectorOpen" class="mx-inspector" aria-label="Thuộc tính MELORIX">
         <div class="mx-inspector-top"><i class="fas fa-sliders-h"></i> Cài đặt <span style="margin-left:auto;font-weight:400;color:#929eae">Thuộc tính</span>
