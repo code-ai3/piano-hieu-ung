@@ -86,3 +86,53 @@ body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", 
 @media(max-width:1130px){.mx-workspace{grid-template-columns:minmax(0,1fr) 278px}.mx-track-row,.mx-timeline-head{grid-template-columns:205px minmax(0,1fr)}.mx-toolbar{gap:5px}.mx-btn{padding:0 9px}}
 @media(max-width:840px){.mx-workspace{grid-template-columns:minmax(0,1fr)}.mx-inspector{position:static;max-height:none}.mx-timeline{max-height:240px}.mx-topline{gap:10px}.mx-menu summary{padding:8px 6px}.mx-head-meta{display:none}.mx-preview-canvas-area{min-height:330px}}
 @media(max-width:520px){.mx-topline{padding:0 9px;gap:8px}.mx-brand{font-size:13px}.mx-brand-mark{width:22px;height:22px}.mx-menu{gap:0}.mx-menu summary{font-size:10px;padding:7px 4px}.mx-toolbar{padding:8px}.mx-clock{min-width:84px;font-size:11px}.mx-timeline-head,.mx-track-row{grid-template-columns:145px minmax(0,1fr)}.mx-track-controls{gap:4px;padding:0 5px}.mx-track-name{font-size:10px}.mx-track-color{display:none}.mx-preview-canvas-area{min-height:280px}.mx-tab{font-size:11px;padding:0 10px}}
+
+/* MELORIX viewport workspace FIX: scroll only inside inspector and MIDI lanes.
+   Never grow the document beyond its visible desktop/window height. */
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #app { width:100%; height:100%; min-height:0; overflow:hidden; overscroll-behavior:none; }
+.mx-root { height:100dvh; min-height:0; overflow:hidden; }
+.mx-shell { height:100dvh; min-height:0; max-height:100dvh; overflow:hidden; }
+.mx-topline { flex:0 0 43px; min-height:0; }
+.mx-toolbar { flex:0 0 62px; min-height:0; flex-wrap:nowrap; white-space:nowrap; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; }
+.mx-toolbar::-webkit-scrollbar { display:none; }
+.mx-workspace { flex:1 1 0%; min-height:0; height:0; overflow:hidden; }
+.mx-stage { min-height:0; height:100%; overflow:hidden; }
+.mx-tabs { flex:0 0 40px; min-height:0; }
+.mx-timeline { flex:0 0 clamp(105px, 23dvh, 190px); min-height:0; max-height:none; overflow:hidden; }
+.mx-timeline-head { flex:0 0 29px; }
+.mx-lanes { min-height:0; overflow-y:auto; overscroll-behavior:contain; }
+.mx-preview { flex:1 1 0%; height:0; min-height:0; overflow:hidden; }
+.mx-preview-head { flex:0 0 40px; min-height:0; }
+.mx-preview-canvas-area { flex:1 1 0%; min-height:0; min-width:0; height:0; overflow:hidden; }
+.mx-preview-canvas-area canvas { flex:none; display:block; max-width:100%; max-height:100%; }
+.mx-preview-progress { flex:0 0 5px; }
+.mx-transport { flex:0 0 56px; min-height:0; overflow:visible; padding-top:7px; padding-bottom:7px; }
+.mx-inspector { position:relative; top:auto; height:100%; min-height:0; max-height:none; overflow-y:auto; overscroll-behavior:contain; }
+.mx-error { flex:0 0 auto; }
+.mx-fullscreen .mx-workspace { padding:0; grid-template-columns:minmax(0,1fr); }
+.mx-fullscreen .mx-stage { gap:0; }
+.mx-fullscreen .mx-preview { border:0!important; border-radius:0!important; }
+.mx-fullscreen .mx-preview-canvas-area { min-height:0; }
+@media(max-width:840px){
+  /* Narrow displays keep the editor in one screen: inspector opens as a drawer. */
+  .mx-workspace { grid-template-columns:minmax(0,1fr); }
+  .mx-inspector { position:fixed; z-index:70; top:0; right:0; bottom:0; height:100dvh; width:min(340px,88vw); max-height:100dvh; box-shadow:-12px 0 28px #0009; transform:translateX(103%); transition:transform .2s ease; }
+  .mx-inspector-open .mx-inspector { transform:translateX(0); }
+  .mx-inspector-trigger { display:inline-flex!important; }
+}
+@media(min-width:841px){ .mx-inspector-trigger { display:none!important; } }
+@media(max-height:690px){
+  .mx-toolbar { flex-basis:52px; padding-top:6px; padding-bottom:6px; }
+  .mx-timeline { flex-basis:clamp(90px, 19dvh, 130px); }
+  .mx-preview-head { flex-basis:34px; }
+  .mx-transport { flex-basis:49px; padding-top:3px; padding-bottom:3px; }
+}
+@media(max-height:490px){
+  .mx-topline { flex-basis:34px; }
+  .mx-toolbar { flex-basis:43px; }
+  .mx-timeline { flex-basis:72px; }
+  .mx-tabs { flex-basis:34px; }
+  .mx-preview-head { flex-basis:28px; }
+  .mx-transport { flex-basis:44px; }
+}
