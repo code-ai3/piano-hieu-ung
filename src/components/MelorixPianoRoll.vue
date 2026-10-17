@@ -95,6 +95,13 @@ function changeAudition(pitch:number|null){
  auditionPitch.value=pitch
  if(pitch!==null)emit('audition-start',pitch)
 }
+function onKeyPointerDown(e:PointerEvent){
+ if(props.disabled||auditionPointerId!==null||(e.pointerType==='mouse'&&e.button!==0))return
+ e.preventDefault()
+ auditionPointerId=e.pointerId
+ try{(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)}catch{}
+ changeAudition(pitchAtPointer(e))
+}
 function stopKeyAudition(){auditionPointerId=null;auditionPitch.value=null;emit('audition-stop')}
 function keyLabel(midi:number){return midiNoteName(midi)}
 onUnmounted(stopDrag)
