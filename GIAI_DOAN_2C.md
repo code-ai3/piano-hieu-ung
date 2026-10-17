@@ -10,7 +10,7 @@ Nhánh thử nghiệm: `feature/giai-doan-2c-velocity-cam-xuc`, tách từ Giai 
 - Vẫn tương thích track multi-color, video TikTok 9:16 và YouTube 16:9.
 
 ## Giới hạn hiện tại
-- Đèn của **phím đàn** vẫn theo màu/độ sáng của cài đặt Piano (chưa phản ứng riêng theo Velocity).
+- Ánh sáng phím Piano đã phản ứng theo Velocity khi nốt đang được nhấn. Màu phím vẫn theo thiết lập Piano.
 - MIDI có tất cả Velocity đồng đều sẽ trông đồng đều; cần nguồn MIDI biểu cảm hoặc chỉnh Velocity bằng Cakewalk để thay đổi lực đánh thực.
 - Việc chạy bản demo, xuất MP4 và nghe chất lượng thực tế cần QA trên Chrome.
 
