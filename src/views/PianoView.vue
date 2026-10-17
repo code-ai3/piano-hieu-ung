@@ -163,6 +163,7 @@ async function exportVideo() {
   exporting.value = true
   exportProgress.value = 0
   exportEta.value = 0
+  exportPhase.value = 'preparing'
   try {
     const { width: w, height: h, fps } = formatDimensions.value
     const exportSeconds = selectedExportSeconds.value
@@ -226,6 +227,7 @@ async function exportVideo() {
 
     // 离屏 canvas 渲染（独立于 DOM）+ 边渲边编码
     const offCanvas = document.createElement('canvas')
+    exportPhase.value = 'rendering'
     const t0 = performance.now()
     for (let frame = 0; frame < totalFrames; frame++) {
       currentTime.value = previewClockForMusicalTime(musicalTimeAtFrame(frame, fps), speed.value)
@@ -240,9 +242,11 @@ async function exportVideo() {
       await vs.add(sample)
       sample.close()
       // 进度 + ETA
-      exportProgress.value = (frame + 1) / totalFrames
-      const elapsed = (performance.now() - t0) / 1000
-      exportEta.value = elapsed * (totalFrames - frame - 1) / (frame + 1)
+      if (frame % 6 === 0 || frame === totalFrames - 1) {
+        exportProgress.value = (frame + 1) / totalFrames
+        const elapsed = (performance.now() - t0) / 1000
+        exportEta.value = elapsed * (totalFrames - frame - 1) / (frame + 1)
+      }
     }
     vs.close()
     await output.finalize()
@@ -254,8 +258,9 @@ async function exportVideo() {
       const buf = (target as InstanceType<typeof BufferTarget>).buffer!
       const blob = new Blob([buf], { type: 'video/mp4' })
       const url = URL.createObjectURL(blob)
-      const a = document.createElement('a'); a.href = url; a.download = fileName; a.click()
-      URL.revokeObjectURL(url)
+      const a = document.createElement('a'); a.href = url; a.download = fileName
+      document.body.appendChild(a); a.click(); a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 30_000)
     }
   } catch (e) {
     console.error(e)
@@ -1293,6 +1298,15 @@ watch(() => currentTime.value, (t) => {
           <p v-if="videoFormat === 'portrait' && hiddenPortraitNotes > 0" role="status" class="text-xs text-amber-700 dark:text-amber-300">
             {{ t('piano.notesOutsideFrame', { count: hiddenPortraitNotes }) }}
           </p>
+          <label class="flex flex-col gap-2 text-sm">
+            <span class="font-medium">{{ t('piano.exportLength') }}</span>
+            <select v-model="exportLength" class="p-2 rounded-lg border border-black/15 dark:border-white/15 bg-white/80 dark:bg-[#23232c]">
+              <option value="preview15">{{ t('piano.exportPreview15') }}</option>
+              <option value="preview30">{{ t('piano.exportPreview30') }}</option>
+              <option value="full">{{ t('piano.exportFullSong') }}</option>
+            </select>
+            <span class="text-xs opacity-65">{{ t('piano.exportDurationHint', { seconds: Math.ceil(selectedExportSeconds) }) }}</span>
+          </label>
           <p class="text-xs text-black/60 dark:text-white/60 m-0">{{ t('piano.exportHint') }}</p>
           <Btn @click="exportVideo" type="primary">
             <i class="fas fa-download"></i>
@@ -1302,7 +1316,7 @@ watch(() => currentTime.value, (t) => {
         <template v-else>
           <p class="text-sm text-black/70 dark:text-white/80 m-0 flex items-center gap-2">
             <i class="fas fa-spinner fa-spin text-primary-500"></i>
-            <span>{{ t('piano.exporting') }}</span>
+            <span>{{ exportPhase === 'preparing' ? t('piano.exportPreparingAudio') : t('piano.exporting') }}</span>
           </p>
           <div class="w-full h-2 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
             <div class="h-full bg-primary-500 transition-all duration-200" :style="{ width: Math.round(exportProgress * 100) + '%' }"></div>
