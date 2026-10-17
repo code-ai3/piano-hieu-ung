@@ -48,7 +48,7 @@ export function extractMidiParts(midi: MultiTrackMidi): { parts: MidiPart[], eve
     const rawName = track.name?.trim() || instrument || `Track ${id + 1}`
     parts.push({
       id, name: rawName, instrument,
-      channel: Number.isInteger(track.channel) ? track.channel! + 1 : 0,
+      channel: typeof track.channel === 'number' && Number.isInteger(track.channel) ? track.channel + 1 : 0,
       noteCount: track.notes.length,
       enabled: true,
       color: TRACK_COLORS[parts.length % TRACK_COLORS.length],
