@@ -104,11 +104,39 @@ function toggleInspectorPanel() {
   isInspectorOpen.value = !isInspectorOpen.value
   if (window.innerWidth <= 1000 && isInspectorOpen.value) isTrackPanelOpen.value = false
 }
-function closeMenuAfterAction(e: MouseEvent) {
-  const target = e.target as HTMLElement
-  if (!target.closest('button, label')) return
-  const details = target.closest('details')
-  if (details) details.open = false
+// Keep native <details> semantics but enforce desktop-style exclusive menus.
+const menuBarRef = ref<HTMLElement | null>(null)
+function closeMenus(except?: HTMLDetailsElement | null) {
+  for (const menu of menuBarRef.value?.querySelectorAll<HTMLDetailsElement>('details') ?? []) {
+    if (menu !== except) menu.open = false
+  }
+}
+function onMenuClick(e: MouseEvent) {
+  const element = e.target as HTMLElement
+  const summary = element.closest('summary')
+  if (summary) {
+    const selected = summary.closest('details') as HTMLDetailsElement | null
+    // The native summary click will toggle the selected menu after this handler.
+    closeMenus(selected)
+    return
+  }
+  // Do not unmount a file input on label click (before the file picker opens).
+  if (element.closest('.mx-menu-pop button')) closeMenus()
+}
+function onMenuPointerOver(e: PointerEvent) {
+  if (e.pointerType !== 'mouse') return
+  const element = e.target as HTMLElement
+  const summary = element.closest('summary')
+  const incoming = summary?.closest('details') as HTMLDetailsElement | null
+  if (!incoming || incoming.open) return
+  const anyOpen = Array.from(menuBarRef.value?.querySelectorAll<HTMLDetailsElement>('details') ?? [])
+    .some(menu => menu.open)
+  if (!anyOpen) return
+  closeMenus(incoming)
+  incoming.open = true
+}
+function onDocumentPointerDown(e: PointerEvent) {
+  if (menuBarRef.value && !menuBarRef.value.contains(e.target as Node)) closeMenus()
 }
 const fittedPreview = ref({ width: 960, height: 540 })
 let previewResizeObserver: ResizeObserver | null = null
@@ -1053,6 +1081,14 @@ function loop() {
 let lastFrameTime = performance.now()
 
 function onKeyDown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    const menuWasOpen = Array.from(menuBarRef.value?.querySelectorAll<HTMLDetailsElement>('details') ?? [])
+      .some(menu => menu.open)
+    if (menuWasOpen) { closeMenus(); e.preventDefault(); return }
+  }
+  // Space should not interrupt native menu controls, file selectors, or text entry.
+  const target = e.target as HTMLElement
+  if (target.closest('input, textarea, select, button, summary, [contenteditable="true"]')) return
   if (e.code === 'Space') { e.preventDefault(); togglePlay() }
 }
 
@@ -1066,6 +1102,7 @@ onMounted(() => {
   const img = new Image(); img.src = def.url; bgImage.value = img
   if (playlist.value.length) loadMidi(playlist.value[0].file)
   document.addEventListener('keydown', onKeyDown)
+  document.addEventListener('pointerdown', onDocumentPointerDown)
   document.addEventListener('fullscreenchange', onFullscreenChange)
   document.addEventListener('webkitfullscreenchange', onFullscreenChange)
   void nextTick(() => {
@@ -1079,6 +1116,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeyDown)
+  document.removeEventListener('pointerdown', onDocumentPointerDown)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   document.removeEventListener('webkitfullscreenchange', onFullscreenChange)
   previewResizeObserver?.disconnect()
@@ -1143,29 +1181,29 @@ watch(() => currentTime.value, (t) => {
   <div class="mx-shell" :class="isFullscreen ? 'mx-fullscreen' : ''">
     <header v-if="!isFullscreen" class="mx-topline">
       <div class="mx-brand"><span class="mx-brand-mark"><i class="fas fa-music"></i></span><span>MELORIX</span></div>
-      <nav class="mx-menu" aria-label="Menu MELORIX" @click="closeMenuAfterAction">
-        <details><summary>Tệp</summary><div class="mx-menu-pop">
+      <nav ref="menuBarRef" class="mx-menu" aria-label="Menu MELORIX" @click="onMenuClick" @pointerover="onMenuPointerOver">
+        <details name="melorix-main-menu"><summary>Tệp</summary><div class="mx-menu-pop">
           <label><i class="fas fa-file-import mr-2"></i> Nhập MIDI
-            <input type="file" class="hidden" accept=".mid,.midi" :disabled="loadingMidi || converting || exporting" @change="onFileUpload">
+            <input type="file" class="hidden" accept=".mid,.midi" :disabled="loadingMidi || converting || exporting" @change="onFileUpload($event); closeMenus()">
           </label>
           <label><i class="fas fa-wave-square mr-2"></i> Nhập âm thanh
-            <input type="file" class="hidden" accept="audio/*" :disabled="loadingMidi || converting || exporting" @change="onFileUpload">
+            <input type="file" class="hidden" accept="audio/*" :disabled="loadingMidi || converting || exporting" @change="onFileUpload($event); closeMenus()">
           </label>
           <button type="button" @click="showPlaylist = !showPlaylist"><i class="fas fa-folder-open mr-2"></i> Thư viện bài nhạc</button>
           <button type="button" :disabled="exporting" @click="showExport = true"><i class="fas fa-file-video mr-2"></i> Xuất video MP4</button>
         </div></details>
-        <details><summary>Chỉnh sửa</summary><div class="mx-menu-pop">
+        <details name="melorix-main-menu"><summary>Chỉnh sửa</summary><div class="mx-menu-pop">
           <button type="button" :disabled="exporting" @click="setAllParts(true)">Bật tất cả track</button>
           <button type="button" :disabled="exporting" @click="setAllParts(false)">Tắt tất cả track</button>
           <button type="button" @click="showOtherSettings = true">Thiết lập MIDI và AI</button>
         </div></details>
-        <details><summary>Phát lại</summary><div class="mx-menu-pop">
+        <details name="melorix-main-menu"><summary>Phát lại</summary><div class="mx-menu-pop">
           <button type="button" :disabled="!notes.length || exporting" @click="togglePlay">{{ playState === 'playing' ? 'Tạm dừng' : 'Phát nhạc' }}</button>
           <button type="button" @click="stop">Dừng / về đầu</button>
           <button type="button" @click="nextTrack">Bài tiếp theo</button>
           <button type="button" @click="repeat = !repeat">{{ repeat ? '✓ ' : '' }}Lặp lại bài</button>
         </div></details>
-        <details><summary>Track MIDI</summary><div class="mx-menu-pop">
+        <details name="melorix-main-menu"><summary>Track MIDI</summary><div class="mx-menu-pop">
           <button type="button" :aria-pressed="isTimelineOpen" @click="isTimelineOpen = !isTimelineOpen">{{ isTimelineOpen ? '✓ ' : '' }}Hiện dòng thời gian</button>
           <button type="button" :aria-pressed="isTrackPanelOpen" @click="toggleTrackPanel">{{ isTrackPanelOpen ? '✓ ' : '' }}Danh sách track bên trái</button>
           <button type="button" :aria-pressed="isInspectorOpen" @click="toggleInspectorPanel">{{ isInspectorOpen ? '✓ ' : '' }}Bảng chỉnh sửa bên phải</button>
@@ -1173,13 +1211,13 @@ watch(() => currentTime.value, (t) => {
           <button type="button" :disabled="exporting" @click="setAllParts(false)">Tắt toàn bộ nhạc cụ</button>
           <div class="mx-menu-caption">{{ midiParts.length }} track · {{ enabledPartCount }} đang bật</div>
         </div></details>
-        <details><summary>Công cụ</summary><div class="mx-menu-pop">
+        <details name="melorix-main-menu"><summary>Công cụ</summary><div class="mx-menu-pop">
           <button type="button" @click="showBgSettings = true">Hiệu ứng nốt rơi</button>
           <button type="button" @click="showPianoSettings = true">Bàn phím Piano</button>
           <button type="button" @click="toggleInspectorPanel">{{ isInspectorOpen ? 'Ẩn' : 'Mở' }} bảng chỉnh trực tiếp</button>
           <button type="button" @click="showOtherSettings = true">Cài đặt nâng cao / AI</button>
         </div></details>
-        <details><summary>Hiển thị</summary><div class="mx-menu-pop">
+        <details name="melorix-main-menu"><summary>Hiển thị</summary><div class="mx-menu-pop">
           <button type="button" :aria-pressed="isTimelineOpen" @click="isTimelineOpen = !isTimelineOpen">{{ isTimelineOpen ? '✓ ' : '' }}Timeline MIDI</button>
           <button type="button" :aria-pressed="isTrackPanelOpen" @click="toggleTrackPanel">{{ isTrackPanelOpen ? '✓ ' : '' }}Danh sách track bên trái</button>
           <button type="button" :aria-pressed="isInspectorOpen" @click="toggleInspectorPanel">{{ isInspectorOpen ? '✓ ' : '' }}Bảng thuộc tính bên phải</button>
@@ -1187,7 +1225,7 @@ watch(() => currentTime.value, (t) => {
           <button type="button" :aria-pressed="videoFormat === 'portrait'" @click="videoFormat = 'portrait'">{{ videoFormat === 'portrait' ? '✓ ' : '' }}Video dọc 9:16</button>
           <button type="button" @click="toggleFullscreen">Xem toàn màn hình</button>
         </div></details>
-        <details><summary>Xuất</summary><div class="mx-menu-pop">
+        <details name="melorix-main-menu"><summary>Xuất</summary><div class="mx-menu-pop">
           <button type="button" :disabled="exporting" @click="showExport = true">Xuất MP4 (15 giây / 30 giây / cả bài)</button>
           <button type="button" @click="captureFrame">Lưu khung hình PNG</button>
         </div></details>
