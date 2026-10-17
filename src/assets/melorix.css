@@ -185,3 +185,96 @@ html, body, #app { width:100%; height:100%; min-height:0; overflow:hidden; overs
   .mx-menu-pop { left:auto; right:0; }
   .mx-topline .mx-head-meta { display:none; }
 }
+
+/* MELORIX workstation: actual track tools | correctly sized canvas | settings tools.
+   The Piano preview keeps its true 16:9 / 9:16 aspect ratio, without a fake header. */
+.mx-workspace,
+.mx-workspace.mx-tracks-open,
+.mx-workspace.mx-inspector-open,
+.mx-workspace.mx-tracks-open.mx-inspector-open {
+  grid-template-columns:minmax(0,1fr);
+  gap:6px;
+  padding:6px;
+}
+@media (min-width:1001px) {
+  .mx-workspace.mx-tracks-open { grid-template-columns:224px minmax(0,1fr); }
+  .mx-workspace.mx-inspector-open { grid-template-columns:minmax(0,1fr) 290px; }
+  .mx-workspace.mx-tracks-open.mx-inspector-open { grid-template-columns:224px minmax(0,1fr) 290px; }
+}
+.mx-stage { min-width:0; min-height:0; width:100%; }
+.mx-stage > .mx-preview { min-height:0; border-radius:7px!important; }
+.mx-preview-canvas-area { background:#0b111b; height:0; min-height:0; }
+.mx-preview-canvas-area canvas { box-shadow:none; }
+.mx-track-sidebar {
+  min-width:0; min-height:0; height:100%;
+  display:flex; flex-direction:column;
+  overflow:hidden; background:#1e2229;
+  border:1px solid #353b46; border-radius:7px;
+}
+.mx-track-sidebar-title { flex:0 0 40px; min-height:0; white-space:nowrap; }
+.mx-track-sidebar-title .mx-track-side-count {
+  margin-left:auto; color:#91a2b5; font-size:11px; font-weight:450;
+}
+.mx-side-close {
+  margin-left:4px; border:1px solid #39434f;
+  color:#b6c3d3; background:#29313b; cursor:pointer;
+  height:25px; width:25px; flex:none; border-radius:4px;
+}
+.mx-side-close:hover { color:#fff; background:#3b4756; }
+.mx-track-sidebar-actions { flex:0 0 auto; display:flex; gap:7px; padding:9px 10px; border-bottom:1px solid #343b46; }
+.mx-track-sidebar-actions button,.mx-track-side-footer button {
+  background:#29313b; color:#d1d9e3; font-size:11px;
+  border:1px solid #455163; border-radius:5px; cursor:pointer; padding:7px 8px;
+}
+.mx-track-sidebar-actions button:hover,.mx-track-side-footer button:hover { background:#384453; }
+.mx-track-sidebar-actions button:disabled { opacity:.4; pointer-events:none; }
+.mx-track-sidebar-list { min-height:0; flex:1 1 auto; overflow-y:auto; scrollbar-width:thin; overscroll-behavior:contain; }
+.mx-track-sidebar-empty { font-size:12px; color:#94a0ae; padding:13px; line-height:1.6; }
+.mx-track-side-item { padding:10px 9px 12px; border-bottom:1px solid #363d47; }
+.mx-track-side-item-muted { opacity:.48; }
+.mx-track-side-top { display:flex; gap:6px; align-items:center; }
+.mx-track-side-top .mx-track-name { font-size:11px; color:#ecf1f8; }
+.mx-track-side-top .mx-swatch { width:5px; height:19px; flex:none; }
+.mx-track-side-top .mx-eye { flex:0 0 16px; }
+.mx-track-side-sub {
+  margin-top:8px; display:flex; align-items:center;
+  justify-content:space-between; gap:6px;
+  font-size:10px; color:#a3b0be;
+}
+.mx-track-side-sub span { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.mx-track-side-sub input[type=color] {
+  width:23px; height:22px; border:0; background:transparent;
+  padding:0; cursor:pointer; flex:none;
+}
+.mx-track-side-minimap {
+  margin-top:9px; height:22px; width:100%; position:relative;
+  overflow:hidden; border-radius:3px; border:1px solid #414a58;
+  background:repeating-linear-gradient(90deg,#ffffff0d 0 1px,transparent 1px 12.5%),#151a22;
+}
+.mx-track-side-mini-note { position:absolute; top:8px; height:4px; min-width:2px; border-radius:3px; opacity:.9; }
+.mx-track-side-footer {
+  flex:0 0 auto; padding:9px; display:flex; gap:7px; border-top:1px solid #343b46;
+}
+.mx-inspector { height:100%; min-height:0; max-height:none; }
+.mx-inspector .mx-side-close { margin-left:8px; }
+.mx-preview-head { display:none; }
+/* Sliding panels on narrow screens; initially closed, never squeeze the piano. */
+@media (max-width:1000px) {
+  .mx-workspace,
+  .mx-workspace.mx-tracks-open,
+  .mx-workspace.mx-inspector-open,
+  .mx-workspace.mx-tracks-open.mx-inspector-open { grid-template-columns:minmax(0,1fr); }
+  .mx-track-sidebar,.mx-inspector {
+    position:fixed; z-index:70; top:0; bottom:0; max-height:100dvh;
+    height:100dvh; width:min(335px,90vw); border-radius:0;
+    box-shadow:0 0 35px #000a;
+  }
+  .mx-track-sidebar { left:0; }
+  .mx-inspector { right:0; transform:none; }
+  .mx-inspector-backdrop { display:block; position:fixed; inset:0; z-index:69; background:#0009; }
+}
+@media (max-height:580px) {
+  .mx-track-sidebar-actions { padding:5px 8px; }
+  .mx-track-side-item { padding:6px 8px; }
+  .mx-transport { flex-basis:46px; }
+}
