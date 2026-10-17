@@ -4,25 +4,18 @@ import { useI18n } from 'vue-i18n'
 import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
 import PianoView from '@/views/PianoView.vue'
+import '@/assets/melorix.css'
 import { switchLocale } from './i18n'
 
 const { t, locale } = useI18n()
 
-const isDark = ref(false)
 const showLang = ref(false)
 
-function toggleTheme() {
-  isDark.value = !isDark.value
-  document.documentElement.classList.toggle('dark', isDark.value)
-  try { localStorage.setItem('theme', isDark.value ? 'dark' : 'light') } catch { /* optional */ }
-}
-
 onMounted(() => {
-  let saved: string | null = null
-  try { saved = localStorage.getItem('theme') } catch { /* optional */ }
-  isDark.value = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
-  document.documentElement.classList.toggle('dark', isDark.value)
+  // MELORIX workstation is dark-only in this visual preview.
+  document.documentElement.classList.add('dark')
   document.documentElement.lang = locale.value === 'zh-CN' ? 'zh-CN' : locale.value
+
 })
 
 const langs = computed(() => [
@@ -36,33 +29,18 @@ function pickLang(key: string) {
   showLang.value = false
 }
 
-// 顶部右下角浮动按钮：主题 + 语言
+// Desktop app locale button
 </script>
 
 <template>
-  <!-- 彩色底层 + 深色遮罩 -->
-  <div class="fixed inset-0 pointer-events-none overflow-hidden z-0 dark:hidden" aria-hidden="true"
-       style="background:
-                      radial-gradient(ellipse at center, rgba(0,0,0,0.06) 0%, rgba(0,0,0,0.18) 100%),
-                      radial-gradient(100% 100% at 10% 20%, rgba(96,99,238,0.40) 0%, transparent 55%),
-                      radial-gradient(100% 100% at 80% 15%, rgba(253,86,167,0.30) 0%, transparent 50%),
-                      radial-gradient(100% 100% at 85% 65%, rgba(52,152,219,0.25) 0%, transparent 50%),
-                      radial-gradient(100% 100% at 40% 85%, rgba(78,222,163,0.25) 0%, transparent 50%),
-                      radial-gradient(100% 100% at 50% 40%, rgba(241,196,15,0.12) 0%, transparent 40%),
-                      #f7f9fb"></div>
-
-  <!-- 主内容 -->
-  <main class="relative z-10 min-h-screen flex flex-col items-center py-6">
+  <main class="mx-root">
     <PianoView />
   </main>
 
   <!-- 右下角浮动控制 -->
-  <div class="fixed right-5 bottom-5 z-50 flex gap-2.5">
+  <div class="mx-global-tools">
     <Btn shape="square" type="default" float :title="t('app.language')" @click="showLang = true">
       <i class="fas fa-language fa-lg"></i>
-    </Btn>
-    <Btn shape="square" type="default" float :title="t('app.theme')" @click="toggleTheme">
-      <i :class="isDark ? 'fas fa-sun fa-lg' : 'fas fa-moon fa-lg'"></i>
     </Btn>
   </div>
 

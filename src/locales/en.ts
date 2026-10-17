@@ -1,7 +1,7 @@
 export default {
-  app: { title: 'Piano Hiệu Ứng', theme: 'Toggle Theme', language: 'Language' },
+  app: { title: 'MELORIX', theme: 'Toggle Theme', language: 'Language' },
   piano: {
-    title: 'Piano Hiệu Ứng', subtitle: 'Create falling-note piano videos from MIDI or audio in your browser',
+    title: 'MELORIX', subtitle: 'Create falling-note piano videos from MIDI or audio in your browser',
     uploadMidi: 'Upload MIDI', uploadMidiMusic: 'Upload MIDI/Audio', loading: 'Loading...', converting: 'Converting...',
     noteAreaSettings: 'Note Area', noteColor: 'Note Color', activeColor: 'Active Color',
     noteEffect: 'Effect', effectSmoke: 'Burn & Smoke', effectDiffuse: 'Diffuse Aura',

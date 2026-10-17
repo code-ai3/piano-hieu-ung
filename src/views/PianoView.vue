@@ -33,7 +33,7 @@ const trackRgbMap = computed(() => new Map(midiParts.value.map(part => [part.id,
 const showTrackPanel = ref(false)
 const uploadError = ref('')
 const noteRange = ref({ min: 21, max: 108 })
-const videoFormat = ref<VideoFormat>('portrait')
+const videoFormat = ref<VideoFormat>('landscape')
 const portraitKeyboard = ref<PortraitKeyboard>('auto')
 const displayRange = computed(() => videoFormat.value === 'portrait'
   ? portraitKeyboardRange(notes.value, portraitKeyboard.value, noteRange.value)
@@ -92,6 +92,81 @@ let piano: SplendidGrandPiano | null = null
 let rafId = 0
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+const canvasAreaRef = ref<HTMLDivElement | null>(null)
+const isInspectorOpen = ref(typeof window !== 'undefined' && window.innerWidth > 1000)
+const isTrackPanelOpen = ref(typeof window !== 'undefined' && window.innerWidth > 1000)
+const isTimelineOpen = ref(false)
+function toggleTrackPanel() {
+  isTrackPanelOpen.value = !isTrackPanelOpen.value
+  if (window.innerWidth <= 1000 && isTrackPanelOpen.value) isInspectorOpen.value = false
+}
+function toggleInspectorPanel() {
+  isInspectorOpen.value = !isInspectorOpen.value
+  if (window.innerWidth <= 1000 && isInspectorOpen.value) isTrackPanelOpen.value = false
+}
+// Keep native <details> semantics but enforce desktop-style exclusive menus.
+const menuBarRef = ref<HTMLElement | null>(null)
+// Distinguish a menu opened by hovering from an explicit click to avoid
+// immediately toggling it closed when users click after a hover switch.
+let menuOpenedByHover: HTMLDetailsElement | null = null
+function closeMenus(except?: HTMLDetailsElement | null) {
+  for (const menu of menuBarRef.value?.querySelectorAll<HTMLDetailsElement>('details') ?? []) {
+    if (menu !== except) menu.open = false
+  }
+}
+function onMenuClick(e: MouseEvent) {
+  const element = e.target as HTMLElement
+  const summary = element.closest('summary')
+  if (summary) {
+    const selected = summary.closest('details') as HTMLDetailsElement | null
+    if (selected?.open && selected === menuOpenedByHover) {
+      // Hover already opened this menu; keep it open on the first click.
+      e.preventDefault()
+      menuOpenedByHover = null
+      return
+    }
+    menuOpenedByHover = null
+    // The native summary click will toggle this menu after the handler.
+    closeMenus(selected)
+    return
+  }
+  // Do not unmount a file input on label click (before the file picker opens).
+  if (element.closest('.mx-menu-pop button')) closeMenus()
+}
+function onMenuPointerOver(e: PointerEvent) {
+  if (e.pointerType !== 'mouse') return
+  const element = e.target as HTMLElement
+  const summary = element.closest('summary')
+  const incoming = summary?.closest('details') as HTMLDetailsElement | null
+  if (!incoming || incoming.open) return
+  const anyOpen = Array.from(menuBarRef.value?.querySelectorAll<HTMLDetailsElement>('details') ?? [])
+    .some(menu => menu.open)
+  if (!anyOpen) return
+  closeMenus(incoming)
+  incoming.open = true
+  menuOpenedByHover = incoming
+}
+function onDocumentPointerDown(e: PointerEvent) {
+  if (menuBarRef.value && !menuBarRef.value.contains(e.target as Node)) {
+    menuOpenedByHover = null
+    closeMenus()
+  }
+}
+const fittedPreview = ref({ width: 960, height: 540 })
+let previewResizeObserver: ResizeObserver | null = null
+
+function fitPreviewCanvas() {
+  const host = canvasAreaRef.value
+  if (!host) return
+  const availableWidth = host.clientWidth
+  const availableHeight = host.clientHeight
+  if (availableWidth <= 0 || availableHeight <= 0) return
+  const ratio = videoFormat.value === 'portrait' ? 9 / 16 : 16 / 9
+  const width = Math.max(1, Math.floor(Math.min(availableWidth, availableHeight * ratio)))
+  const height = Math.max(1, Math.floor(Math.min(availableHeight, width / ratio)))
+  fittedPreview.value = { width, height }
+}
+
 
 const CANVAS_H = 560
 const PIANO_H = 120
@@ -120,6 +195,7 @@ const showPlaylist = ref(false)
 const currentTrack = computed(() => playlist.value[currentTrackIdx.value])
 const repeat = ref(false)
 const isFullscreen = ref(false)
+watch([videoFormat, isFullscreen], () => { void nextTick(fitPreviewCanvas) })
 const noteActiveColor = ref('#5cf6fe')
 // 音符接触特效：smoke = 燃烧烟雾消散，diffuse = 扩散光环
 const noteEffect = ref<'smoke' | 'diffuse'>('smoke')
@@ -1019,6 +1095,14 @@ function loop() {
 let lastFrameTime = performance.now()
 
 function onKeyDown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    const menuWasOpen = Array.from(menuBarRef.value?.querySelectorAll<HTMLDetailsElement>('details') ?? [])
+      .some(menu => menu.open)
+    if (menuWasOpen) { menuOpenedByHover = null; closeMenus(); e.preventDefault(); return }
+  }
+  // Space should not interrupt native menu controls, file selectors, or text entry.
+  const target = e.target as HTMLElement
+  if (target.closest('input, textarea, select, button, summary, [contenteditable="true"]')) return
   if (e.code === 'Space') { e.preventDefault(); togglePlay() }
 }
 
@@ -1032,17 +1116,67 @@ onMounted(() => {
   const img = new Image(); img.src = def.url; bgImage.value = img
   if (playlist.value.length) loadMidi(playlist.value[0].file)
   document.addEventListener('keydown', onKeyDown)
+  document.addEventListener('pointerdown', onDocumentPointerDown)
   document.addEventListener('fullscreenchange', onFullscreenChange)
   document.addEventListener('webkitfullscreenchange', onFullscreenChange)
+  void nextTick(() => {
+    const host = canvasAreaRef.value
+    if (!host) return
+    previewResizeObserver = new ResizeObserver(fitPreviewCanvas)
+    previewResizeObserver.observe(host)
+    fitPreviewCanvas()
+  })
 })
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeyDown)
+  document.removeEventListener('pointerdown', onDocumentPointerDown)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   document.removeEventListener('webkitfullscreenchange', onFullscreenChange)
+  previewResizeObserver?.disconnect()
+  previewResizeObserver = null
   cancelAnimationFrame(rafId)
   resetPiano()
 })
+
+// The timeline is a responsive overview; MIDI playback and export retain every note.
+const timelineRows = computed(() => {
+  const groups = new Map<number, NoteEvent[]>()
+  for (const n of allNotes.value) {
+    const list = groups.get(n.trackId)
+    if (list) list.push(n)
+    else groups.set(n.trackId, [n])
+  }
+  const total = Math.max(1, duration.value)
+  return midiParts.value.map(part => {
+    const events = groups.get(part.id) ?? []
+    const stride = Math.max(1, Math.ceil(events.length / 160))
+    const bars = events.filter((_, i) => i % stride === 0).map(n => {
+      const left = Math.min(100, n.time / total * 100)
+      return { left, width: Math.max(.2, Math.min(100 - left, n.duration / total * 100)), top: Math.round(Math.max(5, Math.min(29, 29 - (n.midi - 24) / 84 * 22))) }
+    })
+    return { ...part, bars }
+  })
+})
+const timelineTicks = computed(() => Array.from({ length: 7 }, (_, i) => fmtTime(duration.value * i / 6)))
+function seekFromTimeline(event: MouseEvent) {
+  if (exporting.value || !duration.value) return
+  const element = event.currentTarget as HTMLElement
+  const rect = element.getBoundingClientRect()
+  if (rect.width <= 0) return
+  if (playState.value === 'playing') pause()
+  currentTime.value = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)) * duration.value * speed.value
+  lastScheduledIdx = 0
+  keyState.value = {}
+}
+function captureFrame() {
+  const canvas = canvasRef.value
+  if (!canvas) return
+  const a = document.createElement('a')
+  a.href = canvas.toDataURL('image/png')
+  a.download = 'melorix-frame.png'
+  a.click()
+}
 
 const progressPct = computed(() => duration.value ? (currentTime.value / duration.value) * 100 : 0)
 const keyState = ref<Record<number, boolean>>({})
@@ -1058,84 +1192,131 @@ watch(() => currentTime.value, (t) => {
 </script>
 
 <template>
-  <div :class="['w-full max-w-[1000px] mx-auto p-4 text-black/85 dark:text-white/90 flex flex-col max-xl:p-3.5 max-sm:p-2.5', isFullscreen ? '!max-w-none !w-full h-screen !p-0' : '']">
-    <!-- 标题 -->
-    <div v-if="!isFullscreen" class="text-center mb-4 flex-shrink-0">
-      <h1 class="text-[1.6rem] font-semibold mb-[0.2rem] text-black/85 dark:text-white/95 flex items-center justify-center gap-2 max-xl:text-[1.4rem] max-sm:text-[1.3rem]">
-        <i class="fas fa-music text-[1.4rem] text-primary-500"></i>
-        {{ t('piano.title') }}
-      </h1>
-      <p class="text-sm text-black/60 dark:text-white/70 m-0 max-xl:text-[0.85rem]">{{ t('piano.subtitle') }}</p>
-    </div>
-
-    <!-- 设置区域 -->
-    <div v-if="!isFullscreen" class="glass-card p-4 mb-4 flex-shrink-0 max-sm:p-3">
-      <div class="flex items-center gap-3 flex-wrap justify-between">
-        <div class="flex items-center gap-3 flex-wrap">
-          <label v-if="!loadingMidi && !converting" class="inline-flex items-center gap-1.5 py-2 px-3.5 text-sm rounded-lg border border-black/15 dark:border-white/15 bg-white/50 dark:bg-white/[0.06] text-primary-500 cursor-pointer transition-all duration-200 hover:bg-primary-500/10 hover:border-primary-500/40 dark:hover:bg-primary-500/[0.1] max-sm:text-xs">
-            <i class="fas fa-upload"></i>{{ t('piano.uploadMidiMusic') }}
-            <input type="file" accept=".mid,.midi,audio/*" @change="onFileUpload" class="hidden">
+  <div class="mx-shell" :class="isFullscreen ? 'mx-fullscreen' : ''">
+    <header v-if="!isFullscreen" class="mx-topline">
+      <div class="mx-brand"><span class="mx-brand-mark"><i class="fas fa-music"></i></span><span>MELORIX</span></div>
+      <nav ref="menuBarRef" class="mx-menu" aria-label="Menu MELORIX" @click="onMenuClick" @pointerover="onMenuPointerOver">
+        <details name="melorix-main-menu"><summary>Tệp</summary><div class="mx-menu-pop">
+          <label><i class="fas fa-file-import mr-2"></i> Nhập MIDI
+            <input type="file" class="hidden" accept=".mid,.midi" :disabled="loadingMidi || converting || exporting" @change="onFileUpload($event); closeMenus()">
           </label>
-          <span v-else class="inline-flex items-center gap-1.5 py-2 px-3.5 text-sm rounded-lg border border-black/15 dark:border-white/15 bg-white/50 dark:bg-white/[0.06] text-primary-500">
-            <i class="fas fa-spinner fa-spin"></i>{{ loadingMidi ? t('piano.loading') : t('piano.converting') }}
-          </span>
-          <Btn @click="showTrackPanel = !showTrackPanel" size="small" type="default">
-             <i class="fas fa-layer-group"></i>{{ t('piano.trackMixer') }} ({{ midiParts.length }})
-           </Btn>
-           <Btn @click="showBgSettings = !showBgSettings" size="small" type="default">
-            <i class="fas fa-music"></i>{{ t('piano.noteAreaSettings') }}
-          </Btn>
-          <Btn @click="showPianoSettings = !showPianoSettings" size="small" type="default">
-            <svg class="w-4 h-4 inline-block" viewBox="0 0 16 12"><rect x="0" y="0" width="3.5" height="12" rx="0.5" fill="currentColor" opacity="0.9"/><rect x="3.5" y="0" width="2" height="7" rx="0.3" fill="currentColor" opacity="0.3"/><rect x="4" y="0" width="3.5" height="12" rx="0.5" fill="currentColor" opacity="0.9"/><rect x="8" y="0" width="3.5" height="12" rx="0.5" fill="currentColor" opacity="0.9"/><rect x="11.5" y="0" width="2" height="7" rx="0.3" fill="currentColor" opacity="0.3"/><rect x="12" y="0" width="3.5" height="12" rx="0.5" fill="currentColor" opacity="0.9"/></svg> {{ t('piano.pianoAreaSettings') }}
-          </Btn>
-          <Btn @click="showOtherSettings = !showOtherSettings" size="small" type="default">
-            <i class="fas fa-cog"></i>{{ t('piano.otherSettings') }}
-          </Btn>
-        </div>
-        <div class="flex items-center gap-3">
-          <Btn @click="toggleFullscreen" size="small" type="default">
-            <i :class="isFullscreen ? 'fas fa-compress' : 'fas fa-expand'"></i>
-          </Btn>
-          <Btn @click="showExport = true" size="small" type="default" :status="exporting ? 'loading' : 'normal'">
-            <i :class="exporting ? 'fas fa-spinner fa-spin' : 'fas fa-video'"></i>
-            {{ exporting ? t('piano.exporting') : t('piano.exportVideo') }}
-          </Btn>
-        </div>
-      </div>
+          <label><i class="fas fa-wave-square mr-2"></i> Nhập âm thanh
+            <input type="file" class="hidden" accept="audio/*" :disabled="loadingMidi || converting || exporting" @change="onFileUpload($event); closeMenus()">
+          </label>
+          <button type="button" @click="showPlaylist = !showPlaylist"><i class="fas fa-folder-open mr-2"></i> Thư viện bài nhạc</button>
+          <button type="button" :disabled="exporting" @click="showExport = true"><i class="fas fa-file-video mr-2"></i> Xuất video MP4</button>
+        </div></details>
+        <details name="melorix-main-menu"><summary>Chỉnh sửa</summary><div class="mx-menu-pop">
+          <button type="button" :disabled="exporting" @click="setAllParts(true)">Bật tất cả track</button>
+          <button type="button" :disabled="exporting" @click="setAllParts(false)">Tắt tất cả track</button>
+          <button type="button" @click="showOtherSettings = true">Thiết lập MIDI và AI</button>
+        </div></details>
+        <details name="melorix-main-menu"><summary>Phát lại</summary><div class="mx-menu-pop">
+          <button type="button" :disabled="!notes.length || exporting" @click="togglePlay">{{ playState === 'playing' ? 'Tạm dừng' : 'Phát nhạc' }}</button>
+          <button type="button" @click="stop">Dừng / về đầu</button>
+          <button type="button" @click="nextTrack">Bài tiếp theo</button>
+          <button type="button" @click="repeat = !repeat">{{ repeat ? '✓ ' : '' }}Lặp lại bài</button>
+        </div></details>
+        <details name="melorix-main-menu"><summary>Track MIDI</summary><div class="mx-menu-pop">
+          <button type="button" :aria-pressed="isTimelineOpen" @click="isTimelineOpen = !isTimelineOpen">{{ isTimelineOpen ? '✓ ' : '' }}Hiện dòng thời gian</button>
+          <button type="button" :aria-pressed="isTrackPanelOpen" @click="toggleTrackPanel">{{ isTrackPanelOpen ? '✓ ' : '' }}Danh sách track bên trái</button>
+          <button type="button" :aria-pressed="isInspectorOpen" @click="toggleInspectorPanel">{{ isInspectorOpen ? '✓ ' : '' }}Bảng chỉnh sửa bên phải</button>
+          <button type="button" :disabled="exporting" @click="setAllParts(true)">Bật toàn bộ nhạc cụ</button>
+          <button type="button" :disabled="exporting" @click="setAllParts(false)">Tắt toàn bộ nhạc cụ</button>
+          <div class="mx-menu-caption">{{ midiParts.length }} track · {{ enabledPartCount }} đang bật</div>
+        </div></details>
+        <details name="melorix-main-menu"><summary>Công cụ</summary><div class="mx-menu-pop">
+          <button type="button" @click="showBgSettings = true">Hiệu ứng nốt rơi</button>
+          <button type="button" @click="showPianoSettings = true">Bàn phím Piano</button>
+          <button type="button" @click="toggleInspectorPanel">{{ isInspectorOpen ? 'Ẩn' : 'Mở' }} bảng chỉnh trực tiếp</button>
+          <button type="button" @click="showOtherSettings = true">Cài đặt nâng cao / AI</button>
+        </div></details>
+        <details name="melorix-main-menu"><summary>Hiển thị</summary><div class="mx-menu-pop">
+          <button type="button" :aria-pressed="isTimelineOpen" @click="isTimelineOpen = !isTimelineOpen">{{ isTimelineOpen ? '✓ ' : '' }}Timeline MIDI</button>
+          <button type="button" :aria-pressed="isTrackPanelOpen" @click="toggleTrackPanel">{{ isTrackPanelOpen ? '✓ ' : '' }}Danh sách track bên trái</button>
+          <button type="button" :aria-pressed="isInspectorOpen" @click="toggleInspectorPanel">{{ isInspectorOpen ? '✓ ' : '' }}Bảng thuộc tính bên phải</button>
+          <button type="button" :aria-pressed="videoFormat === 'landscape'" @click="videoFormat = 'landscape'">{{ videoFormat === 'landscape' ? '✓ ' : '' }}Video ngang 16:9</button>
+          <button type="button" :aria-pressed="videoFormat === 'portrait'" @click="videoFormat = 'portrait'">{{ videoFormat === 'portrait' ? '✓ ' : '' }}Video dọc 9:16</button>
+          <button type="button" @click="toggleFullscreen">Xem toàn màn hình</button>
+        </div></details>
+        <details name="melorix-main-menu"><summary>Xuất</summary><div class="mx-menu-pop">
+          <button type="button" :disabled="exporting" @click="showExport = true">Xuất MP4 (15 giây / 30 giây / cả bài)</button>
+          <button type="button" @click="captureFrame">Lưu khung hình PNG</button>
+        </div></details>
+      </nav>
+      <span class="mx-head-meta">MIDI · VIDEO VISUAL STUDIO</span>
+    </header>
+
+    <div v-if="!isFullscreen && uploadError" role="alert" class="mx-warning mx-error">
+      {{ uploadError }} <button class="mx-track-mini" type="button" @click="uploadError = ''">{{ t('piano.dismissError') }}</button>
     </div>
 
-    <div v-if="!isFullscreen && uploadError" role="alert" class="rounded-lg px-4 py-3 mb-3 text-sm bg-red-50 text-red-800 dark:bg-red-900/30 dark:text-red-200 flex items-center justify-between gap-3">
-      <span>{{ uploadError }}</span>
-      <button type="button" class="underline font-semibold" @click="uploadError = ''">{{ t('piano.dismissError') }}</button>
-    </div>
-    <!-- MIDI tracks from Cakewalk, NeuralNote or Tsumugi. All rendering, playback and export share notes. -->
-    <section v-if="!isFullscreen && showTrackPanel" class="glass-card p-4 mb-4" :aria-label="t('piano.trackMixer')">
-      <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
-        <div>
-          <h2 class="font-semibold text-base">{{ t('piano.trackMixer') }}</h2>
-          <p class="text-xs opacity-65">{{ t('piano.trackMixerHelp') }}</p>
+    <div class="mx-workspace" :class="{ 'mx-inspector-open': isInspectorOpen, 'mx-tracks-open': isTrackPanelOpen }">
+      <div v-if="!isFullscreen && (isInspectorOpen || isTrackPanelOpen)" class="mx-inspector-backdrop" @click="isInspectorOpen = false; isTrackPanelOpen = false" aria-hidden="true"></div>
+      <aside v-if="!isFullscreen && isTrackPanelOpen" class="mx-track-sidebar" aria-label="Danh sách track MIDI">
+        <div class="mx-inspector-top mx-track-sidebar-title">
+          <i class="fas fa-layer-group"></i><span>Track MIDI</span>
+          <span class="mx-track-side-count">{{ enabledPartCount }}/{{ midiParts.length }}</span>
+          <button type="button" class="mx-side-close" aria-label="Ẩn danh sách track" title="Ẩn track" @click="isTrackPanelOpen = false"><i class="fas fa-times"></i></button>
         </div>
-        <div class="flex items-center gap-2 text-sm">
-          <span class="opacity-70">{{ enabledPartCount }}/{{ midiParts.length }}</span>
-          <button type="button" :disabled="exporting" class="px-3 py-1.5 rounded-lg border border-black/15 dark:border-white/20 hover:bg-primary-500/10 disabled:opacity-40" @click="setAllParts(true)">{{ t('piano.enableAllTracks') }}</button>
-          <button type="button" :disabled="exporting" class="px-3 py-1.5 rounded-lg border border-black/15 dark:border-white/20 hover:bg-primary-500/10 disabled:opacity-40" @click="setAllParts(false)">{{ t('piano.disableAllTracks') }}</button>
+        <div class="mx-track-sidebar-actions">
+          <button type="button" :disabled="exporting || !midiParts.length" @click="setAllParts(true)">Bật tất cả</button>
+          <button type="button" :disabled="exporting || !midiParts.length" @click="setAllParts(false)">Tắt tất cả</button>
         </div>
-      </div>
-      <p v-if="midiParts.length === 0" class="text-sm opacity-70">{{ t('piano.noMidiTracks') }}</p>
-      <p v-else-if="enabledPartCount === 0" class="text-sm text-amber-600 dark:text-amber-300 mb-2" role="status">{{ t('piano.noActiveTrack') }}</p>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[320px] overflow-y-auto">
-        <div v-for="part in midiParts" :key="part.id" class="flex items-center gap-2 rounded-lg border border-black/10 dark:border-white/15 bg-white/40 dark:bg-white/5 px-3 py-2">
-          <input type="checkbox" :checked="part.enabled" :disabled="exporting" @change="onPartToggle(part.id, $event)" :aria-label="part.name" class="accent-primary-500 w-4 h-4">
-          <div class="min-w-0 flex-1">
-            <div class="truncate text-sm font-medium" :title="part.name">{{ part.name }}</div>
-            <div class="text-xs opacity-60">{{ part.noteCount }} {{ t('piano.noteCount') }} · MIDI #{{ part.id + 1 }}</div>
+        <div class="mx-track-sidebar-list">
+          <p v-if="!midiParts.length" class="mx-track-sidebar-empty">Nhập MIDI để xem và chỉnh các nhạc cụ.</p>
+          <section v-for="part in timelineRows" :key="part.id" class="mx-track-side-item" :class="{ 'mx-track-side-item-muted': !part.enabled }">
+            <div class="mx-track-side-top">
+              <button type="button" class="mx-eye" :title="part.enabled ? 'Ẩn track' : 'Bật track'" :disabled="exporting" @click="setPartEnabled(part.id, !part.enabled)">
+                <i :class="part.enabled ? 'fas fa-eye' : 'fas fa-eye-slash'"></i>
+              </button>
+              <span class="mx-swatch" :style="{ backgroundColor: part.color }"></span>
+              <span class="mx-track-name" :title="part.name">{{ part.name }}</span>
+              <button type="button" class="mx-track-mini" :aria-pressed="!part.enabled" :disabled="exporting" @click="setPartEnabled(part.id, !part.enabled)" title="Mute">M</button>
+              <button type="button" class="mx-track-mini" :aria-pressed="part.enabled && enabledPartCount === 1" :disabled="exporting" @click="soloPart(part.id)" title="Solo">S</button>
+            </div>
+            <div class="mx-track-side-sub">
+              <span :title="part.instrument || 'MIDI'">{{ part.instrument || 'MIDI' }}</span>
+              <span>{{ part.noteCount }} nốt</span>
+              <input type="color" :value="part.color" :disabled="exporting" :aria-label="'Màu ' + part.name" @input="onPartColorInput(part.id, $event)">
+            </div>
+            <div class="mx-track-side-minimap" :aria-label="'Tổng quan nốt của ' + part.name" role="img">
+              <span v-for="(bar,idx) in part.bars" :key="idx" class="mx-track-side-mini-note" :style="{ left: bar.left + '%', width: bar.width + '%', backgroundColor: part.color }"></span>
+            </div>
+          </section>
+        </div>
+        <div class="mx-track-side-footer">
+          <button type="button" @click="isTimelineOpen = !isTimelineOpen">{{ isTimelineOpen ? 'Ẩn' : 'Mở' }} timeline</button>
+          <button type="button" @click="showPlaylist = !showPlaylist">Bài nhạc</button>
+        </div>
+      </aside>
+      <div class="mx-stage">
+        <section v-if="!isFullscreen && isTimelineOpen" class="mx-timeline" aria-label="Dòng thời gian MIDI">
+          <div class="mx-timeline-head">
+            <div class="mx-timeline-title"><i class="fas fa-stream mr-2"></i> TRACKS · {{ enabledPartCount }}/{{ midiParts.length }} đang bật</div>
+            <div class="mx-ruler"><span v-for="(tick,i) in timelineTicks" :key="i">{{ tick }}</span></div>
           </div>
-          <input type="color" :value="part.color" :disabled="exporting" @input="onPartColorInput(part.id, $event)" :aria-label="t('piano.trackColor') + ': ' + part.name" class="w-8 h-8 rounded border-0 bg-transparent cursor-pointer">
-          <button type="button" :disabled="exporting" class="text-xs px-2.5 py-1.5 rounded-lg border border-black/15 dark:border-white/20 disabled:opacity-40" @click="soloPart(part.id)">{{ t('piano.soloTrack') }}</button>
-        </div>
-      </div>
-    </section>
-
+          <div class="mx-lanes">
+            <div v-if="!midiParts.length" class="mx-empty">Đang nạp bài MIDI…</div>
+            <div v-for="part in timelineRows" :key="part.id" class="mx-track-row">
+              <div class="mx-track-controls">
+                <button type="button" class="mx-eye" :title="part.enabled ? 'Ẩn track' : 'Hiện track'" :disabled="exporting" @click="setPartEnabled(part.id, !part.enabled)">
+                  <i :class="part.enabled ? 'fas fa-eye' : 'fas fa-eye-slash'"></i>
+                </button>
+                <span class="mx-swatch" :style="{ background: part.color }"></span>
+                <span class="mx-track-name" :style="{ color: part.enabled ? part.color : '#929ba8' }" :title="part.name">{{ part.name }}</span>
+                <button type="button" class="mx-track-mini" :aria-pressed="!part.enabled" :disabled="exporting" @click="setPartEnabled(part.id, !part.enabled)">M</button>
+                <button type="button" class="mx-track-mini" :aria-pressed="part.enabled && enabledPartCount === 1" :disabled="exporting" @click="soloPart(part.id)">S</button>
+                <input type="color" class="mx-track-color" :value="part.color" :disabled="exporting" :aria-label="'Màu track ' + part.name" @input="onPartColorInput(part.id, $event)">
+              </div>
+              <button type="button" class="mx-lane" :class="{ 'mx-lane-muted': !part.enabled }" :aria-label="'Chọn thời điểm cho ' + part.name" @click="seekFromTimeline">
+                <span v-for="(bar,index) in part.bars" :key="index" class="mx-note" :style="{ left: bar.left + '%', width: bar.width + '%', top: bar.top + 'px', background: part.color, color: part.color }"></span>
+                <span class="mx-cursor" :style="{ left: progressPct + '%' }"></span>
+              </button>
+            </div>
+          </div>
+        </section>
+        <!-- Các hộp thoại cài đặt gốc giữ nguyên engine và chức năng -->
     <!-- 音符区设置 Modal -->
     <Modal v-model:show="showBgSettings" :title="t('piano.noteAreaSettings')">
       <div class="flex flex-col gap-4 p-4 text-black/85 dark:text-white/90">
@@ -1332,22 +1513,19 @@ watch(() => currentTime.value, (t) => {
       </div>
     </Modal>
 
-    <p v-if="!isFullscreen" class="text-xs opacity-65 text-center mb-2">{{ videoFormat === 'portrait' ? t('piano.portraitFormat') : t('piano.landscapeFormat') }} · {{ formatDimensions.width }} × {{ formatDimensions.height }} · 30 FPS</p>
-    <!-- 展示区域 -->
-    <div :class="['glass-card overflow-hidden flex-1 flex flex-col min-h-0 relative', isFullscreen ? '!rounded-none !border-0' : '']">
+        <section class="mx-preview" :class="{ 'mx-preview-full': isFullscreen }">
+          <div ref="canvasAreaRef" class="mx-preview-canvas-area">
       <canvas ref="canvasRef" class="block bg-black/95 dark:bg-black mx-auto"
-        :class="isFullscreen && videoFormat === 'landscape' ? 'flex-1 w-full' : 'flex-shrink-0'"
-        :style="videoFormat === 'portrait'
-          ? { aspectRatio: '9 / 16', width: isFullscreen ? 'min(100%, 50.625vh)' : 'min(100%, 414px)', height: 'auto' }
-          : (isFullscreen ? {} : { width: '100%', height: CANVAS_H + 'px' })"></canvas>
+        :style="{ width: fittedPreview.width + 'px', height: fittedPreview.height + 'px' }"></canvas>
+          </div>
 
       <!-- 进度条 -->
-      <div v-show="!(isFullscreen && hideControlsInFullscreen)" class="h-1.5 bg-black/10 dark:bg-white/[0.06] flex-shrink-0">
+      <div v-show="!(isFullscreen && hideControlsInFullscreen)" class="mx-preview-progress h-1.5 bg-black/10 dark:bg-white/[0.06] flex-shrink-0">
         <div class="h-full bg-primary-500/80" :style="{ width: progressPct + '%' }"></div>
       </div>
 
       <!-- 底部控制栏 -->
-      <div v-show="!(isFullscreen && hideControlsInFullscreen)" class="flex items-center gap-3 px-4 py-2.5 bg-white/5 dark:bg-white/[0.02] flex-shrink-0 relative">
+      <div v-show="!(isFullscreen && hideControlsInFullscreen)" class="mx-transport flex items-center gap-3 px-4 py-2.5 bg-white/5 dark:bg-white/[0.02] flex-shrink-0 relative">
         <!-- 播放列表按钮 -->
         <button @click="showPlaylist = !showPlaylist" class="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 border border-[rgba(255,255,255,0.5)] bg-[rgba(255,255,255,0.4)] shadow-glass-light text-[#191c1e] dark:bg-[rgba(255,255,255,0.1)] dark:border-[rgba(255,255,255,0.1)] dark:text-white/85 dark:shadow-none transition-all duration-300 hover:-translate-y-px hover:bg-[rgba(255,255,255,0.5)] hover:border-[rgba(255,255,255,0.5)] hover:shadow-glass-hover-light active:translate-y-0 active:bg-[rgba(255,255,255,0.3)] dark:hover:bg-[rgba(255,255,255,0.15)] dark:hover:border-[rgba(255,255,255,0.15)] dark:active:bg-[rgba(255,255,255,0.08)]">
           <i class="fas fa-list text-xs"></i>
@@ -1391,7 +1569,50 @@ watch(() => currentTime.value, (t) => {
         </div>
 
       </div>
-    </div>
+        </section> <!-- preview -->
+      </div> <!-- workspace stage -->
+      <aside v-if="!isFullscreen && isInspectorOpen" class="mx-inspector" aria-label="Thuộc tính MELORIX">
+        <div class="mx-inspector-top"><i class="fas fa-sliders-h"></i> Cài đặt <span style="margin-left:auto;font-weight:400;color:#929eae">Thuộc tính</span>
+          <button type="button" class="mx-side-close" aria-label="Đóng bảng thuộc tính" @click="isInspectorOpen = false"><i class="fas fa-times"></i></button>
+        </div>
+        <section class="mx-panel">
+          <h3><i class="fas fa-fire mr-2" style="color:#ff9c45"></i>Hiệu ứng nốt rơi</h3>
+          <label class="mx-field"><span>Kiểu hiệu ứng</span><select v-model="noteEffect"><option value="smoke">Phát sáng + Hạt bụi</option><option value="diffuse">Hào quang lan tỏa</option></select></label>
+          <label class="mx-field"><span>Màu nhấn nốt</span><input type="color" v-model="noteActiveColor"></label>
+          <label class="mx-field"><span>Độ sáng {{ noteGlow }}</span><input type="range" min="0" max="240" v-model.number="noteGlow"></label>
+          <label class="mx-field"><span>Độ đậm {{ noteOpacity }}%</span><input type="range" min="10" max="100" v-model.number="noteOpacity"></label>
+          <label class="mx-field"><span>Velocity</span><select v-model="velocityMode"><option value="off">Tắt</option><option value="natural">Tự nhiên</option><option value="expressive">Nổi bật</option></select></label>
+          <label class="mx-field"><span>Phản ứng {{ velocitySensitivity }}%</span><input type="range" min="0" max="100" step="5" v-model.number="velocitySensitivity" :disabled="velocityMode === 'off'"></label>
+          <div class="mx-panel-actions"><button type="button" @click="showBgSettings = true">Điều chỉnh nâng cao</button></div>
+        </section>
+        <section class="mx-panel">
+          <h3><i class="fas fa-keyboard mr-2" style="color:#ff9c45"></i>Bàn phím Piano</h3>
+          <label class="mx-field"><span>Màu phím sáng</span><input type="color" v-model="pianoActiveColor"></label>
+          <label class="mx-field"><span>Độ sáng {{ pianoGlow }}</span><input type="range" min="0" max="240" v-model.number="pianoGlow"></label>
+          <label class="mx-field"><span>Độ đậm {{ pianoOpacity }}%</span><input type="range" min="10" max="100" v-model.number="pianoOpacity"></label>
+          <div class="mx-panel-actions"><button type="button" @click="showPianoSettings = true">Thiết lập bàn phím</button></div>
+        </section>
+        <section class="mx-panel">
+          <h3><i class="fas fa-image mr-2" style="color:#ff9c45"></i>Cảnh nền</h3>
+          <div class="mx-panel-actions">
+            <button v-for="preset in bgPresets" :key="preset.url" type="button" @click="applyBgPreset(preset)">{{ preset.type === 'video' ? 'Sóng biển' : 'Bầu trời sao' }}</button>
+            <label>Chọn ảnh / video<input class="hidden" type="file" accept="image/*,video/*" @change="handleBgUpload"></label>
+            <button type="button" @click="clearBg">Xóa nền</button>
+          </div>
+        </section>
+        <section class="mx-panel">
+          <h3><i class="fas fa-video mr-2" style="color:#ff9c45"></i>Máy quay và khung hình</h3>
+          <label class="mx-field"><span>Tỉ lệ khung</span><select v-model="videoFormat"><option value="landscape">Ngang 16:9</option><option value="portrait">Dọc 9:16</option></select></label>
+          <label v-if="videoFormat === 'portrait'" class="mx-field"><span>Dải phím</span><select v-model="portraitKeyboard"><option value="auto">Tự động</option><option value="24">C1–B4</option><option value="36">C2–B5</option><option value="48">C3–B6</option><option value="60">C4–B7</option><option value="all">Toàn bộ</option></select></label>
+          <div class="mx-panel-muted">{{ formatDimensions.width }} × {{ formatDimensions.height }} · 30 FPS</div>
+          <div class="mx-panel-actions" style="margin-top:9px"><button type="button" @click="showExport = true">Thiết lập xuất MP4</button></div>
+        </section>
+        <section class="mx-panel">
+          <h3><i class="fas fa-folder-open mr-2" style="color:#ff9c45"></i>Thông tin dự án</h3>
+          <p class="mx-panel-muted">{{ currentTrack?.name || 'Chưa chọn' }} · {{ midiParts.length }} track · {{ notes.length }} nốt · {{ fmtTime(duration) }}</p>
+        </section>
+      </aside>
+    </div> <!-- workspace -->
     <!-- 隐藏视频元素用于背景渲染 -->
     <video v-if="bgMedia?.type === 'video'" ref="bgMediaEl" :src="bgMedia.url" loop muted autoplay playsinline style="position:fixed;top:-9999px;left:-9999px;pointer-events:none"></video>
   </div>
