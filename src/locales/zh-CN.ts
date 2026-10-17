@@ -1,7 +1,7 @@
 export default {
-  app: { title: 'Piano Hiệu Ứng', theme: '切换主题', language: '语言' },
+  app: { title: 'MELORIX', theme: '切换主题', language: '语言' },
   piano: {
-    title: 'Piano Hiệu Ứng', subtitle: '支持 MIDI 和音频的钢琴音符掉落视频生成器',
+    title: 'MELORIX', subtitle: '支持 MIDI 和音频的钢琴音符掉落视频生成器',
     uploadMidi: '上传 MIDI', uploadMidiMusic: '上传MIDI/音乐', loading: '加载中...', converting: '转换中...',
     noteAreaSettings: '音符区设置', noteColor: '音符颜色', activeColor: '激活颜色',
     noteEffect: '特效', effectSmoke: '燃烧烟雾', effectDiffuse: '扩散光环',
