@@ -81,6 +81,14 @@ function onGridDouble(e:MouseEvent){
 }
 function noteDown(e:PointerEvent,index:number){if(tool.value==='erase'){removeNote(index);return}startDrag(e,index,'move')}
 function noteDbl(e:MouseEvent,index:number){e.stopPropagation();removeNote(index)}
+function pitchAtPointer(e:PointerEvent):number|null{
+ const area=scroll.value
+ if(!area)return null
+ const rect=area.getBoundingClientRect()
+ const x=e.clientX-rect.left, y=e.clientY-rect.top+area.scrollTop
+ if(x<0||x>KEY_W||y<0||y>=ROW*(HIGH-LOW+1))return null
+ return Math.max(LOW,Math.min(HIGH,HIGH-Math.floor(y/ROW)))
+}
 function keyLabel(midi:number){return midiNoteName(midi)}
 onUnmounted(stopDrag)
 </script>
