@@ -40,11 +40,16 @@ const ticks=computed(()=>Array.from({length:Math.min(2000,Math.ceil(totalWidth.v
 const keyList=Array.from({length:HIGH-LOW+1},(_,i)=>HIGH-i)
 let previousTrackId: number | null = null
 watch(()=>[props.part.id,props.notes],()=>{
-  const switched = previousTrackId !== props.part.id
-  previousTrackId = props.part.id
-  draft.value = props.notes.map(n=>({...n}))
-  if (switched || selected.value >= draft.value.length) selected.value = -1
-  if (switched) void nextTick(()=>{ centerKeys(); followPlayhead(true) })
+  const switched=previousTrackId!==props.part.id
+  previousTrackId=props.part.id
+  if(switched||!sameNotes(draft.value,props.notes))draft.value=cloneNotes(props.notes)
+  if(switched){
+    selectedIndices.value=[];selected.value=-1
+    undoHistory.value=[];redoHistory.value=[];clipboard.value=[]
+    void nextTick(()=>{centerKeys();followPlayhead(true)})
+  } else if(selectedIndices.value.some(i=>i>=draft.value.length)){
+    selectedIndices.value=[];selected.value=-1
+  }
 },{immediate:true})
 function centerKeys(){
  const e=scroll.value; if(!e)return
