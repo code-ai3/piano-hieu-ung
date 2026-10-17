@@ -567,10 +567,11 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     // 燃烧几何：接触瞬间音符底贴分割线、高 noteH，以此为基准无跳变
     const noteH = Math.max(8, (n.duration / visibleTime) * notesAreaH)
     const age = targetTime - n.time
+    const power = visualPower(n.velocity)
 
     if (age < 0) {
       // 尚未接触分割线：正常下落绘制（按音高多彩色）
-      const alpha = n.velocity * 0.5 + 0.25
+      const alpha = Math.min(0.98, (noteOpacity.value / 100) * (0.32 + 0.68 * power))
       ctx.fillStyle = `rgba(${ar},${ag},${ab},${alpha})`
       ctx.strokeStyle = `rgba(${ar},${ag},${ab},${Math.min(1, alpha + 0.25)})`
       ctx.lineWidth = 2
@@ -582,13 +583,13 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
       // 扩散光环特效：接触后激活色持续矩形 + 接触瞬间多彩扩散光环（原始效果）
       const playing = n.time + n.duration > targetTime
       if (!playing) continue
-      const alpha = noteOpacity.value / 100
+      const alpha = (noteOpacity.value / 100) * (0.32 + 0.68 * power)
       // 激活瞬间扩散光环（音符启动后 0.6s 内，多彩色减淡）
       const actAge = age
       if (actAge < 0.6) {
         const actProgress = actAge / 0.6
-        const actR = 6 + actProgress * 40
-        const actAlpha = (1 - actProgress) * (1 - actProgress) * 0.5
+        const actR = 6 + actProgress * 40 * (0.3 + 0.7 * power)
+        const actAlpha = (1 - actProgress) * (1 - actProgress) * 0.5 * power
         const actH = Math.max(2, yTop - yBottom)
         ctx.fillStyle = `rgba(${ar},${ag},${ab},${actAlpha})`
         ctx.beginPath(); roundRect(ctx, x - actR/2, yBottom - actR/2, nw + actR, actH + actR, rx + 2); ctx.fill()
@@ -596,7 +597,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
       ctx.fillStyle = `rgba(${ar},${ag},${ab},${alpha})`
       ctx.strokeStyle = `rgba(${ar},${ag},${ab},${Math.min(1, alpha + 0.25)})`
       ctx.shadowColor = `rgba(${ar},${ag},${ab},0.8)`
-      ctx.shadowBlur = noteGlow.value
+      ctx.shadowBlur = noteGlow.value * (0.25 + 0.75 * power)
       ctx.lineWidth = 2
       const nh = Math.max(2, yTop - yBottom)
       ctx.beginPath(); roundRect(ctx, x + 1, yBottom, nw - 2, nh, rx); ctx.fill()
@@ -610,12 +611,12 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
       const remainH = frontY - topY
       if (remainH > 1) {
         // 本体不透明度按激活后绝对时间快速指数衰减：长音不会一直停在画面里
-        const bodyA = (noteOpacity.value / 100) * Math.exp(-age * 2.2)
+        const bodyA = (noteOpacity.value / 100) * Math.exp(-age * 2.2) * (0.3 + 0.7 * power)
         // 前沿白热亮带随燃烧进度保持可见（引线仍在爬）
-        const frontA = (1 - p) * 0.7 + 0.3
+        const frontA = ((1 - p) * 0.7 + 0.3) * (0.25 + 0.75 * power)
         ctx.save()
         ctx.shadowColor = `rgba(${tint(ar,ag,ab,0.5)},1)`
-        ctx.shadowBlur = noteGlow.value + 25
+        ctx.shadowBlur = (noteGlow.value + 25) * (0.2 + 0.8 * power)
         // 主体：上方未燃部分保持激活色 → 靠近前沿逐渐白热，底边平直
         const grad = ctx.createLinearGradient(0, topY, 0, frontY)
         grad.addColorStop(0, `rgba(${ar},${ag},${ab},${bodyA})`)
@@ -635,8 +636,8 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
       // 接触瞬闪：白 → 激活色 径向闪光（更大更亮）
       if (age < FLASH_DUR) {
         const fp = age / FLASH_DUR
-        const fr = 18 + fp * 80
-        const fa = (1 - fp) * 0.95
+        const fr = (18 + fp * 80) * (0.35 + 0.65 * power)
+        const fa = (1 - fp) * 0.95 * power
         const fg = ctx.createRadialGradient(cx, notesAreaH, 1, cx, notesAreaH, fr)
         fg.addColorStop(0, `rgba(255,255,255,${fa})`)
         fg.addColorStop(0.25, `rgba(${tint(ar,ag,ab,0.6)},${fa * 0.8})`)
