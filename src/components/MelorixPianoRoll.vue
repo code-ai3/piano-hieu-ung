@@ -177,13 +177,21 @@ function moveDrag(e:PointerEvent){
  const shiftPitch=-Math.round((e.clientY-d.y)/ROW)
  draft.value=moveMidiNotes(d.before,d.indices,delta,shiftPitch)
 }
-function removeNote(index:number){if(props.disabled)return;draft.value.splice(index,1);selected.value=-1;commit()}
+function removeNote(index:number){
+ if(props.disabled)return
+ const before=cloneNotes(draft.value)
+ draft.value.splice(index,1)
+ setSelection([])
+ commit(before)
+}
 function onGridDouble(e:MouseEvent){
  if(props.disabled)return
  const grid=e.currentTarget as HTMLElement;const r=grid.getBoundingClientRect()
  const time=snapAt(e.clientX-r.left), pitch=yToMidi(e.clientY-r.top)
+ const before=cloneNotes(draft.value)
  draft.value.push({time,midi:pitch,name:midiNoteName(pitch),duration:Math.max(.08,snap.value||.25),velocity:95/127,trackId:props.part.id})
- selected.value=draft.value.length-1;commit()
+ setSelection([draft.value.length-1])
+ commit(before)
 }
 function noteDown(e:PointerEvent,index:number){if(tool.value==='erase'){removeNote(index);return}startDrag(e,index,'move')}
 function noteDbl(e:MouseEvent,index:number){e.stopPropagation();removeNote(index)}
