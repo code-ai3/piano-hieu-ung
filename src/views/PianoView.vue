@@ -93,8 +93,17 @@ let rafId = 0
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const canvasAreaRef = ref<HTMLDivElement | null>(null)
-const isInspectorOpen = ref(false)
+const isInspectorOpen = ref(typeof window !== 'undefined' && window.innerWidth > 1000)
+const isTrackPanelOpen = ref(typeof window !== 'undefined' && window.innerWidth > 1000)
 const isTimelineOpen = ref(false)
+function toggleTrackPanel() {
+  isTrackPanelOpen.value = !isTrackPanelOpen.value
+  if (window.innerWidth <= 1000 && isTrackPanelOpen.value) isInspectorOpen.value = false
+}
+function toggleInspectorPanel() {
+  isInspectorOpen.value = !isInspectorOpen.value
+  if (window.innerWidth <= 1000 && isInspectorOpen.value) isTrackPanelOpen.value = false
+}
 function closeMenuAfterAction(e: MouseEvent) {
   const target = e.target as HTMLElement
   if (!target.closest('button, label')) return
@@ -1158,7 +1167,8 @@ watch(() => currentTime.value, (t) => {
         </div></details>
         <details><summary>Track MIDI</summary><div class="mx-menu-pop">
           <button type="button" :aria-pressed="isTimelineOpen" @click="isTimelineOpen = !isTimelineOpen">{{ isTimelineOpen ? '✓ ' : '' }}Hiện dòng thời gian</button>
-          <button type="button" :aria-pressed="isInspectorOpen" @click="isInspectorOpen = !isInspectorOpen">{{ isInspectorOpen ? '✓ ' : '' }}Hiện bảng thuộc tính</button>
+          <button type="button" :aria-pressed="isTrackPanelOpen" @click="toggleTrackPanel">{{ isTrackPanelOpen ? '✓ ' : '' }}Danh sách track bên trái</button>
+          <button type="button" :aria-pressed="isInspectorOpen" @click="toggleInspectorPanel">{{ isInspectorOpen ? '✓ ' : '' }}Bảng chỉnh sửa bên phải</button>
           <button type="button" :disabled="exporting" @click="setAllParts(true)">Bật toàn bộ nhạc cụ</button>
           <button type="button" :disabled="exporting" @click="setAllParts(false)">Tắt toàn bộ nhạc cụ</button>
           <div class="mx-menu-caption">{{ midiParts.length }} track · {{ enabledPartCount }} đang bật</div>
@@ -1166,12 +1176,13 @@ watch(() => currentTime.value, (t) => {
         <details><summary>Công cụ</summary><div class="mx-menu-pop">
           <button type="button" @click="showBgSettings = true">Hiệu ứng nốt rơi</button>
           <button type="button" @click="showPianoSettings = true">Bàn phím Piano</button>
-          <button type="button" @click="isInspectorOpen = !isInspectorOpen">{{ isInspectorOpen ? 'Ẩn' : 'Mở' }} bảng chỉnh trực tiếp</button>
+          <button type="button" @click="toggleInspectorPanel">{{ isInspectorOpen ? 'Ẩn' : 'Mở' }} bảng chỉnh trực tiếp</button>
           <button type="button" @click="showOtherSettings = true">Cài đặt nâng cao / AI</button>
         </div></details>
         <details><summary>Hiển thị</summary><div class="mx-menu-pop">
           <button type="button" :aria-pressed="isTimelineOpen" @click="isTimelineOpen = !isTimelineOpen">{{ isTimelineOpen ? '✓ ' : '' }}Timeline MIDI</button>
-          <button type="button" :aria-pressed="isInspectorOpen" @click="isInspectorOpen = !isInspectorOpen">{{ isInspectorOpen ? '✓ ' : '' }}Bảng thuộc tính bên phải</button>
+          <button type="button" :aria-pressed="isTrackPanelOpen" @click="toggleTrackPanel">{{ isTrackPanelOpen ? '✓ ' : '' }}Danh sách track bên trái</button>
+          <button type="button" :aria-pressed="isInspectorOpen" @click="toggleInspectorPanel">{{ isInspectorOpen ? '✓ ' : '' }}Bảng thuộc tính bên phải</button>
           <button type="button" :aria-pressed="videoFormat === 'landscape'" @click="videoFormat = 'landscape'">{{ videoFormat === 'landscape' ? '✓ ' : '' }}Video ngang 16:9</button>
           <button type="button" :aria-pressed="videoFormat === 'portrait'" @click="videoFormat = 'portrait'">{{ videoFormat === 'portrait' ? '✓ ' : '' }}Video dọc 9:16</button>
           <button type="button" @click="toggleFullscreen">Xem toàn màn hình</button>
@@ -1188,8 +1199,45 @@ watch(() => currentTime.value, (t) => {
       {{ uploadError }} <button class="mx-track-mini" type="button" @click="uploadError = ''">{{ t('piano.dismissError') }}</button>
     </div>
 
-    <div class="mx-workspace" :class="{ 'mx-inspector-open': isInspectorOpen }">
-      <div v-if="isInspectorOpen && !isFullscreen" class="mx-inspector-backdrop" @click="isInspectorOpen = false" aria-hidden="true"></div>
+    <div class="mx-workspace" :class="{ 'mx-inspector-open': isInspectorOpen, 'mx-tracks-open': isTrackPanelOpen }">
+      <div v-if="!isFullscreen && (isInspectorOpen || isTrackPanelOpen)" class="mx-inspector-backdrop" @click="isInspectorOpen = false; isTrackPanelOpen = false" aria-hidden="true"></div>
+      <aside v-if="!isFullscreen && isTrackPanelOpen" class="mx-track-sidebar" aria-label="Danh sách track MIDI">
+        <div class="mx-inspector-top mx-track-sidebar-title">
+          <i class="fas fa-layer-group"></i><span>Track MIDI</span>
+          <span class="mx-track-side-count">{{ enabledPartCount }}/{{ midiParts.length }}</span>
+          <button type="button" class="mx-side-close" aria-label="Ẩn danh sách track" title="Ẩn track" @click="isTrackPanelOpen = false"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="mx-track-sidebar-actions">
+          <button type="button" :disabled="exporting || !midiParts.length" @click="setAllParts(true)">Bật tất cả</button>
+          <button type="button" :disabled="exporting || !midiParts.length" @click="setAllParts(false)">Tắt tất cả</button>
+        </div>
+        <div class="mx-track-sidebar-list">
+          <p v-if="!midiParts.length" class="mx-track-sidebar-empty">Nhập MIDI để xem và chỉnh các nhạc cụ.</p>
+          <section v-for="part in timelineRows" :key="part.id" class="mx-track-side-item" :class="{ 'mx-track-side-item-muted': !part.enabled }">
+            <div class="mx-track-side-top">
+              <button type="button" class="mx-eye" :title="part.enabled ? 'Ẩn track' : 'Bật track'" :disabled="exporting" @click="setPartEnabled(part.id, !part.enabled)">
+                <i :class="part.enabled ? 'fas fa-eye' : 'fas fa-eye-slash'"></i>
+              </button>
+              <span class="mx-swatch" :style="{ backgroundColor: part.color }"></span>
+              <span class="mx-track-name" :title="part.name">{{ part.name }}</span>
+              <button type="button" class="mx-track-mini" :aria-pressed="!part.enabled" :disabled="exporting" @click="setPartEnabled(part.id, !part.enabled)" title="Mute">M</button>
+              <button type="button" class="mx-track-mini" :aria-pressed="part.enabled && enabledPartCount === 1" :disabled="exporting" @click="soloPart(part.id)" title="Solo">S</button>
+            </div>
+            <div class="mx-track-side-sub">
+              <span :title="part.instrument || 'MIDI'">{{ part.instrument || 'MIDI' }}</span>
+              <span>{{ part.noteCount }} nốt</span>
+              <input type="color" :value="part.color" :disabled="exporting" :aria-label="'Màu ' + part.name" @input="onPartColorInput(part.id, $event)">
+            </div>
+            <div class="mx-track-side-minimap" :aria-label="'Tổng quan nốt của ' + part.name" role="img">
+              <span v-for="(bar,idx) in part.bars" :key="idx" class="mx-track-side-mini-note" :style="{ left: bar.left + '%', width: bar.width + '%', backgroundColor: part.color }"></span>
+            </div>
+          </section>
+        </div>
+        <div class="mx-track-side-footer">
+          <button type="button" @click="isTimelineOpen = !isTimelineOpen">{{ isTimelineOpen ? 'Ẩn' : 'Mở' }} timeline</button>
+          <button type="button" @click="showPlaylist = !showPlaylist">Bài nhạc</button>
+        </div>
+      </aside>
       <div class="mx-stage">
         <section v-if="!isFullscreen && isTimelineOpen" class="mx-timeline" aria-label="Dòng thời gian MIDI">
           <div class="mx-timeline-head">
@@ -1414,15 +1462,6 @@ watch(() => currentTime.value, (t) => {
     </Modal>
 
         <section class="mx-preview" :class="{ 'mx-preview-full': isFullscreen }">
-          <header v-if="!isFullscreen" class="mx-preview-head">
-            <span><i class="fas fa-desktop mr-2"></i>Xem trước video
-              <span class="mx-preview-meta">· {{ videoFormat === 'portrait' ? 'TikTok / Shorts 9:16' : 'YouTube 16:9' }} · {{ formatDimensions.width }} × {{ formatDimensions.height }}</span>
-            </span>
-            <span class="flex gap-2">
-              <button class="mx-btn mx-btn-icon" type="button" title="Lưu khung hình" @click="captureFrame"><i class="fas fa-camera"></i></button>
-              <button class="mx-btn mx-btn-icon" type="button" title="Toàn màn hình" @click="toggleFullscreen"><i class="fas fa-expand"></i></button>
-            </span>
-          </header>
           <div ref="canvasAreaRef" class="mx-preview-canvas-area">
       <canvas ref="canvasRef" class="block bg-black/95 dark:bg-black mx-auto"
         :style="{ width: fittedPreview.width + 'px', height: fittedPreview.height + 'px' }"></canvas>
@@ -1482,7 +1521,7 @@ watch(() => currentTime.value, (t) => {
       </div> <!-- workspace stage -->
       <aside v-if="!isFullscreen && isInspectorOpen" class="mx-inspector" aria-label="Thuộc tính MELORIX">
         <div class="mx-inspector-top"><i class="fas fa-sliders-h"></i> Cài đặt <span style="margin-left:auto;font-weight:400;color:#929eae">Thuộc tính</span>
-          <button type="button" class="mx-inspector-close mx-track-mini" aria-label="Đóng thuộc tính" @click="isInspectorOpen = false"><i class="fas fa-times"></i></button>
+          <button type="button" class="mx-side-close" aria-label="Đóng bảng thuộc tính" @click="isInspectorOpen = false"><i class="fas fa-times"></i></button>
         </div>
         <section class="mx-panel">
           <h3><i class="fas fa-fire mr-2" style="color:#ff9c45"></i>Hiệu ứng nốt rơi</h3>
