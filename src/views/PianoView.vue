@@ -33,18 +33,19 @@ const converting = ref(false)
 const bpSettings = ref({ onsetThresh: 0.7, frameThresh: 0.3, minNoteLen: 5 })
 
 async function onFileUpload(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
-  if (!file) return
-  if (file.name.match(/\.(mid|midi)$/i)) {
-    await handleUpload(e)
-  } else {
-    await handleAudioUpload(e)
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file || exporting.value) return
+  uploadError.value = ''
+  try {
+    if (/\.(mid|midi)$/i.test(file.name)) await handleUpload(file)
+    else await handleAudioUpload(file)
+  } finally {
+    input.value = '' // reselect same file is supported
   }
 }
 
-async function handleAudioUpload(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
-  if (!file) return
+async function handleAudioUpload(file: File) {
   converting.value = true
   try {
     const { audioFileToMidi } = await import('@/util/audio-to-midi')
@@ -56,10 +57,11 @@ async function handleAudioUpload(e: Event) {
     const blob = new Blob([bytes as BlobPart], { type: 'audio/midi' })
     const url = URL.createObjectURL(blob)
     const name = file.name.replace(/\.[^.]+$/, '')
-    playlist.value.push({ name: `[转录] ${name}`, file: url })
+    playlist.value.push({ name: `${t('piano.aiTranscriptionLabel')} ${name}`, file: url })
     loadTrack(playlist.value.length - 1)
   } catch (e: any) {
     console.error(e)
+    uploadError.value = t('piano.importAudioError')
   } finally {
     converting.value = false
   }
@@ -124,6 +126,8 @@ const exportProgress = ref(0)
 const exportEta = ref(0)   // 剩余秒数
 
 async function exportVideo() {
+  if (!notes.value.length) { uploadError.value = t('piano.noActiveTrack'); return }
+  uploadError.value = ''
   exporting.value = true
   exportProgress.value = 0
   exportEta.value = 0
@@ -221,6 +225,7 @@ async function exportVideo() {
     }
   } catch (e) {
     console.error(e)
+    uploadError.value = t('piano.videoExportError')
   } finally {
     exporting.value = false
     exportProgress.value = 0
@@ -287,7 +292,8 @@ function loadTrack(idx: number) {
   currentTime.value = 0
   lastScheduledIdx = 0
   playState.value = 'idle'
-  loadMidi(playlist.value[idx].file).then(() => { play() })
+  uploadError.value = ''
+  void loadMidi(playlist.value[idx].file).then(ok => { if (ok) void play() })
 }
 
 function nextTrack() {
@@ -406,7 +412,7 @@ async function handleUpload(file: File) {
   try {
     const buf = await file.arrayBuffer()
     const midi = new Midi(buf)
-    const name = midi.name || file.name.replace(/\\.midi?$/i, '')
+    const name = midi.name || file.name.replace(/\.midi?$/i, '')
     const url = URL.createObjectURL(new Blob([buf], { type: 'audio/midi' }))
     playlist.value.push({ name, file: url })
     loadTrack(playlist.value.length - 1)
