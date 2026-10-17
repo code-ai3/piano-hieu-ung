@@ -517,12 +517,11 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
   ctx.fillRect(0, 0, cw, notesAreaH)
 
   // 激活色（统一用于下落音符与燃烧/粒子特效）
-  const ac = noteActiveColor.value
-  const ar = parseInt(ac.slice(1, 3), 16), ag = parseInt(ac.slice(3, 5), 16), ab = parseInt(ac.slice(5, 7), 16)
+  const [ar, ag, ab] = hexRgb(noteActiveColor.value)
 
   // ---- 音符掉落（仅钢琴+电子琴音色） ----
   for (const n of notes.value) {
-
+    const [ar, ag, ab] = hexRgb(trackColor(n.trackId, midiParts.value, noteActiveColor.value))
     const noteEnd = n.time + n.duration
     // 燃烧时长 = 音符播放时长：接触后随发声同步燃尽
     const burnDur = Math.max(0.05, n.duration)
@@ -534,7 +533,6 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     const rawYBottom = notesAreaH - ((noteEnd - timeBottom) / visibleTime) * notesAreaH
     const yBottom = Math.min(rawYBottom, notesAreaH)  // 不画进钢琴区域
     const { x, w: nw } = noteXW(n.midi, min, keyW)
-    const hue = ((n.midi - min) / (max - min || 1)) * 280 + 160
     const rx = Math.min(4, nw / 4)
     const cx = x + nw / 2
     // 燃烧几何：接触瞬间音符底贴分割线、高 noteH，以此为基准无跳变
@@ -544,8 +542,8 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     if (age < 0) {
       // 尚未接触分割线：正常下落绘制（按音高多彩色）
       const alpha = n.velocity * 0.5 + 0.25
-      ctx.fillStyle = `hsla(${hue}, 65%, 55%, ${alpha})`
-      ctx.strokeStyle = `hsla(${hue}, 65%, 65%, ${Math.min(1, alpha + 0.25)})`
+      ctx.fillStyle = `rgba(${ar},${ag},${ab},${alpha})`
+      ctx.strokeStyle = `rgba(${ar},${ag},${ab},${Math.min(1, alpha + 0.25)})`
       ctx.lineWidth = 2
       const nh = Math.max(2, yTop - yBottom)
       ctx.beginPath(); roundRect(ctx, x + 1, yBottom, nw - 2, nh, rx); ctx.fill()
@@ -563,7 +561,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
         const actR = 6 + actProgress * 40
         const actAlpha = (1 - actProgress) * (1 - actProgress) * 0.5
         const actH = Math.max(2, yTop - yBottom)
-        ctx.fillStyle = `hsla(${hue}, 65%, 55%, ${actAlpha})`
+        ctx.fillStyle = `rgba(${ar},${ag},${ab},${actAlpha})`
         ctx.beginPath(); roundRect(ctx, x - actR/2, yBottom - actR/2, nw + actR, actH + actR, rx + 2); ctx.fill()
       }
       ctx.fillStyle = `rgba(${ar},${ag},${ab},${alpha})`
@@ -629,6 +627,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
   ctx.save()
   ctx.globalCompositeOperation = 'lighter'
   for (const n of notes.value) {
+    const [ar, ag, ab] = hexRgb(trackColor(n.trackId, midiParts.value, noteActiveColor.value))
     const age = targetTime - n.time
     const burnDur = Math.max(0.05, n.duration)
     const smokeLife = Math.max(0.4, burnDur * 0.85)
@@ -642,7 +641,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     const noteH = Math.max(8, (n.duration / visibleTime) * notesAreaH)
     const p = age / burnDur
     const frontY = notesAreaH - noteH * p
-    const seed = n.midi * 73856093
+    const seed = n.midi * 73856093 + n.trackId * 19349663
     const burning = age < burnDur  // 燃烧中（燃尽后只残留粒子，不画引线/本体）
 
     // 解体碎片：从前沿位置沿音符本体向外（主要向两侧+上）飞散
