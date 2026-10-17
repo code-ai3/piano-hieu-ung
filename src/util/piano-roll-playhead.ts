@@ -10,3 +10,5 @@ export function rulerSeekTime(pointerX: number, rulerLeft: number, horizontalScr
 export function activeAtTime(time: number, start: number, duration: number): boolean {
   return time >= start && time < start + duration
 }
+
+// Viewport math shared with the editor.
