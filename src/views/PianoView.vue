@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Midi } from '@tonejs/midi'
+import { extractMidiParts, filterMidiParts, trackColor } from '@/util/midi-tracks'
+import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
 import { SplendidGrandPiano, renderOffline } from 'smplr'
 import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
@@ -11,15 +13,18 @@ import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
 
 // ---- 类型 ----
-interface NoteEvent {
-  midi: number; name: string; time: number; duration: number; velocity: number
-}
+type NoteEvent = MidiNoteEvent
 
 // ---- 状态 ----
 const playState = ref<'idle' | 'playing' | 'paused'>('idle')
 const currentTime = ref(0)
 const speed = ref(1)
-const notes = ref<NoteEvent[]>([])
+const allNotes = ref<NoteEvent[]>([])
+const midiParts = ref<MidiPart[]>([])
+const notes = computed(() => filterMidiParts(allNotes.value, midiParts.value))
+const enabledPartCount = computed(() => midiParts.value.filter(part => part.enabled).length)
+const showTrackPanel = ref(false)
+const uploadError = ref('')
 const noteRange = ref({ min: 21, max: 108 })
 const duration = ref(0)
 const pianoLoaded = ref(false)
@@ -314,42 +319,101 @@ async function initPiano() {
   try { await initPianoPromise } finally { initPianoPromise = null }
 }
 
-// ---- MIDI 加载 ----
-async function loadMidi(src: string) {
+// ---- Nạp MIDI: giữ tên, channel và màu của từng track ----
+let midiLoadSeq = 0
+async function loadMidi(src: string): Promise<boolean> {
+  const request = ++midiLoadSeq
   loadingMidi.value = true
   try {
     const midi = await Midi.fromUrl(src)
+    if (request !== midiLoadSeq) return false
     processMidi(midi)
-  } catch (e) { console.error(e) }
-  finally { loadingMidi.value = false }
+    return true
+  } catch (e) {
+    console.error(e)
+    if (request === midiLoadSeq) uploadError.value = t('piano.importMidiError')
+    return false
+  } finally {
+    if (request === midiLoadSeq) loadingMidi.value = false
+  }
 }
 
+function updateNoteRange() {
+  const enabledNotes = notes.value
+  if (!enabledNotes.length) {
+    noteRange.value = { min: 21, max: 108 }
+    return
+  }
+  let min = 127, max = 0
+  for (const note of enabledNotes) {
+    min = Math.min(min, note.midi)
+    max = Math.max(max, note.midi)
+  }
+  noteRange.value = { min: Math.max(21, min - 12), max: Math.min(108, max + 12) }
+}
 function processMidi(midi: Midi) {
-  const allNotes: NoteEvent[] = []
-  let minNote = 127; let maxNote = 0
-  midi.tracks.forEach(track => {
-    track.notes.forEach(n => {
-      allNotes.push({ midi: n.midi, name: n.name, time: n.time, duration: n.duration, velocity: n.velocity })
-      if (n.midi < minNote) minNote = n.midi
-      if (n.midi > maxNote) maxNote = n.midi
-    })
-  })
-  allNotes.sort((a, b) => a.time - b.time)
-  notes.value = allNotes
-  noteRange.value = { min: Math.max(21, minNote - 12), max: Math.min(108, maxNote + 12) }
-  duration.value = midi.duration || allNotes[allNotes.length - 1]?.time + allNotes[allNotes.length - 1]?.duration || 0
-  currentTime.value = 0; playState.value = 'idle'; lastScheduledIdx = 0
+  const parsed = extractMidiParts(midi)
+  midiParts.value = parsed.parts
+  allNotes.value = parsed.events
+  duration.value = midi.duration || parsed.events.reduce((end, n) => Math.max(end, n.time + n.duration), 0)
+  currentTime.value = 0
+  playState.value = 'idle'
+  lastScheduledIdx = 0
+  keyState.value = {}
+  updateNoteRange()
 }
-
-async function handleUpload(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
-  if (!file) return
-  const buf = await file.arrayBuffer()
-  const midi = new Midi(buf)
-  const name = midi.name || file.name.replace(/\.midi?$/i, '')
-  const url = URL.createObjectURL(new Blob([buf], { type: 'audio/midi' }))
-  playlist.value.push({ name, file: url })
-  loadTrack(playlist.value.length - 1)
+function resetAfterTrackChange() {
+  // Audio is scheduled ahead of time; stop that schedule before changing a track mix.
+  piano?.stop()
+  playState.value = 'idle'
+  currentTime.value = 0
+  lastScheduledIdx = 0
+  keyState.value = {}
+  updateNoteRange()
+}
+function setPartEnabled(id: number, enabled: boolean) {
+  if (exporting.value) return
+  const part = midiParts.value.find(part => part.id === id)
+  if (part && part.enabled !== enabled) {
+    part.enabled = enabled
+    resetAfterTrackChange()
+  }
+}
+function onPartToggle(id: number, event: Event) {
+  setPartEnabled(id, (event.target as HTMLInputElement).checked)
+}
+function setAllParts(enabled: boolean) {
+  if (exporting.value) return
+  midiParts.value.forEach(part => { part.enabled = enabled })
+  resetAfterTrackChange()
+}
+function soloPart(id: number) {
+  if (exporting.value) return
+  const wasSolo = midiParts.value.filter(p => p.enabled).length === 1 && midiParts.value.some(p => p.id === id && p.enabled)
+  midiParts.value.forEach(part => { part.enabled = wasSolo || part.id === id })
+  resetAfterTrackChange()
+}
+function onPartColorInput(id: number, event: Event) {
+  if (exporting.value) return
+  const part = midiParts.value.find(part => part.id === id)
+  if (part) part.color = (event.target as HTMLInputElement).value
+}
+function hexRgb(color: string): [number, number, number] {
+  const hex = color.replace('#', '')
+  return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)]
+}
+async function handleUpload(file: File) {
+  try {
+    const buf = await file.arrayBuffer()
+    const midi = new Midi(buf)
+    const name = midi.name || file.name.replace(/\\.midi?$/i, '')
+    const url = URL.createObjectURL(new Blob([buf], { type: 'audio/midi' }))
+    playlist.value.push({ name, file: url })
+    loadTrack(playlist.value.length - 1)
+  } catch (e) {
+    console.error(e)
+    uploadError.value = t('piano.importMidiError')
+  }
 }
 
 // ---- 音频调度器（smplr） ----
