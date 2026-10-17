@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict'
+import {ERHU_ROOTS,ERHU_SAMPLE_NAMES,erhuSampleFileName,validateErhuSampleNames,nearestErhuSample} from '../src/util/erhu-hmoob-samples.ts'
+assert.equal(ERHU_SAMPLE_NAMES.length,7)
+assert.deepEqual(ERHU_ROOTS,{'G.wav':67,'A.wav':69,'B.wav':71,'C.wav':72,'D.wav':74,'E.wav':76,'F.wav':77})
+assert.equal(erhuSampleFileName('a.WAV'),'A.wav')
+assert.equal(erhuSampleFileName('C.wav'),'C.wav')
+assert.equal(erhuSampleFileName('C#.wav'),null)
+assert.equal(validateErhuSampleNames(ERHU_SAMPLE_NAMES).ok,true)
+assert.equal(validateErhuSampleNames(['A.wav']).ok,false)
+assert.deepEqual(validateErhuSampleNames(['A.wav']).missing,['G.wav','B.wav','C.wav','D.wav','E.wav','F.wav'])
+assert.deepEqual(validateErhuSampleNames([...ERHU_SAMPLE_NAMES,'A.wav']).duplicates,['A.wav'])
+assert.deepEqual(validateErhuSampleNames([...ERHU_SAMPLE_NAMES,'other.wav']).unknown,['other.wav'])
+for(const [name,midi] of Object.entries(ERHU_ROOTS)){
+ const picked=nearestErhuSample(midi)
+ assert.equal(picked.name,name)
+ assert.equal(picked.rootMidi,midi)
+ assert.equal(picked.playbackRate,1)
+ const oct=nearestErhuSample(midi-12)
+ assert.equal(oct.name,name)
+ assert.ok(Math.abs(oct.playbackRate-.5)<1e-10)
+}
+assert.equal(nearestErhuSample(60).name,'C.wav')
+assert.equal(nearestErhuSample(66).name,'G.wav')
+assert.equal(nearestErhuSample(78).name,'F.wav')
+assert.ok(Number.isFinite(nearestErhuSample(21).playbackRate))
+assert.ok(Number.isFinite(nearestErhuSample(108).playbackRate))
+console.log('PASS Hmong Erhu: all measured roots, 7 WAV validation, nearest sample, octave tuning')
