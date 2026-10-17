@@ -1399,7 +1399,7 @@ watch(() => currentTime.value, (t) => {
         :class="isFullscreen && videoFormat === 'landscape' ? 'flex-1 w-full' : 'flex-shrink-0'"
         :style="videoFormat === 'portrait'
           ? { aspectRatio: '9 / 16', width: isFullscreen ? 'min(100%, 50.625vh)' : 'min(100%, 414px)', height: 'auto' }
-          : (isFullscreen ? {} : { width: '100%', height: CANVAS_H + 'px' })"></canvas>
+          : { width: '100%', maxWidth: '1120px', aspectRatio: '16 / 9', height: 'auto' }"></canvas>
           </div>
 
       <!-- 进度条 -->
