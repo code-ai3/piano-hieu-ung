@@ -33,3 +33,24 @@
 .mx-roll-velocity-bar.selected{opacity:1;outline:1px solid #fff}
 .mx-roll-hint{flex:0 0 20px;font-size:10px;color:#8d9aaa;background:#1e252f;padding:3px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media(max-height:620px){.mx-roll-velocity-window{flex-basis:59px}.mx-roll-hint{display:none}}
+
+/* Transport-synchronized playhead across ruler, notes and velocity. */
+.mx-roll-ruler{cursor:crosshair}
+.mx-roll-ruler>div{pointer-events:none}
+.mx-roll-playhead,.mx-roll-grid-cursor,.mx-roll-velocity-cursor{
+ position:absolute;z-index:7;top:0;bottom:0;width:2px;
+ background:#ffac54;box-shadow:0 0 8px #ffac5499;
+ pointer-events:none;
+}
+.mx-roll-ruler-cursor::before,.mx-roll-grid-cursor::before{
+ content:"";position:absolute;top:0;left:-5px;
+ width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;
+ border-top:8px solid #ffac54;
+}
+.mx-roll-note.sounding{
+ outline:2px solid #ffeac7;
+ filter:brightness(1.35);
+ box-shadow:0 0 11px #ffae74,0 0 18px #fff6;
+ z-index:4;
+}
+.mx-roll-note.selected.sounding{outline:2px solid #fff;}
