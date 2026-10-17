@@ -113,7 +113,8 @@ function onKeyPointerUp(e:PointerEvent){
 }
 function stopKeyAudition(){auditionPointerId=null;auditionPitch.value=null;emit('audition-stop')}
 function keyLabel(midi:number){return midiNoteName(midi)}
-onUnmounted(stopDrag)
+watch(()=>props.disabled,disabled=>{if(disabled)stopKeyAudition()})
+onUnmounted(()=>{stopDrag();stopKeyAudition()})
 </script>
 
 <template>
