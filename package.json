@@ -1,7 +1,7 @@
 {
-  "name": "piano-fx",
+  "name": "piano-hieu-ung",
   "version": "1.0.0",
-  "description": "MIDI-powered falling-notes piano visualizer with burn/smoke particle effects, audio-to-MIDI transcription, and MP4 export. Pure front-end, no backend.",
+  "description": "Piano Hiệu Ứng: Vietnamese-first MIDI visualization, audio-to-MIDI and MP4 export.",
   "license": "MIT",
   "type": "module",
   "scripts": {

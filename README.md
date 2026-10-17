@@ -1,4 +1,4 @@
-# 🎹 Piano FX
+# 🎹 Piano Hiệu Ứng (Piano FX)
 
 > MIDI-powered falling-notes piano visualizer with particle effects, audio-to-MIDI transcription, and MP4 export.  
 > Built with Vue 3 + Vite + Web Audio + WebCodecs. 100% client-side — no backend, no registration.
@@ -16,7 +16,7 @@
   <img src="./images/image.png" alt="Piano FX Screenshot" width="800" />
 </p>
 
-> 🚀 **[Try it online →](https://tools.lishiyuan.cn/)** &nbsp;|&nbsp; 📖 [中文文档](./README_zh-CN.md)
+> 📝 **[Hướng dẫn tiếng Việt](./README_VI.md)** — phiên bản đang phát triển, chưa có URL chạy thử. Nguồn dự án gốc: [lishiyuan/piano-fx](https://github.com/imlishiyuan/piano-fx). &nbsp;|&nbsp; 📖 [中文文档](./README_zh-CN.md)
 
 ---
 

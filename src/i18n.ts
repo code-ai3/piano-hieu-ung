@@ -1,29 +1,26 @@
 import { createI18n } from 'vue-i18n'
 import zhCN from './locales/zh-CN'
 import en from './locales/en'
-
+import vi from './locales/vi'
 const STORAGE_KEY = 'app-locale'
-const LOCALES = ['zh-CN', 'en'] as const
-
-function detectLocale(): string {
-  const stored = localStorage.getItem(STORAGE_KEY)
-  if (stored && (LOCALES as readonly string[]).includes(stored)) return stored
-  return navigator.language.startsWith('en') ? 'en' : 'zh-CN'
+export const locales = ['vi', 'en', 'zh-CN'] as const
+export type AppLocale = typeof locales[number]
+function isLocale(value: string): value is AppLocale {
+  return (locales as readonly string[]).includes(value)
 }
-
+function detectLocale(): AppLocale {
+  try { const stored = localStorage.getItem(STORAGE_KEY); if (stored && isLocale(stored)) return stored }
+  catch { /* localStorage may be disabled */ }
+  return 'vi'
+}
 const i18n = createI18n({
-  legacy: false,
-  locale: detectLocale(),
-  fallbackLocale: 'zh-CN',
-  messages: { 'zh-CN': zhCN, en },
+  legacy: false, locale: detectLocale(), fallbackLocale: 'vi',
+  messages: { vi, en, 'zh-CN': zhCN },
 })
-
-export function switchLocale(locale: string) {
-  i18n.global.locale.value = locale as 'zh-CN' | 'en'
-  localStorage.setItem(STORAGE_KEY, locale)
-  document.documentElement.lang = locale === 'en' ? 'en' : 'zh'
+export function switchLocale(value: string) {
+  if (!isLocale(value)) return
+  i18n.global.locale.value = value
+  try { localStorage.setItem(STORAGE_KEY, value) } catch { /* optional */ }
+  document.documentElement.lang = value === 'zh-CN' ? 'zh-CN' : value
 }
-
-export const locales = LOCALES
-
 export default i18n
