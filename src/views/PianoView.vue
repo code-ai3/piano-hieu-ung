@@ -1128,6 +1128,21 @@ watch(() => currentTime.value, (t) => {
             </button>
           </div>
         </div>
+        <div class="flex flex-col gap-2 rounded-lg border border-black/10 dark:border-white/10 p-3">
+          <p class="text-sm font-medium">{{ t('piano.velocityVisualTitle') }}</p>
+          <p class="text-xs opacity-65">{{ t('piano.velocityVisualHint') }}</p>
+          <div class="grid grid-cols-3 gap-2">
+            <button v-for="mode in velocityModes" :key="mode" type="button" :aria-pressed="velocityMode === mode"
+              class="rounded-lg border px-2 py-2 text-xs" @click="velocityMode = mode">
+              {{ t('piano.velocityMode_' + mode) }}
+            </button>
+          </div>
+          <label class="flex gap-2 justify-between items-center text-sm">
+            <span>{{ t('piano.velocitySensitivity') }} {{ velocitySensitivity }}%</span>
+            <input type="range" min="0" max="100" step="5" v-model.number="velocitySensitivity" :disabled="velocityMode === 'off'">
+          </label>
+          <p class="text-xs opacity-65">{{ t('piano.velocitySourceHint') }}</p>
+        </div>
         <!-- 音符发光 -->
         <div class="flex flex-col gap-2">
           <label class="flex items-center justify-between gap-2 text-sm text-black/60 dark:text-white/70">
