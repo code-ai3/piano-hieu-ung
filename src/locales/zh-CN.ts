@@ -32,6 +32,10 @@ export default {
     landscapeFormat: 'YouTube 横屏 (16:9)', portraitKeyboardLabel: '竖屏键盘范围',
     portraitKeyboardAuto: '自动 — 优先显示多数音符', portraitKeyboardAll: '显示全部音符（琴键较小）',
     notesOutsideFrame: '{count} 个音符在选定键盘范围之外。请调整范围或显示全部。',
+    velocityVisualTitle: '力度表情 (Velocity)',
+    velocityVisualHint: '强音更亮、粒子更多；弱音效果更柔和。',
+    velocityMode_off: '关闭', velocityMode_natural: '自然', velocityMode_expressive: '强化',
+    velocitySensitivity: '响应强度', velocitySourceHint: '读取 MIDI 原始力度，不会凭空生成不存在的力度变化。',
     dismissError: '关闭',
   },
 }

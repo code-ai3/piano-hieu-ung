@@ -4,6 +4,8 @@ import { Midi } from '@tonejs/midi'
 import { extractMidiParts, filterMidiParts } from '@/util/midi-tracks'
 import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
 import { portraitKeyboardRange, videoDimensions } from '@/util/video-format'
+import { velocityVisualStrength, velocityParticleCount } from '@/util/velocity-effects'
+import type { VelocityVisualMode } from '@/util/velocity-effects'
 import type { VideoFormat, PortraitKeyboard } from '@/util/video-format'
 import { SplendidGrandPiano, renderOffline } from 'smplr'
 import Btn from '@/components/Btn.vue'
@@ -129,6 +131,10 @@ const pianoInactiveColor = ref('#f0f0f0')
 const pianoBlackActiveColor = ref('#5daab1')
 const pianoBlackInactiveColor = ref('#1a1a1a')
 const noteGlow = ref(30)
+const velocityMode = ref<VelocityVisualMode>('expressive')
+const velocitySensitivity = ref(85)
+const velocityModes: VelocityVisualMode[] = ['off', 'natural', 'expressive']
+const visualPower = (velocity: number) => velocityVisualStrength(velocity, velocityMode.value, velocitySensitivity.value)
 const pianoGlow = ref(30)
 const noteOpacity = ref(70)
 const pianoOpacity = ref(70)
@@ -561,10 +567,11 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     // 燃烧几何：接触瞬间音符底贴分割线、高 noteH，以此为基准无跳变
     const noteH = Math.max(8, (n.duration / visibleTime) * notesAreaH)
     const age = targetTime - n.time
+    const power = visualPower(n.velocity)
 
     if (age < 0) {
       // 尚未接触分割线：正常下落绘制（按音高多彩色）
-      const alpha = n.velocity * 0.5 + 0.25
+      const alpha = Math.min(0.98, (noteOpacity.value / 100) * (0.32 + 0.68 * power))
       ctx.fillStyle = `rgba(${ar},${ag},${ab},${alpha})`
       ctx.strokeStyle = `rgba(${ar},${ag},${ab},${Math.min(1, alpha + 0.25)})`
       ctx.lineWidth = 2
@@ -576,13 +583,13 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
       // 扩散光环特效：接触后激活色持续矩形 + 接触瞬间多彩扩散光环（原始效果）
       const playing = n.time + n.duration > targetTime
       if (!playing) continue
-      const alpha = noteOpacity.value / 100
+      const alpha = (noteOpacity.value / 100) * (0.32 + 0.68 * power)
       // 激活瞬间扩散光环（音符启动后 0.6s 内，多彩色减淡）
       const actAge = age
       if (actAge < 0.6) {
         const actProgress = actAge / 0.6
-        const actR = 6 + actProgress * 40
-        const actAlpha = (1 - actProgress) * (1 - actProgress) * 0.5
+        const actR = 6 + actProgress * 40 * (0.3 + 0.7 * power)
+        const actAlpha = (1 - actProgress) * (1 - actProgress) * 0.5 * power
         const actH = Math.max(2, yTop - yBottom)
         ctx.fillStyle = `rgba(${ar},${ag},${ab},${actAlpha})`
         ctx.beginPath(); roundRect(ctx, x - actR/2, yBottom - actR/2, nw + actR, actH + actR, rx + 2); ctx.fill()
@@ -590,7 +597,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
       ctx.fillStyle = `rgba(${ar},${ag},${ab},${alpha})`
       ctx.strokeStyle = `rgba(${ar},${ag},${ab},${Math.min(1, alpha + 0.25)})`
       ctx.shadowColor = `rgba(${ar},${ag},${ab},0.8)`
-      ctx.shadowBlur = noteGlow.value
+      ctx.shadowBlur = noteGlow.value * (0.25 + 0.75 * power)
       ctx.lineWidth = 2
       const nh = Math.max(2, yTop - yBottom)
       ctx.beginPath(); roundRect(ctx, x + 1, yBottom, nw - 2, nh, rx); ctx.fill()
@@ -604,12 +611,12 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
       const remainH = frontY - topY
       if (remainH > 1) {
         // 本体不透明度按激活后绝对时间快速指数衰减：长音不会一直停在画面里
-        const bodyA = (noteOpacity.value / 100) * Math.exp(-age * 2.2)
+        const bodyA = (noteOpacity.value / 100) * Math.exp(-age * 2.2) * (0.3 + 0.7 * power)
         // 前沿白热亮带随燃烧进度保持可见（引线仍在爬）
-        const frontA = (1 - p) * 0.7 + 0.3
+        const frontA = ((1 - p) * 0.7 + 0.3) * (0.25 + 0.75 * power)
         ctx.save()
         ctx.shadowColor = `rgba(${tint(ar,ag,ab,0.5)},1)`
-        ctx.shadowBlur = noteGlow.value + 25
+        ctx.shadowBlur = (noteGlow.value + 25) * (0.2 + 0.8 * power)
         // 主体：上方未燃部分保持激活色 → 靠近前沿逐渐白热，底边平直
         const grad = ctx.createLinearGradient(0, topY, 0, frontY)
         grad.addColorStop(0, `rgba(${ar},${ag},${ab},${bodyA})`)
@@ -629,8 +636,8 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
       // 接触瞬闪：白 → 激活色 径向闪光（更大更亮）
       if (age < FLASH_DUR) {
         const fp = age / FLASH_DUR
-        const fr = 18 + fp * 80
-        const fa = (1 - fp) * 0.95
+        const fr = (18 + fp * 80) * (0.35 + 0.65 * power)
+        const fa = (1 - fp) * 0.95 * power
         const fg = ctx.createRadialGradient(cx, notesAreaH, 1, cx, notesAreaH, fr)
         fg.addColorStop(0, `rgba(255,255,255,${fa})`)
         fg.addColorStop(0.25, `rgba(${tint(ar,ag,ab,0.6)},${fa * 0.8})`)
@@ -668,7 +675,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     const burning = age < burnDur  // 燃烧中（燃尽后只残留粒子，不画引线/本体）
 
     // 解体碎片：从前沿位置沿音符本体向外（主要向两侧+上）飞散
-    const shardCount = 16
+    const shardCount = velocityParticleCount(16, visualPower(n.velocity))
     for (let i = 0; i < shardCount; i++) {
       // 每片在燃烧期内的某个时刻“脱离”前沿
       const breakT = n.time + hash(seed + i * 3.1) * burnDur * 0.9
@@ -696,14 +703,14 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
 
     // 引线前沿 + 炽热核：仅在燃烧中绘制（燃尽后只剩残留粒子上飘）
     if (burning) {
-      const lineA = (1 - p) * 0.95
+      const lineA = (1 - p) * 0.95 * visualPower(n.velocity)
       const lineGrad = ctx.createLinearGradient(cx - nw, frontY, cx + nw, frontY)
       lineGrad.addColorStop(0, `rgba(${tint(ar,ag,ab,0.4)},0)`)
       lineGrad.addColorStop(0.5, `rgba(255,255,255,${lineA})`)
       lineGrad.addColorStop(1, `rgba(${tint(ar,ag,ab,0.4)},0)`)
       ctx.fillStyle = lineGrad
       ctx.fillRect(x - nw * 0.6, frontY - 2, nw * 2.2, 4)
-      const coreR = 10 + (1 - p) * 8
+      const coreR = (10 + (1 - p) * 8) * (0.35 + 0.65 * visualPower(n.velocity))
       const coreG = ctx.createRadialGradient(cx, frontY, 0, cx, frontY, coreR)
       coreG.addColorStop(0, `rgba(255,255,255,${lineA})`)
       coreG.addColorStop(0.5, `rgba(${tint(ar,ag,ab,0.5)},${lineA * 0.6})`)
@@ -713,7 +720,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     }
 
     // 烟雾：按燃烧时长确定密度，向上飘并扩散、快速消散
-    const smokeCount = Math.max(14, Math.min(60, Math.round(burnDur * 30)))
+    const smokeCount = velocityParticleCount(Math.max(14, Math.min(60, Math.round(burnDur * 30))), visualPower(n.velocity))
     for (let i = 0; i < smokeCount; i++) {
       const ts = n.time + (i / smokeCount) * burnDur
           + (hash(seed + i * 1.7) - 0.5) * (burnDur / smokeCount)
@@ -739,7 +746,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     }
 
     // 火星拖尾：接触瞬间大量高速白亮粒向上射出
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < velocityParticleCount(14, visualPower(n.velocity)); i++) {
       const ts = n.time + hash(seed + i * 5.3) * 0.1
       const pAge = targetTime - ts
       if (pAge < 0 || pAge > sparkLife) continue
@@ -764,8 +771,12 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
   // ---- 绘制钢琴键盘 ----
   // 构建每个键的最新按下时间（取自 notes，无需额外状态）
   const latestPress: Record<number, number> = {}
+  const latestPower: Record<number, number> = {}
   for (const n of notes.value) {
-    if (n.time <= targetTime && n.time > (latestPress[n.midi] || 0)) latestPress[n.midi] = n.time
+    if (n.time <= targetTime && (latestPress[n.midi] === undefined || n.time >= latestPress[n.midi])) {
+      latestPress[n.midi] = n.time
+      latestPower[n.midi] = visualPower(n.velocity)
+    }
   }
   // 白键
   const whiteKeysArr = getWhiteKeys(min, max)
@@ -774,11 +785,12 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     const x = i * keyW
     const active = keyState.value[midi]
     if (active) {
+      const power = latestPower[midi] ?? 1
       const age = targetTime - (latestPress[midi] || 0)
-      const pulse = Math.max(0, 1 - age / 0.3) * Math.exp(-age * 5)
+      const pulse = Math.max(0, 1 - age / 0.3) * Math.exp(-age * 5) * power
       const c = pianoActiveColor.value
       const pr = parseInt(c.slice(1,3), 16), pg = parseInt(c.slice(3,5), 16), pb = parseInt(c.slice(5,7), 16)
-      const a = pianoOpacity.value / 100
+      const a = (pianoOpacity.value / 100) * (0.3 + 0.7 * power)
       ctx.fillStyle = `rgba(${pr},${pg},${pb},${a})`
       ctx.fillRect(x, notesAreaH, keyW - 1, actualPianoH)
       if (pulse > 0.01) {
@@ -786,7 +798,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
         ctx.fillRect(x, notesAreaH, keyW - 1, actualPianoH)
       }
       ctx.shadowColor = `rgba(${pr},${pg},${pb},${a + pulse * 0.5})`
-      ctx.shadowBlur = pianoGlow.value + pulse * 40
+      ctx.shadowBlur = pianoGlow.value * (0.3 + 0.7 * power) + pulse * 40
       ctx.fillStyle = `rgba(${pr},${pg},${pb},0.01)`
       ctx.fillRect(x, notesAreaH, keyW - 1, actualPianoH)
       ctx.shadowBlur = 0
@@ -810,11 +822,12 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     const bw = keyW * 0.55; const bh = actualPianoH * 0.62
     const active = keyState.value[bMidi]
     if (active) {
+      const power = latestPower[bMidi] ?? 1
       const age = targetTime - (latestPress[bMidi] || 0)
-      const pulse = Math.max(0, 1 - age / 0.3) * Math.exp(-age * 5)
+      const pulse = Math.max(0, 1 - age / 0.3) * Math.exp(-age * 5) * power
       const c = pianoBlackActiveColor.value
       const pr = parseInt(c.slice(1,3), 16), pg = parseInt(c.slice(3,5), 16), pb = parseInt(c.slice(5,7), 16)
-      const a = pianoOpacity.value / 100
+      const a = (pianoOpacity.value / 100) * (0.3 + 0.7 * power)
       ctx.fillStyle = `rgba(${pr},${pg},${pb},${a})`
       ctx.fillRect(x, notesAreaH, bw, bh)
       if (pulse > 0.01) {
@@ -822,7 +835,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
         ctx.fillRect(x, notesAreaH, bw, bh)
       }
       ctx.shadowColor = `rgba(${pr},${pg},${pb},${a + pulse * 0.5})`
-      ctx.shadowBlur = Math.round(pianoGlow.value * 0.7) + pulse * 30
+      ctx.shadowBlur = Math.round(pianoGlow.value * 0.7 * (0.3 + 0.7 * power)) + pulse * 30
       ctx.fillStyle = `rgba(${pr},${pg},${pb},0.01)`
       ctx.fillRect(x, notesAreaH, bw, bh)
       ctx.shadowBlur = 0
@@ -1121,6 +1134,21 @@ watch(() => currentTime.value, (t) => {
               {{ opt.label }}
             </button>
           </div>
+        </div>
+        <div class="flex flex-col gap-2 rounded-lg border border-black/10 dark:border-white/10 p-3">
+          <p class="text-sm font-medium">{{ t('piano.velocityVisualTitle') }}</p>
+          <p class="text-xs opacity-65">{{ t('piano.velocityVisualHint') }}</p>
+          <div class="grid grid-cols-3 gap-2">
+            <button v-for="mode in velocityModes" :key="mode" type="button" :aria-pressed="velocityMode === mode"
+              class="rounded-lg border px-2 py-2 text-xs" :class="velocityMode === mode ? 'border-primary-500 bg-primary-500/15 text-primary-500' : 'border-black/15 dark:border-white/20'" @click="velocityMode = mode">
+              {{ t('piano.velocityMode_' + mode) }}
+            </button>
+          </div>
+          <label class="flex gap-2 justify-between items-center text-sm">
+            <span>{{ t('piano.velocitySensitivity') }} {{ velocitySensitivity }}%</span>
+            <input type="range" min="0" max="100" step="5" v-model.number="velocitySensitivity" :disabled="velocityMode === 'off'">
+          </label>
+          <p class="text-xs opacity-65">{{ t('piano.velocitySourceHint') }}</p>
         </div>
         <!-- 音符发光 -->
         <div class="flex flex-col gap-2">
