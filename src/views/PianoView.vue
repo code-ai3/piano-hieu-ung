@@ -4,6 +4,8 @@ import { Midi } from '@tonejs/midi'
 import { extractMidiParts, filterMidiParts } from '@/util/midi-tracks'
 import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
 import { portraitKeyboardRange, videoDimensions } from '@/util/video-format'
+import { exportDurationSeconds, exportFrameCount, musicalTimeAtFrame, previewClockForMusicalTime } from '@/util/export-timing'
+import type { ExportLength } from '@/util/export-timing'
 import { velocityVisualStrength, velocityParticleCount } from '@/util/velocity-effects'
 import type { VelocityVisualMode } from '@/util/velocity-effects'
 import type { VideoFormat, PortraitKeyboard } from '@/util/video-format'
@@ -147,6 +149,9 @@ const exporting = ref(false)
 const supportsFsApi = 'showSaveFilePicker' in window
 const exportProgress = ref(0)
 const exportEta = ref(0)   // 剩余秒数
+const exportLength = ref<ExportLength>('preview15')
+const selectedExportSeconds = computed(() => exportDurationSeconds(duration.value, exportLength.value))
+const exportPhase = ref<'preparing' | 'rendering'>('preparing')
 
 async function exportVideo() {
   if (exporting.value) return
@@ -158,14 +163,18 @@ async function exportVideo() {
   exporting.value = true
   exportProgress.value = 0
   exportEta.value = 0
+  exportPhase.value = 'preparing'
+  let fileWriter: FileSystemWritableFileStream | null = null
   try {
     const { width: w, height: h, fps } = formatDimensions.value
-    const totalFrames = Math.ceil(duration.value * fps)
-    const fileName = `${currentTrack.value?.name || 'piano'}-${videoFormat.value === 'portrait' ? '9x16' : '16x9'}.mp4`
+    const exportSeconds = selectedExportSeconds.value
+    const totalFrames = exportFrameCount(exportSeconds, fps)
+    if (!totalFrames) throw new Error('No MIDI duration to export')
+    const suffix = exportLength.value === 'full' ? '' : `-${Math.ceil(exportSeconds)}s-test`
+    const fileName = `${currentTrack.value?.name || 'piano'}-${videoFormat.value === 'portrait' ? '9x16' : '16x9'}${suffix}.mp4`
 
     // 选保存位置（支持时走流式写盘，省内存）
     let fileHandle: any = null
-    let fileWriter: FileSystemWritableFileStream | null = null
     if (supportsFsApi) {
       try {
         fileHandle = await (window as any).showSaveFilePicker({
@@ -191,9 +200,8 @@ async function exportVideo() {
       for (const n of notes.value) {
         offPiano.start({ note: n.name, velocity: n.velocity * 127, time: n.time })
       }
-    }, { duration: duration.value })
+    }, { duration: exportSeconds })
     const audioBuf = result.audioBuffer
-    const sr = audioBuf.sampleRate
 
     // mediabunny output：流式写盘用 StreamTarget，否则用 BufferTarget
     const target: any = fileWriter
@@ -209,17 +217,20 @@ async function exportVideo() {
     output.addAudioTrack(as)
     await output.start()
 
-    // 整段音频送入
-    const fullSample = new AudioSample({ format: 'f32-planar', sampleRate: sr, numberOfFrames: audioBuf.length, numberOfChannels: 1, timestamp: 0, data: audioBuf.getChannelData(0) })
-    await as.add(fullSample)
-    fullSample.close(); as.close()
+    // Preserve all rendered audio channels, including stereo. Mediabunny splits long buffers.
+    for (const audioSample of AudioSample.fromAudioBuffer(audioBuf, 0)) {
+      try { await as.add(audioSample) }
+      finally { audioSample.close() }
+    }
+    as.close()
 
     // 离屏 canvas 渲染（独立于 DOM）+ 边渲边编码
     const offCanvas = document.createElement('canvas')
+    exportPhase.value = 'rendering'
     const t0 = performance.now()
     for (let frame = 0; frame < totalFrames; frame++) {
-      currentTime.value = frame / fps
-      const t2 = currentTime.value / speed.value
+      currentTime.value = previewClockForMusicalTime(musicalTimeAtFrame(frame, fps), speed.value)
+      const t2 = musicalTimeAtFrame(frame, fps)
       const ks: Record<number, boolean> = {}
       for (const n of notes.value) {
         if (n.time <= t2 && n.time + n.duration > t2) ks[n.midi] = true
@@ -230,25 +241,32 @@ async function exportVideo() {
       await vs.add(sample)
       sample.close()
       // 进度 + ETA
-      exportProgress.value = (frame + 1) / totalFrames
-      const elapsed = (performance.now() - t0) / 1000
-      exportEta.value = elapsed * (totalFrames - frame - 1) / (frame + 1)
+      if (frame % 6 === 0 || frame === totalFrames - 1) {
+        exportProgress.value = (frame + 1) / totalFrames
+        const elapsed = (performance.now() - t0) / 1000
+        exportEta.value = elapsed * (totalFrames - frame - 1) / (frame + 1)
+      }
     }
     vs.close()
     await output.finalize()
 
     if (fileWriter) {
       await fileWriter.close()
+      fileWriter = null
     } else {
       // BufferTarget：把 buffer 当下载
       const buf = (target as InstanceType<typeof BufferTarget>).buffer!
       const blob = new Blob([buf], { type: 'video/mp4' })
       const url = URL.createObjectURL(blob)
-      const a = document.createElement('a'); a.href = url; a.download = fileName; a.click()
-      URL.revokeObjectURL(url)
+      const a = document.createElement('a'); a.href = url; a.download = fileName
+      document.body.appendChild(a); a.click(); a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 30_000)
     }
   } catch (e) {
     console.error(e)
+    if (fileWriter) {
+      try { await fileWriter.abort() } catch (abortError) { console.warn('Could not abort incomplete export', abortError) }
+    }
     uploadError.value = t('piano.videoExportError')
   } finally {
     // Always restore the preview timestamp, including failed/aborted exports.
@@ -501,15 +519,20 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
   const ctx = canvas.getContext('2d')!
   let cw: number, ch: number
   if (targetCanvas && targetW && targetH) {
-    // 离屏导出：固定尺寸，1:1 像素，不缩放
-    canvas.width = targetW; canvas.height = targetH
+    // Do not reallocate a 1080x1920 canvas every frame: this is expensive.
+    if (canvas.width !== targetW) canvas.width = targetW
+    if (canvas.height !== targetH) canvas.height = targetH
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
     cw = targetW; ch = targetH
   } else {
-    canvas.width = canvas.offsetWidth * devicePixelRatio
-    canvas.height = canvas.offsetHeight * devicePixelRatio
-    ctx.scale(devicePixelRatio, devicePixelRatio)
-    cw = canvas.width / devicePixelRatio
-    ch = canvas.height / devicePixelRatio
+    const dpr = window.devicePixelRatio || 1
+    const pixelW = Math.max(1, Math.round(canvas.offsetWidth * dpr))
+    const pixelH = Math.max(1, Math.round(canvas.offsetHeight * dpr))
+    if (canvas.width !== pixelW) canvas.width = pixelW
+    if (canvas.height !== pixelH) canvas.height = pixelH
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    cw = canvas.width / dpr
+    ch = canvas.height / dpr
   }
   // Keep the same keyboard proportion for portrait preview and exported frames.
   const isExport = !!targetCanvas
@@ -1278,6 +1301,15 @@ watch(() => currentTime.value, (t) => {
           <p v-if="videoFormat === 'portrait' && hiddenPortraitNotes > 0" role="status" class="text-xs text-amber-700 dark:text-amber-300">
             {{ t('piano.notesOutsideFrame', { count: hiddenPortraitNotes }) }}
           </p>
+          <label class="flex flex-col gap-2 text-sm">
+            <span class="font-medium">{{ t('piano.exportLength') }}</span>
+            <select v-model="exportLength" class="p-2 rounded-lg border border-black/15 dark:border-white/15 bg-white/80 dark:bg-[#23232c]">
+              <option value="preview15">{{ t('piano.exportPreview15') }}</option>
+              <option value="preview30">{{ t('piano.exportPreview30') }}</option>
+              <option value="full">{{ t('piano.exportFullSong') }}</option>
+            </select>
+            <span class="text-xs opacity-65">{{ t('piano.exportDurationHint', { seconds: Math.ceil(selectedExportSeconds) }) }}</span>
+          </label>
           <p class="text-xs text-black/60 dark:text-white/60 m-0">{{ t('piano.exportHint') }}</p>
           <Btn @click="exportVideo" type="primary">
             <i class="fas fa-download"></i>
@@ -1287,7 +1319,7 @@ watch(() => currentTime.value, (t) => {
         <template v-else>
           <p class="text-sm text-black/70 dark:text-white/80 m-0 flex items-center gap-2">
             <i class="fas fa-spinner fa-spin text-primary-500"></i>
-            <span>{{ t('piano.exporting') }}</span>
+            <span>{{ exportPhase === 'preparing' ? t('piano.exportPreparingAudio') : t('piano.exporting') }}</span>
           </p>
           <div class="w-full h-2 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
             <div class="h-full bg-primary-500 transition-all duration-200" :style="{ width: Math.round(exportProgress * 100) + '%' }"></div>

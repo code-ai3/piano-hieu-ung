@@ -36,6 +36,12 @@ export default {
     velocityVisualHint: '强音更亮、粒子更多；弱音效果更柔和。',
     velocityMode_off: '关闭', velocityMode_natural: '自然', velocityMode_expressive: '强化',
     velocitySensitivity: '响应强度', velocitySourceHint: '读取 MIDI 原始力度，不会凭空生成不存在的力度变化。',
+    exportLength: '导出长度',
+    exportPreview15: '测试片段 15 秒',
+    exportPreview30: '测试片段 30 秒',
+    exportFullSong: '导出整首',
+    exportDurationHint: '所选长度：{seconds} 秒',
+    exportPreparingAudio: '正在生成音频...',
     dismissError: '关闭',
   },
 }
