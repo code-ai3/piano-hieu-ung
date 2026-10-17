@@ -4,6 +4,7 @@ import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
 import { midiNoteName, snapMidiTime, clampMidiVelocity } from '@/util/midi-edit'
 import { playheadLeft, rulerSeekTime } from '@/util/piano-roll-playhead'
 import { cloneNotes, sameNotes, copyMidiNotes, pasteMidiNotes, moveMidiNotes, selectMidiInBox } from '@/util/piano-roll-selection'
+import { midiGridStep, quantizeMidiNotes } from '@/util/piano-roll-quantize'
 const props=defineProps<{part:MidiPart; notes:MidiNoteEvent[]; duration:number; bpm:number; disabled:boolean; currentTime:number; playing:boolean}>()
 const emit=defineEmits<{(e:'change',notes:MidiNoteEvent[]):void;(e:'close'):void;(e:'seek',time:number):void;(e:'audition-start',midi:number):void;(e:'audition-stop'):void}>()
 const ROW=19, KEY_W=54, HIGH=108, LOW=21
@@ -19,6 +20,9 @@ function followPlayhead(force=false){
 }
 const pixelsPerSecond=ref(40)
 const snapDivision=ref(16)
+const quantDivision=ref(16)
+const quantStrength=ref(100)
+const quantSwing=ref(0)
 const tool=ref<'select'|'draw'|'erase'>('select')
 const draft=ref<MidiNoteEvent[]>([])
 const selected=ref(-1)
@@ -34,7 +38,7 @@ let auditionPointerId:number|null=null
 
 const totalWidth=computed(()=>Math.max(1100,(Math.max(props.duration,...draft.value.map(n=>n.time+n.duration),0)+5)*pixelsPerSecond.value))
 const gridWidth=computed(()=>totalWidth.value+KEY_W)
-const snap=computed(()=>snapDivision.value ? 60/Math.max(20,props.bpm)*4/snapDivision.value : 0)
+const snap=computed(()=>midiGridStep(props.bpm,snapDivision.value))
 const ticks=computed(()=>Array.from({length:Math.min(2000,Math.ceil(totalWidth.value/pixelsPerSecond.value/2)+1)},(_,i)=>i*2))
 // Editor keyboard pitch list
 const keyList=Array.from({length:HIGH-LOW+1},(_,i)=>HIGH-i)
@@ -125,9 +129,18 @@ function pasteSelection(atTime=props.currentTime){
  if(props.disabled||!clipboard.value.length)return
  const before=cloneNotes(draft.value)
  const start=draft.value.length
- const inserted=pasteMidiNotes(clipboard.value,props.part.id,atTime)
+ const inserted=pasteMidiNotes(clipboard.value,props.part.id,snapMidiTime(atTime,snap.value))
  draft.value.push(...inserted)
  setSelection(inserted.map((_,i)=>start+i))
+ commit(before)
+}
+function applyQuantize(){
+ if(props.disabled||!draft.value.length)return
+ const before=cloneNotes(draft.value)
+ const indices=selectionCount.value ? [...selectedIndices.value] : draft.value.map((_,i)=>i)
+ draft.value=quantizeMidiNotes(draft.value,indices,{
+  bpm:props.bpm,division:quantDivision.value,strength:quantStrength.value,swing:quantSwing.value
+ })
  commit(before)
 }
 function removeSelected(){
@@ -172,7 +185,8 @@ function onEditorKeyDown(e:KeyboardEvent){
   else if(key==='d'&&selectionCount.value){e.preventDefault();duplicateSelection()}
   else if(key==='z'){e.preventDefault();if(e.shiftKey)redoEdit();else undoEdit()}
   else if(key==='y'){e.preventDefault();redoEdit()}
- }else if((e.key==='Delete'||e.key==='Backspace')&&selectionCount.value){
+ }else if(!e.altKey && !mod && key==='q'){e.preventDefault();applyQuantize()}
+ else if((e.key==='Delete'||e.key==='Backspace')&&selectionCount.value){
   e.preventDefault();removeSelected()
  }
 }
@@ -204,11 +218,18 @@ function moveDrag(e:PointerEvent){
   draft.value[d.index]={...n,velocity:v/127};return
  }
  const dt=(e.clientX-d.x)/pixelsPerSecond.value
- const delta=snap.value?Math.round(dt/snap.value)*snap.value:dt
+ const movedX=Math.abs(e.clientX-d.x)>=2
  if(d.kind==='resize'){
-  draft.value[d.index]={...n,duration:Math.max(.04,n.duration+delta)};return
+  if(!movedX)return
+  const desiredEnd=n.time+n.duration+dt
+  const end=snap.value?snapMidiTime(desiredEnd,snap.value):desiredEnd
+  draft.value[d.index]={...n,duration:Math.max(.04,end-n.time)}
+  return
  }
  const shiftPitch=-Math.round((e.clientY-d.y)/ROW)
+ const anchor=Math.min(...d.indices.map(i=>d.before[i].time))
+ // Snap absolute group onset, preserving relative offsets between selected notes.
+ const delta=movedX?(snap.value?snapMidiTime(anchor+dt,snap.value)-anchor:dt):0
  draft.value=moveMidiNotes(d.before,d.indices,delta,shiftPitch)
 }
 function removeNote(index:number){
@@ -285,6 +306,7 @@ onUnmounted(()=>{stopDrag();window.removeEventListener('pointermove',moveMarquee
       <label>Snap <select v-model.number="snapDivision">
         <option :value="0">Tắt</option><option :value="4">1/4</option><option :value="8">1/8</option>
         <option :value="16">1/16</option><option :value="32">1/32</option>
+        <option :value="64">1/64</option><option :value="12">1/8T</option><option :value="24">1/16T</option>
       </select></label>
       <label>Zoom <input v-model.number="pixelsPerSecond" type="range" min="18" max="140" step="2"></label>
       <button type="button" title="Đóng Piano Roll" @click="emit('close')"><i class="fas fa-times"></i></button>
@@ -300,6 +322,27 @@ onUnmounted(()=>{stopDrag();window.removeEventListener('pointermove',moveMarquee
       <button type="button" title="Ctrl+Z" :disabled="disabled || !undoHistory.length" @click="undoEdit"><i class="fas fa-undo"></i> Hoàn tác</button>
       <button type="button" title="Ctrl+Y hoặc Ctrl+Shift+Z" :disabled="disabled || !redoHistory.length" @click="redoEdit"><i class="fas fa-redo"></i> Làm lại</button>
     </div>
+    <div class="mx-roll-quantbar" aria-label="Quantize & Snap nâng cao">
+      <span class="mx-roll-quant-title"><i class="fas fa-grip-lines-vertical"></i> Quantize</span>
+      <label>Lưới <select v-model.number="quantDivision" :disabled="disabled" aria-label="Lưới Quantize">
+        <option :value="4">1/4</option><option :value="8">1/8</option>
+        <option :value="16">1/16</option><option :value="32">1/32</option><option :value="64">1/64</option>
+        <option :value="12">1/8T</option><option :value="24">1/16T</option>
+      </select></label>
+      <label title="Độ mạnh căn nhịp 25–100%">Strength
+        <select v-model.number="quantStrength" :disabled="disabled" aria-label="Độ mạnh Quantize">
+          <option :value="25">25%</option><option :value="50">50%</option>
+          <option :value="75">75%</option><option :value="100">100%</option>
+        </select>
+      </label>
+      <label title="Swing 0% là thẳng; 100% đẩy offbeat trễ thêm nửa ô lưới">Swing
+        <input v-model.number="quantSwing" :disabled="disabled" type="range" min="0" max="100" step="5" aria-label="Độ Swing">
+        <span class="mx-roll-quant-value">{{ quantSwing }}%</span>
+      </label>
+      <span class="mx-roll-grow"></span>
+      <span class="mx-roll-quant-scope">{{ selectionCount ? selectionCount + ' nốt được chọn' : 'Toàn bộ track' }}</span>
+      <button type="button" class="mx-roll-quant-apply" title="Q · Căn vị trí bắt đầu nốt theo nhịp; có thể hoàn tác bằng Ctrl+Z" :disabled="disabled || !draft.length" @click="applyQuantize"><i class="fas fa-align-left"></i> Căn nhịp (Q)</button>
+    </div>
     <div class="mx-roll-ruler" @click="seekOnRuler">
       <div :style="{ width: gridWidth + 'px', transform: 'translateX(-' + gridScrollLeft + 'px)' }">
         <span v-for="sec in ticks" :key="sec" :style="{ left: KEY_W + sec * pixelsPerSecond + 'px' }">{{ sec }}s</span>
@@ -307,7 +350,7 @@ onUnmounted(()=>{stopDrag();window.removeEventListener('pointermove',moveMarquee
       </div>
     </div>
     <div ref="scroll" class="mx-roll-scroll" @scroll="syncScroll">
-      <div ref="gridRef" class="mx-roll-grid" @pointerdown.self="startMarquee" :style="{ width: gridWidth + 'px', height: ROW * (HIGH - LOW + 1) + 'px', backgroundSize: (60 / Math.max(20, bpm) * pixelsPerSecond) + 'px ' + ROW + 'px' }" @dblclick.self="onGridDouble">
+      <div ref="gridRef" class="mx-roll-grid" @pointerdown.self="startMarquee" :style="{ width: gridWidth + 'px', height: ROW * (HIGH - LOW + 1) + 'px', backgroundSize: (snap ? Math.max(8, snap * pixelsPerSecond) : 60 / Math.max(20, bpm) * pixelsPerSecond) + 'px ' + ROW + 'px', backgroundPositionX: KEY_W + 'px' }" @dblclick.self="onGridDouble">
         <div class="mx-roll-keys" role="group" aria-label="Bàn phím Piano để nghe thử nốt"
           @pointerdown.stop="onKeyPointerDown" @pointermove.stop="onKeyPointerMove"
           @pointerup.stop="onKeyPointerUp" @pointercancel.stop="onKeyPointerUp"

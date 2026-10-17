@@ -72,3 +72,15 @@
 .mx-roll-note.selected{outline:2px solid #e8faff;filter:brightness(1.25);box-shadow:0 0 7px #7ecbff88;z-index:4}
 .mx-roll-note.selected.sounding{outline:2px solid #fff;box-shadow:0 0 12px #ffb776}
 .mx-roll-velocity-bar.selected{outline:1px solid #d9f8ff;opacity:1}
+
+/* 3B — Quantize controls: compact enough for docked editor at laptop widths. */
+.mx-roll-quantbar{flex:0 0 38px;display:flex;align-items:center;gap:9px;padding:0 10px;background:#222b35;border-bottom:1px solid #455364;white-space:nowrap;overflow-x:auto;scrollbar-width:thin}
+.mx-roll-quant-title{color:#ffbf83;font-size:11px;font-weight:700;flex:none}
+.mx-roll-quantbar label{display:flex;align-items:center;gap:5px;font-size:10px;color:#c4d0dd;flex:none}
+.mx-roll-quantbar select{font-size:11px;min-width:55px}
+.mx-roll-quantbar input[type=range]{width:90px;accent-color:#ffab64;cursor:pointer}
+.mx-roll-quant-value{font:10px ui-monospace,monospace;min-width:32px;color:#e9b989}
+.mx-roll-quant-scope{font-size:10px;color:#9aacc0;flex:none}
+.mx-roll-quantbar .mx-roll-quant-apply{background:#99592f;border-color:#d78a4b;color:#fff2e4;font-weight:700;font-size:11px;padding:5px 10px;flex:none}
+.mx-roll-quantbar .mx-roll-quant-apply:not(:disabled):hover{background:#bd7140}
+@media(max-width:760px){.mx-roll-quantbar{gap:6px;padding:0 7px}.mx-roll-quant-scope{display:none}}
