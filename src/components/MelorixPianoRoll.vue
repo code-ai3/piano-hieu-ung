@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick, onUnmounted } from 'vue'
 import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
 import { midiNoteName, snapMidiTime, clampMidiVelocity } from '@/util/midi-edit'
 const props=defineProps<{part:MidiPart; notes:MidiNoteEvent[]; duration:number; bpm:number; disabled:boolean}>()
 const emit=defineEmits<{(e:'change',notes:MidiNoteEvent[]):void;(e:'close'):void}>()
 const ROW=19, KEY_W=54, HIGH=108, LOW=21
 const scroll=ref<HTMLElement|null>(null)
-const velScroll=ref<HTMLElement|null>(null)
 const gridScrollLeft=ref(0)
 const pixelsPerSecond=ref(40)
 const snapDivision=ref(16)
@@ -18,7 +17,14 @@ const gridWidth=computed(()=>totalWidth.value+KEY_W)
 const snap=computed(()=>snapDivision.value ? 60/Math.max(20,props.bpm)*4/snapDivision.value : 0)
 const ticks=computed(()=>Array.from({length:Math.min(2000,Math.ceil(totalWidth.value/pixelsPerSecond.value/2)+1)},(_,i)=>i*2))
 const keyList=Array.from({length:HIGH-LOW+1},(_,i)=>HIGH-i)
-watch(()=>[props.part.id,props.notes],()=>{draft.value=props.notes.map(n=>({...n}));selected.value=-1;void nextTick(centerKeys)},{immediate:true})
+let previousTrackId: number | null = null
+watch(()=>[props.part.id,props.notes],()=>{
+  const switched = previousTrackId !== props.part.id
+  previousTrackId = props.part.id
+  draft.value = props.notes.map(n=>({...n}))
+  if (switched || selected.value >= draft.value.length) selected.value = -1
+  if (switched) void nextTick(centerKeys)
+},{immediate:true})
 function centerKeys(){
  const e=scroll.value; if(!e)return
  const pitches=draft.value.map(n=>n.midi)
@@ -57,6 +63,7 @@ function onGridDouble(e:MouseEvent){
 function noteDown(e:PointerEvent,index:number){if(tool.value==='erase'){removeNote(index);return}startDrag(e,index,'move')}
 function noteDbl(e:MouseEvent,index:number){e.stopPropagation();removeNote(index)}
 function keyLabel(midi:number){return midiNoteName(midi)}
+onUnmounted(stopDrag)
 </script>
 
 <template>
@@ -67,7 +74,7 @@ function keyLabel(midi:number){return midiNoteName(midi)}
       <span class="mx-roll-stats">{{ draft.length }} nốt · {{ Math.round(bpm) }} BPM</span>
       <span class="mx-roll-grow"></span>
       <label>Công cụ <select v-model="tool" :disabled="disabled">
-        <option value="select">Di chuyển</option><option value="draw">Vẽ nốt</option><option value="erase">Xóa nốt</option>
+        <option value="select">Di chuyển / Chỉnh</option><option value="erase">Xóa nốt</option>
       </select></label>
       <label>Snap <select v-model.number="snapDivision">
         <option :value="0">Tắt</option><option :value="4">1/4</option><option :value="8">1/8</option>
