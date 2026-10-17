@@ -83,6 +83,65 @@ function commit(before?:MidiNoteEvent[]){
  setSelection(draft.value.flatMap((note,i)=>keep.has(note)?[i]:[]))
  emit('change',cloneNotes(draft.value))
 }
+function copySelection(){
+ if(!selectionCount.value)return
+ clipboard.value=copyMidiNotes(draft.value,selectedIndices.value)
+}
+function pasteSelection(atTime=props.currentTime){
+ if(props.disabled||!clipboard.value.length)return
+ const before=cloneNotes(draft.value)
+ const start=draft.value.length
+ const inserted=pasteMidiNotes(clipboard.value,props.part.id,atTime)
+ draft.value.push(...inserted)
+ setSelection(inserted.map((_,i)=>start+i))
+ commit(before)
+}
+function removeSelected(){
+ if(props.disabled||!selectionCount.value)return
+ const before=cloneNotes(draft.value)
+ const toDelete=new Set(selectedIndices.value)
+ draft.value=draft.value.filter((_,i)=>!toDelete.has(i))
+ setSelection([])
+ commit(before)
+}
+function cutSelection(){copySelection();removeSelected()}
+function duplicateSelection(){
+ if(!selectionCount.value)return
+ copySelection()
+ const chosen=selectedIndices.value.map(i=>draft.value[i])
+ const end=Math.max(...chosen.map(n=>n.time+n.duration))
+ pasteSelection(end+Math.max(snap.value,.125))
+}
+function undoEdit(){
+ if(props.disabled||!undoHistory.value.length)return
+ redoHistory.value.push(cloneNotes(draft.value))
+ draft.value=undoHistory.value.pop()!
+ setSelection([])
+ emit('change',cloneNotes(draft.value))
+}
+function redoEdit(){
+ if(props.disabled||!redoHistory.value.length)return
+ undoHistory.value.push(cloneNotes(draft.value))
+ draft.value=redoHistory.value.pop()!
+ setSelection([])
+ emit('change',cloneNotes(draft.value))
+}
+function onEditorKeyDown(e:KeyboardEvent){
+ if(props.disabled)return
+ if((e.target as HTMLElement).closest('input,select,textarea,[contenteditable="true"]'))return
+ const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase()
+ if(mod){
+  if(key==='a'){e.preventDefault();setSelection(draft.value.map((_,i)=>i))}
+  else if(key==='c'&&selectionCount.value){e.preventDefault();copySelection()}
+  else if(key==='x'&&selectionCount.value){e.preventDefault();cutSelection()}
+  else if(key==='v'&&clipboard.value.length){e.preventDefault();pasteSelection()}
+  else if(key==='d'&&selectionCount.value){e.preventDefault();duplicateSelection()}
+  else if(key==='z'){e.preventDefault();if(e.shiftKey)redoEdit();else undoEdit()}
+  else if(key==='y'){e.preventDefault();redoEdit()}
+ }else if((e.key==='Delete'||e.key==='Backspace')&&selectionCount.value){
+  e.preventDefault();removeSelected()
+ }
+}
 let dragging:{index:number;kind:'move'|'resize'|'velocity';x:number;y:number;original:MidiNoteEvent}|null=null
 function stopDrag(){if(dragging){dragging=null;commit()}window.removeEventListener('pointermove',moveDrag);window.removeEventListener('pointerup',stopDrag)}
 function startDrag(e:PointerEvent,index:number,kind:'move'|'resize'|'velocity'){
