@@ -149,3 +149,15 @@ html, body, #app { width:100%; height:100%; min-height:0; overflow:hidden; overs
   .mx-preview-canvas-area { min-height:0; }
   .mx-preview-head { font-size:11px; }
 }
+
+/* Prevent the 44px transport button from being clipped by the fixed toolbar. */
+.mx-toolbar { align-items:center; padding:5px 12px; }
+@media(max-height:690px){
+  .mx-btn-play { height:38px; width:38px; }
+  .mx-toolbar { padding:4px 10px; }
+}
+@media(max-height:490px){
+  .mx-btn { min-height:30px; }
+  .mx-btn-play { height:34px; width:34px; }
+  .mx-toolbar { padding:3px 8px; }
+}
