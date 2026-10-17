@@ -60,3 +60,15 @@
 .mx-roll-key{transition:background-color .08s,color .08s}
 .mx-roll-key.auditioning{background:#ffbb6a;color:#24180d;box-shadow:inset 0 0 0 2px #ffe9cc,inset 0 0 9px #da7b2e;font-weight:800}
 .mx-roll-key.black.auditioning{background:#f08e4b;color:#1e1510;box-shadow:inset 0 0 0 2px #ffcc85,inset 0 0 10px #e66f32}
+
+/* 3A: selection and edit commands remain inside the docked MIDI editor. */
+.mx-roll:focus{outline:none}
+.mx-roll-editbar{flex:0 0 34px;display:flex;align-items:center;gap:6px;padding:0 9px;background:#1f2631;border-bottom:1px solid #424f60;overflow-x:auto;white-space:nowrap;scrollbar-width:thin}
+.mx-roll-editbar strong{font-size:10px;color:#ffbf83;margin-right:4px}
+.mx-roll-editbar button{flex:none;padding:4px 7px;font-size:10px}
+.mx-roll-editbar button:not(:disabled):hover{background:#495569;color:#fff}
+.mx-roll-editbar button:disabled{opacity:.35}
+.mx-roll-marquee{position:absolute;z-index:6;border:1px solid #79c7ff;background:rgba(86,168,244,.17);pointer-events:none;box-shadow:0 0 0 1px #477db833 inset}
+.mx-roll-note.selected{outline:2px solid #e8faff;filter:brightness(1.25);box-shadow:0 0 7px #7ecbff88;z-index:4}
+.mx-roll-note.selected.sounding{outline:2px solid #fff;box-shadow:0 0 12px #ffb776}
+.mx-roll-velocity-bar.selected{outline:1px solid #d9f8ff;opacity:1}
