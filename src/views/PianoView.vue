@@ -13,6 +13,7 @@ import { SplendidGrandPiano, renderOffline } from 'smplr'
 import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
 import MelorixPianoRoll from '@/components/MelorixPianoRoll.vue'
+import { midiNoteName } from '@/util/midi-edit'
 import '@/assets/melorix-roll.css'
 import AppCheckbox from '@/components/AppCheckbox.vue'
 import { Output, Mp4OutputFormat, BufferTarget, StreamTarget, VideoSampleSource, VideoSample, AudioSampleSource, AudioSample } from 'mediabunny'
@@ -434,8 +435,8 @@ let pianoLoading = false
 
 let initPianoPromise: Promise<void> | null = null
 async function initPiano() {
-  if (piano) return
   if (initPianoPromise) { await initPianoPromise; return }
+  if (piano) return
   initPianoPromise = (async () => {
     const ctx = new AudioContext()
     // 自定义 storage：修复文件名中 # 被浏览器当 hash 截断的问题
@@ -446,8 +447,8 @@ async function initPiano() {
       decayTime: 0.5,
       storage: safeStorage as any,
     })
-    await piano.load
     audioCtx.value = ctx
+    await piano.load
     pianoLoaded.value = true
   })()
   try { await initPianoPromise } finally { initPianoPromise = null }
@@ -620,18 +621,42 @@ async function play() {
 }
 
 function resetPiano() {
+  stopPianoAudition()
   piano?.stop(); piano = null
   audioCtx.value?.close(); audioCtx.value = null
   pianoLoaded.value = false; initPianoPromise = null
 }
 
-function pause() { playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
+function pause() { stopPianoAudition(); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
 function stop() {
   playState.value = 'idle'; currentTime.value = 0
   lastScheduledIdx = 0; pianoLoading = false
   resetPiano(); initPiano()
 }
 function togglePlay() { playState.value === 'playing' ? pause() : play() }
+
+const AUDITION_STOP_ID = 'melorix-editor-key'
+let auditionRequest = 0
+function stopPianoAudition() {
+ auditionRequest++
+ piano?.stop(AUDITION_STOP_ID)
+}
+async function startPianoAudition(midi: number) {
+ if(exporting.value) return
+ stopPianoAudition()
+ const request = auditionRequest
+ try {
+  const loading = initPiano()
+  const earlyResume = audioCtx.value?.resume()
+  await loading
+  await earlyResume
+  await audioCtx.value?.resume()
+  await piano?.load
+  if(request !== auditionRequest || exporting.value || !piano) return
+  piano.start({ note: midiNoteName(midi), velocity: 95, stopId: AUDITION_STOP_ID })
+ } catch(error) { console.error('Piano audition failed:',error) }
+}
+
 
 // ---- Canvas 渲染 ----
 function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: number) {
@@ -1652,7 +1677,7 @@ watch(() => currentTime.value, (t) => {
         <div v-if="!isFullscreen && pianoRollPart" class="mx-roll-divider" role="separator" aria-orientation="horizontal" title="Kéo lên/xuống để chỉnh chiều cao Piano Roll" @pointerdown="beginPianoRollResize"></div>
         <MelorixPianoRoll v-if="!isFullscreen && pianoRollPart" :key="pianoRollPart.id" :style="{ height: pianoRollHeight + 'px' }"
           :part="pianoRollPart" :notes="pianoRollNotes" :duration="duration" :bpm="midiTempo"
-          :disabled="exporting" :current-time="currentTime / speed" :playing="playState === 'playing'" @seek="seekFromPianoRoll" @change="updatePianoRollNotes" @close="pianoRollTrackId = null" />
+          :disabled="exporting" :current-time="currentTime / speed" :playing="playState === 'playing'" @seek="seekFromPianoRoll" @change="updatePianoRollNotes" @audition-start="startPianoAudition" @audition-stop="stopPianoAudition" @close="pianoRollTrackId = null" />
       </div> <!-- workspace stage -->
       <aside v-if="!isFullscreen && isInspectorOpen" class="mx-inspector" aria-label="Thuộc tính MELORIX">
         <div class="mx-inspector-top"><i class="fas fa-sliders-h"></i> Cài đặt <span style="margin-left:auto;font-weight:400;color:#929eae">Thuộc tính</span>

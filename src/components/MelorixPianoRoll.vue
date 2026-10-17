@@ -4,7 +4,7 @@ import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
 import { midiNoteName, snapMidiTime, clampMidiVelocity } from '@/util/midi-edit'
 import { playheadLeft, rulerSeekTime } from '@/util/piano-roll-playhead'
 const props=defineProps<{part:MidiPart; notes:MidiNoteEvent[]; duration:number; bpm:number; disabled:boolean; currentTime:number; playing:boolean}>()
-const emit=defineEmits<{(e:'change',notes:MidiNoteEvent[]):void;(e:'close'):void;(e:'seek',time:number):void}>()
+const emit=defineEmits<{(e:'change',notes:MidiNoteEvent[]):void;(e:'close'):void;(e:'seek',time:number):void;(e:'audition-start',midi:number):void;(e:'audition-stop'):void}>()
 const ROW=19, KEY_W=54, HIGH=108, LOW=21
 const scroll=ref<HTMLElement|null>(null)
 const gridScrollLeft=ref(0)
@@ -21,6 +21,9 @@ const snapDivision=ref(16)
 const tool=ref<'select'|'draw'|'erase'>('select')
 const draft=ref<MidiNoteEvent[]>([])
 const selected=ref(-1)
+const auditionPitch=ref<number|null>(null)
+let auditionPointerId:number|null=null
+
 const totalWidth=computed(()=>Math.max(1100,(Math.max(props.duration,...draft.value.map(n=>n.time+n.duration),0)+5)*pixelsPerSecond.value))
 const gridWidth=computed(()=>totalWidth.value+KEY_W)
 const snap=computed(()=>snapDivision.value ? 60/Math.max(20,props.bpm)*4/snapDivision.value : 0)
@@ -78,8 +81,47 @@ function onGridDouble(e:MouseEvent){
 }
 function noteDown(e:PointerEvent,index:number){if(tool.value==='erase'){removeNote(index);return}startDrag(e,index,'move')}
 function noteDbl(e:MouseEvent,index:number){e.stopPropagation();removeNote(index)}
+function pitchAtPointer(e:PointerEvent):number|null{
+ const area=scroll.value
+ if(!area)return null
+ const rect=area.getBoundingClientRect()
+ const x=e.clientX-rect.left, y=e.clientY-rect.top+area.scrollTop
+ if(x<0||x>KEY_W||y<0||y>=ROW*(HIGH-LOW+1))return null
+ return Math.max(LOW,Math.min(HIGH,HIGH-Math.floor(y/ROW)))
+}
+function changeAudition(pitch:number|null){
+ if(auditionPitch.value===pitch)return
+ if(auditionPitch.value!==null)emit('audition-stop')
+ auditionPitch.value=pitch
+ if(pitch!==null)emit('audition-start',pitch)
+}
+function onKeyPointerDown(e:PointerEvent){
+ if(props.disabled||auditionPointerId!==null||(e.pointerType==='mouse'&&e.button!==0))return
+ e.preventDefault()
+ auditionPointerId=e.pointerId
+ try{(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)}catch{}
+ changeAudition(pitchAtPointer(e))
+}
+function onKeyPointerMove(e:PointerEvent){
+ if(auditionPointerId===e.pointerId)changeAudition(pitchAtPointer(e))
+}
+function onKeyPointerUp(e:PointerEvent){
+ if(auditionPointerId!==e.pointerId)return
+ stopKeyAudition()
+ const key=e.currentTarget as HTMLElement
+ if(key.hasPointerCapture(e.pointerId))key.releasePointerCapture(e.pointerId)
+}
+function stopKeyAudition(){
+ if(auditionPitch.value!==null)emit('audition-stop')
+ auditionPointerId=null
+ auditionPitch.value=null
+}
+function onKeyLostCapture(e:PointerEvent){
+ if(auditionPointerId===e.pointerId)stopKeyAudition()
+}
 function keyLabel(midi:number){return midiNoteName(midi)}
-onUnmounted(stopDrag)
+watch(()=>props.disabled,disabled=>{if(disabled)stopKeyAudition()})
+onUnmounted(()=>{stopDrag();stopKeyAudition()})
 </script>
 
 <template>
@@ -107,8 +149,11 @@ onUnmounted(stopDrag)
     </div>
     <div ref="scroll" class="mx-roll-scroll" @scroll="syncScroll">
       <div class="mx-roll-grid" :style="{ width: gridWidth + 'px', height: ROW * (HIGH - LOW + 1) + 'px', backgroundSize: (60 / Math.max(20, bpm) * pixelsPerSecond) + 'px ' + ROW + 'px' }" @dblclick.self="onGridDouble">
-        <div class="mx-roll-keys">
-          <div v-for="pitch in keyList" :key="pitch" :class="['mx-roll-key', { black: keyLabel(pitch).includes('#') }]" :style="{ height: ROW + 'px' }">{{ pitch % 12 === 0 ? keyLabel(pitch) : '' }}</div>
+        <div class="mx-roll-keys" role="group" aria-label="Bàn phím Piano để nghe thử nốt"
+          @pointerdown.stop="onKeyPointerDown" @pointermove.stop="onKeyPointerMove"
+          @pointerup.stop="onKeyPointerUp" @pointercancel.stop="onKeyPointerUp"
+          @lostpointercapture="onKeyLostCapture">
+          <div v-for="pitch in keyList" :key="pitch" :class="['mx-roll-key', { black: keyLabel(pitch).includes('#'), auditioning: auditionPitch === pitch }]" :style="{ height: ROW + 'px' }">{{ pitch % 12 === 0 ? keyLabel(pitch) : '' }}</div>
         </div>
         <div v-for="(note, i) in draft" :key="i" class="mx-roll-note" :class="{ selected: selected === i, sounding: playing && currentTime >= note.time && currentTime < note.time + note.duration }"
           :title="note.name + ' · ' + note.time.toFixed(2) + 's · Velocity ' + Math.round(note.velocity * 127)"
