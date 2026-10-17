@@ -119,3 +119,13 @@
 .mx-roll-key.scale-tonic:not(.auditioning){box-shadow:inset 3px 0 0 #f3a255}
 .mx-roll-note.off-scale:not(.selected):not(.sounding){border:1px dashed #ffd29f}
 @media(max-width:760px){.mx-roll-scale-tools .mx-roll-quant-scope{display:none}}
+
+/* 3E: Chord Editor in the existing collapsible editor lane, no fixed height added. */
+.mx-roll-chord-tools{gap:5px;min-height:34px}
+.mx-roll-chord-tools select{min-width:43px;max-width:116px;font-size:10px}
+.mx-roll-chord-tools input[type=number]{width:40px;background:#2c3440;color:#dae2ed;border:1px solid #465363;border-radius:3px;padding:3px 4px;font-size:10px}
+.mx-roll-chord-preview{font-size:10px;color:#b1c7d9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:70px;max-width:175px;flex:1}
+.mx-roll-chord-preview b{color:#ffc17e}
+.mx-roll-chord-warning{color:#ffca7e;font-weight:800;padding:0 4px;border:1px solid #a37a37;border-radius:4px;margin-left:2px}
+.mx-roll-chord-tools button{flex:none;padding:4px 8px}
+@media(max-width:1080px){.mx-roll-chord-preview{max-width:115px}.mx-roll-chord-tools{gap:4px}.mx-roll-chord-tools label{gap:2px}}
