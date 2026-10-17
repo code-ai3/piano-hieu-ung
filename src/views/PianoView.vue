@@ -675,7 +675,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     const burning = age < burnDur  // 燃烧中（燃尽后只残留粒子，不画引线/本体）
 
     // 解体碎片：从前沿位置沿音符本体向外（主要向两侧+上）飞散
-    const shardCount = 16
+    const shardCount = velocityParticleCount(16, visualPower(n.velocity))
     for (let i = 0; i < shardCount; i++) {
       // 每片在燃烧期内的某个时刻“脱离”前沿
       const breakT = n.time + hash(seed + i * 3.1) * burnDur * 0.9
@@ -703,14 +703,14 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
 
     // 引线前沿 + 炽热核：仅在燃烧中绘制（燃尽后只剩残留粒子上飘）
     if (burning) {
-      const lineA = (1 - p) * 0.95
+      const lineA = (1 - p) * 0.95 * visualPower(n.velocity)
       const lineGrad = ctx.createLinearGradient(cx - nw, frontY, cx + nw, frontY)
       lineGrad.addColorStop(0, `rgba(${tint(ar,ag,ab,0.4)},0)`)
       lineGrad.addColorStop(0.5, `rgba(255,255,255,${lineA})`)
       lineGrad.addColorStop(1, `rgba(${tint(ar,ag,ab,0.4)},0)`)
       ctx.fillStyle = lineGrad
       ctx.fillRect(x - nw * 0.6, frontY - 2, nw * 2.2, 4)
-      const coreR = 10 + (1 - p) * 8
+      const coreR = (10 + (1 - p) * 8) * (0.35 + 0.65 * visualPower(n.velocity))
       const coreG = ctx.createRadialGradient(cx, frontY, 0, cx, frontY, coreR)
       coreG.addColorStop(0, `rgba(255,255,255,${lineA})`)
       coreG.addColorStop(0.5, `rgba(${tint(ar,ag,ab,0.5)},${lineA * 0.6})`)
@@ -720,7 +720,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     }
 
     // 烟雾：按燃烧时长确定密度，向上飘并扩散、快速消散
-    const smokeCount = Math.max(14, Math.min(60, Math.round(burnDur * 30)))
+    const smokeCount = velocityParticleCount(Math.max(14, Math.min(60, Math.round(burnDur * 30))), visualPower(n.velocity))
     for (let i = 0; i < smokeCount; i++) {
       const ts = n.time + (i / smokeCount) * burnDur
           + (hash(seed + i * 1.7) - 0.5) * (burnDur / smokeCount)
@@ -746,7 +746,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     }
 
     // 火星拖尾：接触瞬间大量高速白亮粒向上射出
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < velocityParticleCount(14, visualPower(n.velocity)); i++) {
       const ts = n.time + hash(seed + i * 5.3) * 0.1
       const pAge = targetTime - ts
       if (pAge < 0 || pAge > sparkLife) continue
