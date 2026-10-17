@@ -12,6 +12,8 @@ import type { VideoFormat, PortraitKeyboard } from '@/util/video-format'
 import { SplendidGrandPiano, renderOffline } from 'smplr'
 import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
+import MelorixPianoRoll from '@/components/MelorixPianoRoll.vue'
+import '@/assets/melorix-roll.css'
 import AppCheckbox from '@/components/AppCheckbox.vue'
 import { Output, Mp4OutputFormat, BufferTarget, StreamTarget, VideoSampleSource, VideoSample, AudioSampleSource, AudioSample } from 'mediabunny'
 import { useI18n } from 'vue-i18n'
@@ -26,6 +28,11 @@ const playState = ref<'idle' | 'playing' | 'paused'>('idle')
 const currentTime = ref(0)
 const speed = ref(1)
 const allNotes = ref<NoteEvent[]>([])
+const midiTempo = ref(120)
+const pianoRollTrackId = ref<number | null>(null)
+const pianoRollHeight = ref(330)
+const pianoRollPart = computed(() => midiParts.value.find(part => part.id === pianoRollTrackId.value) || null)
+const pianoRollNotes = computed(() => allNotes.value.filter(note => note.trackId === pianoRollTrackId.value))
 const midiParts = ref<MidiPart[]>([])
 const notes = computed(() => filterMidiParts(allNotes.value, midiParts.value))
 const enabledPartCount = computed(() => midiParts.value.filter(part => part.enabled).length)
@@ -479,6 +486,8 @@ function updateNoteRange() {
   noteRange.value = { min: Math.max(21, min - 12), max: Math.min(108, max + 12) }
 }
 function processMidi(midi: Midi) {
+  pianoRollTrackId.value = null
+  midiTempo.value = midi.header.tempos[0]?.bpm || 120
   const parsed = extractMidiParts(midi)
   midiParts.value = parsed.parts
   allNotes.value = parsed.events
@@ -488,6 +497,42 @@ function processMidi(midi: Midi) {
   lastScheduledIdx = 0
   keyState.value = {}
   updateNoteRange()
+}
+function openPianoRoll(id: number) {
+  if (exporting.value || !midiParts.value.some(part => part.id === id)) return
+  pianoRollTrackId.value = id
+  if (playState.value === 'playing') pause()
+}
+function updatePianoRollNotes(edited: NoteEvent[]) {
+  const id = pianoRollTrackId.value
+  if (id === null || exporting.value) return
+  // Never modify notes on any other track. All playback and export reads allNotes.
+  if (playState.value === 'playing') pause()
+  piano?.stop()
+  allNotes.value = [
+    ...allNotes.value.filter(note => note.trackId !== id),
+    ...edited.map(note => ({ ...note, trackId: id })),
+  ].sort((a,b) => a.time-b.time || a.midi-b.midi)
+  const part = midiParts.value.find(part => part.id === id)
+  if (part) part.noteCount = edited.length
+  duration.value = Math.max(0,...allNotes.value.map(note => note.time + note.duration))
+  lastScheduledIdx = 0
+  keyState.value = {}
+  updateNoteRange()
+}
+function beginPianoRollResize(e: PointerEvent) {
+  e.preventDefault()
+  const startY = e.clientY
+  const initial = pianoRollHeight.value
+  function move(event: PointerEvent) {
+    pianoRollHeight.value = Math.min(Math.round(window.innerHeight * 0.68), Math.max(200, initial + startY - event.clientY))
+  }
+  function stop() {
+    window.removeEventListener('pointermove',move)
+    window.removeEventListener('pointerup',stop)
+  }
+  window.addEventListener('pointermove',move)
+  window.addEventListener('pointerup',stop)
 }
 function resetAfterTrackChange() {
   // Audio is scheduled ahead of time; stop that schedule before changing a track mix.
