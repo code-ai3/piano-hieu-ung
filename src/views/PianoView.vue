@@ -4,6 +4,8 @@ import { Midi } from '@tonejs/midi'
 import { extractMidiParts, filterMidiParts } from '@/util/midi-tracks'
 import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
 import { portraitKeyboardRange, videoDimensions } from '@/util/video-format'
+import { exportDurationSeconds, exportFrameCount, musicalTimeAtFrame, previewClockForMusicalTime } from '@/util/export-timing'
+import type { ExportLength } from '@/util/export-timing'
 import { velocityVisualStrength, velocityParticleCount } from '@/util/velocity-effects'
 import type { VelocityVisualMode } from '@/util/velocity-effects'
 import type { VideoFormat, PortraitKeyboard } from '@/util/video-format'
@@ -147,6 +149,9 @@ const exporting = ref(false)
 const supportsFsApi = 'showSaveFilePicker' in window
 const exportProgress = ref(0)
 const exportEta = ref(0)   // 剩余秒数
+const exportLength = ref<ExportLength>('preview15')
+const selectedExportSeconds = computed(() => exportDurationSeconds(duration.value, exportLength.value))
+const exportPhase = ref<'preparing' | 'rendering'>('preparing')
 
 async function exportVideo() {
   if (exporting.value) return
