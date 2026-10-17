@@ -165,8 +165,11 @@ async function exportVideo() {
   exportEta.value = 0
   try {
     const { width: w, height: h, fps } = formatDimensions.value
-    const totalFrames = Math.ceil(duration.value * fps)
-    const fileName = `${currentTrack.value?.name || 'piano'}-${videoFormat.value === 'portrait' ? '9x16' : '16x9'}.mp4`
+    const exportSeconds = selectedExportSeconds.value
+    const totalFrames = exportFrameCount(exportSeconds, fps)
+    if (!totalFrames) throw new Error('No MIDI duration to export')
+    const suffix = exportLength.value === 'full' ? '' : `-${Math.ceil(exportSeconds)}s-test`
+    const fileName = `${currentTrack.value?.name || 'piano'}-${videoFormat.value === 'portrait' ? '9x16' : '16x9'}${suffix}.mp4`
 
     // 选保存位置（支持时走流式写盘，省内存）
     let fileHandle: any = null
@@ -196,7 +199,7 @@ async function exportVideo() {
       for (const n of notes.value) {
         offPiano.start({ note: n.name, velocity: n.velocity * 127, time: n.time })
       }
-    }, { duration: duration.value })
+    }, { duration: exportSeconds })
     const audioBuf = result.audioBuffer
     const sr = audioBuf.sampleRate
 
@@ -225,8 +228,8 @@ async function exportVideo() {
     const offCanvas = document.createElement('canvas')
     const t0 = performance.now()
     for (let frame = 0; frame < totalFrames; frame++) {
-      currentTime.value = frame / fps
-      const t2 = currentTime.value / speed.value
+      currentTime.value = previewClockForMusicalTime(musicalTimeAtFrame(frame, fps), speed.value)
+      const t2 = musicalTimeAtFrame(frame, fps)
       const ks: Record<number, boolean> = {}
       for (const n of notes.value) {
         if (n.time <= t2 && n.time + n.duration > t2) ks[n.midi] = true
