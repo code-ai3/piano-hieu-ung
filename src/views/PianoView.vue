@@ -1134,7 +1134,7 @@ watch(() => currentTime.value, (t) => {
           <p class="text-xs opacity-65">{{ t('piano.velocityVisualHint') }}</p>
           <div class="grid grid-cols-3 gap-2">
             <button v-for="mode in velocityModes" :key="mode" type="button" :aria-pressed="velocityMode === mode"
-              class="rounded-lg border px-2 py-2 text-xs" @click="velocityMode = mode">
+              class="rounded-lg border px-2 py-2 text-xs" :class="velocityMode === mode ? 'border-primary-500 bg-primary-500/15 text-primary-500' : 'border-black/15 dark:border-white/20'" @click="velocityMode = mode">
               {{ t('piano.velocityMode_' + mode) }}
             </button>
           </div>
