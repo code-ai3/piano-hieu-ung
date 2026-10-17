@@ -1204,6 +1204,15 @@ const timelineRows = computed(() => {
   })
 })
 const timelineTicks = computed(() => Array.from({ length: 7 }, (_, i) => fmtTime(duration.value * i / 6)))
+function seekFromPianoRoll(seconds:number) {
+ if(exporting.value)return
+ const wasPlaying=playState.value==='playing'
+ if(wasPlaying)pause()
+ currentTime.value=Math.min(duration.value,Math.max(0,seconds))*speed.value
+ lastScheduledIdx=0
+ keyState.value={}
+ if(wasPlaying)void play()
+}
 function seekFromTimeline(event: MouseEvent) {
   if (exporting.value || !duration.value) return
   const element = event.currentTarget as HTMLElement
@@ -1643,7 +1652,7 @@ watch(() => currentTime.value, (t) => {
         <div v-if="!isFullscreen && pianoRollPart" class="mx-roll-divider" role="separator" aria-orientation="horizontal" title="Kéo lên/xuống để chỉnh chiều cao Piano Roll" @pointerdown="beginPianoRollResize"></div>
         <MelorixPianoRoll v-if="!isFullscreen && pianoRollPart" :key="pianoRollPart.id" :style="{ height: pianoRollHeight + 'px' }"
           :part="pianoRollPart" :notes="pianoRollNotes" :duration="duration" :bpm="midiTempo"
-          :disabled="exporting" @change="updatePianoRollNotes" @close="pianoRollTrackId = null" />
+          :disabled="exporting" :current-time="currentTime / speed" :playing="playState === 'playing'" @seek="seekFromPianoRoll" @change="updatePianoRollNotes" @close="pianoRollTrackId = null" />
       </div> <!-- workspace stage -->
       <aside v-if="!isFullscreen && isInspectorOpen" class="mx-inspector" aria-label="Thuộc tính MELORIX">
         <div class="mx-inspector-top"><i class="fas fa-sliders-h"></i> Cài đặt <span style="margin-left:auto;font-weight:400;color:#929eae">Thuộc tính</span>

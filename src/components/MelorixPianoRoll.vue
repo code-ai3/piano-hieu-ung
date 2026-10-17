@@ -2,11 +2,20 @@
 import { computed, ref, watch, nextTick, onUnmounted } from 'vue'
 import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
 import { midiNoteName, snapMidiTime, clampMidiVelocity } from '@/util/midi-edit'
-const props=defineProps<{part:MidiPart; notes:MidiNoteEvent[]; duration:number; bpm:number; disabled:boolean}>()
-const emit=defineEmits<{(e:'change',notes:MidiNoteEvent[]):void;(e:'close'):void}>()
+import { playheadLeft, rulerSeekTime } from '@/util/piano-roll-playhead'
+const props=defineProps<{part:MidiPart; notes:MidiNoteEvent[]; duration:number; bpm:number; disabled:boolean; currentTime:number; playing:boolean}>()
+const emit=defineEmits<{(e:'change',notes:MidiNoteEvent[]):void;(e:'close'):void;(e:'seek',time:number):void}>()
 const ROW=19, KEY_W=54, HIGH=108, LOW=21
 const scroll=ref<HTMLElement|null>(null)
 const gridScrollLeft=ref(0)
+const followPlayback=ref(true)
+const playheadX=computed(()=>playheadLeft(props.currentTime,pixelsPerSecond.value,KEY_W))
+function followPlayhead(force=false){
+ const el=scroll.value;if(!el||!followPlayback.value)return
+ const x=playheadX.value,w=el.clientWidth
+ if(force||(props.playing&&(x>el.scrollLeft+w*.78||x<el.scrollLeft+w*.1)))el.scrollLeft=Math.max(0,x-w*.3)
+ else if(!props.playing&&props.currentTime<.03)el.scrollLeft=0
+}
 const pixelsPerSecond=ref(40)
 const snapDivision=ref(16)
 const tool=ref<'select'|'draw'|'erase'>('select')
@@ -16,6 +25,7 @@ const totalWidth=computed(()=>Math.max(1100,(Math.max(props.duration,...draft.va
 const gridWidth=computed(()=>totalWidth.value+KEY_W)
 const snap=computed(()=>snapDivision.value ? 60/Math.max(20,props.bpm)*4/snapDivision.value : 0)
 const ticks=computed(()=>Array.from({length:Math.min(2000,Math.ceil(totalWidth.value/pixelsPerSecond.value/2)+1)},(_,i)=>i*2))
+// Editor keyboard pitch list
 const keyList=Array.from({length:HIGH-LOW+1},(_,i)=>HIGH-i)
 let previousTrackId: number | null = null
 watch(()=>[props.part.id,props.notes],()=>{
@@ -23,13 +33,19 @@ watch(()=>[props.part.id,props.notes],()=>{
   previousTrackId = props.part.id
   draft.value = props.notes.map(n=>({...n}))
   if (switched || selected.value >= draft.value.length) selected.value = -1
-  if (switched) void nextTick(centerKeys)
+  if (switched) void nextTick(()=>{ centerKeys(); followPlayhead(true) })
 },{immediate:true})
 function centerKeys(){
  const e=scroll.value; if(!e)return
  const pitches=draft.value.map(n=>n.midi)
  const p=pitches.length?(Math.min(...pitches)+Math.max(...pitches))/2:60
  e.scrollTop=Math.max(0,(HIGH-p)*ROW-e.clientHeight/2)
+}
+watch(() => props.currentTime, () => followPlayhead())
+function seekOnRuler(e:MouseEvent){
+ const rect=(e.currentTarget as HTMLElement).getBoundingClientRect()
+ const seconds=rulerSeekTime(e.clientX,rect.left,gridScrollLeft.value,pixelsPerSecond.value,KEY_W,props.duration)
+ if(seconds!==null)emit('seek',seconds)
 }
 function syncScroll(e:Event){gridScrollLeft.value=(e.target as HTMLElement).scrollLeft}
 function snapAt(x:number){return snapMidiTime((x-KEY_W)/pixelsPerSecond.value,snap.value)}
@@ -83,9 +99,10 @@ onUnmounted(stopDrag)
       <label>Zoom <input v-model.number="pixelsPerSecond" type="range" min="18" max="140" step="2"></label>
       <button type="button" title="Đóng Piano Roll" @click="emit('close')"><i class="fas fa-times"></i></button>
     </div>
-    <div class="mx-roll-ruler">
+    <div class="mx-roll-ruler" @click="seekOnRuler">
       <div :style="{ width: gridWidth + 'px', transform: 'translateX(-' + gridScrollLeft + 'px)' }">
         <span v-for="sec in ticks" :key="sec" :style="{ left: KEY_W + sec * pixelsPerSecond + 'px' }">{{ sec }}s</span>
+        <span class="mx-roll-playhead mx-roll-ruler-cursor" :style="{ left: playheadX + 'px' }"></span>
       </div>
     </div>
     <div ref="scroll" class="mx-roll-scroll" @scroll="syncScroll">
@@ -93,13 +110,14 @@ onUnmounted(stopDrag)
         <div class="mx-roll-keys">
           <div v-for="pitch in keyList" :key="pitch" :class="['mx-roll-key', { black: keyLabel(pitch).includes('#') }]" :style="{ height: ROW + 'px' }">{{ pitch % 12 === 0 ? keyLabel(pitch) : '' }}</div>
         </div>
-        <div v-for="(note, i) in draft" :key="i" class="mx-roll-note" :class="{ selected: selected === i }"
+        <div v-for="(note, i) in draft" :key="i" class="mx-roll-note" :class="{ selected: selected === i, sounding: playing && currentTime >= note.time && currentTime < note.time + note.duration }"
           :title="note.name + ' · ' + note.time.toFixed(2) + 's · Velocity ' + Math.round(note.velocity * 127)"
           :style="{ left: KEY_W + note.time * pixelsPerSecond + 'px', top: (HIGH - note.midi) * ROW + 1 + 'px', width: Math.max(5, note.duration * pixelsPerSecond) + 'px', height: ROW - 2 + 'px', backgroundColor: part.color }"
           @pointerdown.stop="noteDown($event, i)" @dblclick.stop="noteDbl($event, i)">
           <span class="mx-roll-note-label">{{ note.name }}</span>
           <span class="mx-roll-resize" title="Kéo để đổi độ dài" @pointerdown.stop="startDrag($event, i, 'resize')"></span>
         </div>
+        <span class="mx-roll-grid-cursor" :style="{left:playheadX+'px'}"></span>
       </div>
     </div>
     <div class="mx-roll-velocity-title">
@@ -109,6 +127,7 @@ onUnmounted(stopDrag)
     </div>
     <div class="mx-roll-velocity-window">
       <div class="mx-roll-velocity-inner" :style="{ width: gridWidth + 'px', transform: 'translateX(-' + gridScrollLeft + 'px)' }">
+        <span class="mx-roll-velocity-cursor" :style="{left:playheadX+'px'}"></span>
         <span v-for="(note, i) in draft" :key="i" class="mx-roll-velocity-bar" :class="{ selected: selected === i }"
           :title="note.name + ' · Velocity ' + Math.round(note.velocity * 127)"
           :style="{ left: KEY_W + note.time * pixelsPerSecond + 'px', height: (note.velocity * 100) + '%', backgroundColor: part.color }"
