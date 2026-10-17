@@ -66,7 +66,23 @@ function seekOnRuler(e:MouseEvent){
 function syncScroll(e:Event){gridScrollLeft.value=(e.target as HTMLElement).scrollLeft}
 function snapAt(x:number){return snapMidiTime((x-KEY_W)/pixelsPerSecond.value,snap.value)}
 function yToMidi(y:number){return Math.min(HIGH,Math.max(LOW,HIGH-Math.floor(y/ROW)))}
-function commit(){if(!props.disabled)emit('change',draft.value.map(n=>({...n})))}
+function setSelection(indices:number[]){
+ selectedIndices.value=[...new Set(indices.filter(i=>i>=0&&i<draft.value.length))]
+ selected.value=selectedIndices.value.length===1?selectedIndices.value[0]:-1
+}
+function commit(before?:MidiNoteEvent[]){
+ if(props.disabled)return
+ if(before&&sameNotes(before,draft.value))return
+ if(before){
+  undoHistory.value.push(cloneNotes(before))
+  if(undoHistory.value.length>60)undoHistory.value.shift()
+  redoHistory.value=[]
+ }
+ const keep=new Set(selectedIndices.value.map(i=>draft.value[i]))
+ draft.value.sort((a,b)=>a.time-b.time||a.midi-b.midi)
+ setSelection(draft.value.flatMap((note,i)=>keep.has(note)?[i]:[]))
+ emit('change',cloneNotes(draft.value))
+}
 let dragging:{index:number;kind:'move'|'resize'|'velocity';x:number;y:number;original:MidiNoteEvent}|null=null
 function stopDrag(){if(dragging){dragging=null;commit()}window.removeEventListener('pointermove',moveDrag);window.removeEventListener('pointerup',stopDrag)}
 function startDrag(e:PointerEvent,index:number,kind:'move'|'resize'|'velocity'){
