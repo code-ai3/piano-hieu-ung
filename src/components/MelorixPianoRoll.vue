@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onUnmounted } from 'vue'
 import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
-import { midiNoteName, snapMidiTime, clampMidiVelocity } from '@/util/midi-edit'
+import { midiNoteName, snapMidiTime } from '@/util/midi-edit'
 import { playheadLeft, rulerSeekTime } from '@/util/piano-roll-playhead'
 import { cloneNotes, sameNotes, copyMidiNotes, pasteMidiNotes, moveMidiNotes, selectMidiInBox } from '@/util/piano-roll-selection'
 import { midiGridStep, quantizeMidiNotes } from '@/util/piano-roll-quantize'
+import { setMidiVelocities, shiftMidiVelocities, rampMidiVelocities, humanizeMidiVelocities, drawMidiVelocityLine, velocityNumber } from '@/util/piano-roll-velocity'
 const props=defineProps<{part:MidiPart; notes:MidiNoteEvent[]; duration:number; bpm:number; disabled:boolean; currentTime:number; playing:boolean}>()
 const emit=defineEmits<{(e:'change',notes:MidiNoteEvent[]):void;(e:'close'):void;(e:'seek',time:number):void;(e:'audition-start',midi:number):void;(e:'audition-stop'):void}>()
 const ROW=19, KEY_W=54, HIGH=108, LOW=21
@@ -23,6 +24,14 @@ const snapDivision=ref(16)
 const quantDivision=ref(16)
 const quantStrength=ref(100)
 const quantSwing=ref(0)
+const advancedPanel=ref<'none'|'quantize'|'velocity'>('none')
+const velocitySet=ref(95)
+const velocityFrom=ref(45)
+const velocityTo=ref(115)
+const humanizeAmount=ref(12)
+const velocityDrawing=ref(false)
+const velocityWindow=ref<HTMLElement|null>(null)
+let humanizeSeed=0
 const tool=ref<'select'|'draw'|'erase'>('select')
 const draft=ref<MidiNoteEvent[]>([])
 const selected=ref(-1)
@@ -49,6 +58,7 @@ watch(()=>[props.part.id,props.notes],()=>{
   if(switched||!sameNotes(draft.value,props.notes))draft.value=cloneNotes(props.notes)
   if(switched){
     selectedIndices.value=[];selected.value=-1
+    velocityDrawing.value=false;advancedPanel.value='none'
     undoHistory.value=[];redoHistory.value=[];clipboard.value=[]
     void nextTick(()=>{centerKeys();followPlayhead(true)})
   } else if(selectedIndices.value.some(i=>i>=draft.value.length)){
@@ -143,6 +153,75 @@ function applyQuantize(){
  })
  commit(before)
 }
+function togglePanel(panel:'quantize'|'velocity'){
+ advancedPanel.value=advancedPanel.value===panel?'none':panel
+ if(advancedPanel.value!=='velocity')velocityDrawing.value=false
+}
+function velocityTargets(){return selectionCount.value?[...selectedIndices.value]:draft.value.map((_,i)=>i)}
+function applyVelocitySet(){
+ if(props.disabled||!draft.value.length)return
+ const before=cloneNotes(draft.value)
+ draft.value=setMidiVelocities(draft.value,velocityTargets(),velocitySet.value)
+ commit(before)
+}
+function applyVelocityDelta(delta:number){
+ if(props.disabled||!draft.value.length)return
+ const before=cloneNotes(draft.value)
+ draft.value=shiftMidiVelocities(draft.value,velocityTargets(),delta)
+ commit(before)
+}
+function applyVelocityRamp(reverse=false){
+ if(props.disabled||!draft.value.length)return
+ const before=cloneNotes(draft.value)
+ draft.value=rampMidiVelocities(draft.value,velocityTargets(),reverse?velocityTo.value:velocityFrom.value,reverse?velocityFrom.value:velocityTo.value)
+ commit(before)
+}
+function applyVelocityHumanize(){
+ if(props.disabled||!draft.value.length)return
+ const before=cloneNotes(draft.value)
+ draft.value=humanizeMidiVelocities(draft.value,velocityTargets(),humanizeAmount.value,++humanizeSeed)
+ commit(before)
+}
+// Drawing works in the existing velocity lane, so no new panel takes vertical space.
+let painting:{before:MidiNoteEvent[];indices:number[];time:number;value:number;startX:number;moved:boolean}|null=null
+function velocityCoordinates(e:PointerEvent){
+ const el=velocityWindow.value;if(!el)return null
+ const rect=el.getBoundingClientRect()
+ const x=Math.max(KEY_W,Math.min(gridWidth.value,e.clientX-rect.left+gridScrollLeft.value))
+ return {time:Math.max(0,(x-KEY_W)/pixelsPerSecond.value),value:velocityNumber((rect.bottom-e.clientY)/rect.height*127)}
+}
+function beginVelocityDraw(e:PointerEvent){
+ if(props.disabled||!velocityDrawing.value||painting||(e.pointerType==='mouse'&&e.button!==0))return
+ const pos=velocityCoordinates(e);if(!pos)return
+ e.preventDefault()
+ rollRoot.value?.focus({preventScroll:true})
+ painting={before:cloneNotes(draft.value),indices:velocityTargets(),time:pos.time,value:pos.value,startX:e.clientX,moved:false}
+ window.addEventListener('pointermove',moveVelocityDraw)
+ window.addEventListener('pointerup',endVelocityDraw)
+ window.addEventListener('pointercancel',endVelocityDraw)
+}
+function moveVelocityDraw(e:PointerEvent){
+ const state=painting,pos=velocityCoordinates(e)
+ if(!state||!pos)return
+ if(Math.abs(e.clientX-state.startX)>3)state.moved=true
+ if(!state.moved)return
+ draft.value=drawMidiVelocityLine(state.before,state.indices,state.time,pos.time,state.value,pos.value)
+}
+function endVelocityDraw(e:PointerEvent){
+ if(painting){
+  moveVelocityDraw(e)
+  const before=painting.before
+  painting=null
+  commit(before)
+ }
+ window.removeEventListener('pointermove',moveVelocityDraw)
+ window.removeEventListener('pointerup',endVelocityDraw)
+ window.removeEventListener('pointercancel',endVelocityDraw)
+}
+function velocityBarDown(e:PointerEvent,index:number){
+ if(velocityDrawing.value){e.stopPropagation();beginVelocityDraw(e)}
+ else startDrag(e,index,'velocity')
+}
 function removeSelected(){
  if(props.disabled||!selectionCount.value)return
  const before=cloneNotes(draft.value)
@@ -214,8 +293,8 @@ function moveDrag(e:PointerEvent){
  const d=dragging;if(!d)return
  const n=d.original
  if(d.kind==='velocity'){
-  const v=clampMidiVelocity(Math.round(n.velocity*127)+(d.y-e.clientY)*1.2)
-  draft.value[d.index]={...n,velocity:v/127};return
+  const delta=Math.round((d.y-e.clientY)*1.2)
+  draft.value=shiftMidiVelocities(d.before,d.indices,delta);return
  }
  const dt=(e.clientX-d.x)/pixelsPerSecond.value
  const movedX=Math.abs(e.clientX-d.x)>=2
@@ -289,8 +368,8 @@ function onKeyLostCapture(e:PointerEvent){
  if(auditionPointerId===e.pointerId)stopKeyAudition()
 }
 function keyLabel(midi:number){return midiNoteName(midi)}
-watch(()=>props.disabled,disabled=>{if(disabled)stopKeyAudition()})
-onUnmounted(()=>{stopDrag();window.removeEventListener('pointermove',moveMarquee);window.removeEventListener('pointerup',stopMarquee);stopKeyAudition()})
+watch(()=>props.disabled,disabled=>{if(disabled){stopKeyAudition();if(painting){draft.value=painting.before;painting=null}}})
+onUnmounted(()=>{stopDrag();painting=null;window.removeEventListener('pointermove',moveVelocityDraw);window.removeEventListener('pointerup',endVelocityDraw);window.removeEventListener('pointercancel',endVelocityDraw);window.removeEventListener('pointermove',moveMarquee);window.removeEventListener('pointerup',stopMarquee);stopKeyAudition()})
 </script>
 
 <template>
@@ -311,37 +390,49 @@ onUnmounted(()=>{stopDrag();window.removeEventListener('pointermove',moveMarquee
       <label>Zoom <input v-model.number="pixelsPerSecond" type="range" min="18" max="140" step="2"></label>
       <button type="button" title="Đóng Piano Roll" @click="emit('close')"><i class="fas fa-times"></i></button>
     </div>
-    <div class="mx-roll-editbar" aria-label="Công cụ soạn MIDI">
-      <strong>{{ selectionCount }} nốt được chọn</strong>
-      <button type="button" title="Ctrl+A" :disabled="disabled || !draft.length" @click="setSelection(draft.map((_,i)=>i))">Chọn tất cả</button>
-      <button type="button" title="Ctrl+C" :disabled="disabled || !selectionCount" @click="copySelection"><i class="fas fa-copy"></i> Sao chép</button>
-      <button type="button" title="Ctrl+V · Dán tại vạch Playhead" :disabled="disabled || !clipboard.length" @click="pasteSelection()"><i class="fas fa-paste"></i> Dán</button>
-      <button type="button" title="Ctrl+D · Nhân đôi sau nhóm đang chọn" :disabled="disabled || !selectionCount" @click="duplicateSelection">Nhân đôi</button>
-      <button type="button" title="Delete" :disabled="disabled || !selectionCount" @click="removeSelected"><i class="fas fa-trash"></i> Xóa</button>
+    <div class="mx-roll-editbar mx-roll-editbar-compact" aria-label="Công cụ soạn MIDI">
+      <strong class="mx-roll-selection-count" :title="selectionCount + ' nốt được chọn'">{{ selectionCount }} chọn</strong>
+      <button type="button" title="Chọn tất cả · Ctrl+A" aria-label="Chọn tất cả" :disabled="disabled || !draft.length" @click="setSelection(draft.map((_,i)=>i))"><i class="fas fa-object-group"></i></button>
+      <button type="button" title="Sao chép · Ctrl+C" aria-label="Sao chép" :disabled="disabled || !selectionCount" @click="copySelection"><i class="fas fa-copy"></i></button>
+      <button type="button" title="Dán · Ctrl+V" aria-label="Dán" :disabled="disabled || !clipboard.length" @click="pasteSelection()"><i class="fas fa-paste"></i></button>
+      <button type="button" title="Nhân đôi · Ctrl+D" aria-label="Nhân đôi" :disabled="disabled || !selectionCount" @click="duplicateSelection"><i class="fas fa-clone"></i></button>
+      <button type="button" title="Xóa · Delete" aria-label="Xóa nốt đã chọn" :disabled="disabled || !selectionCount" @click="removeSelected"><i class="fas fa-trash"></i></button>
+      <span class="mx-roll-separator"></span>
+      <button type="button" :class="{ 'mx-roll-panel-active': advancedPanel==='quantize' }" :aria-expanded="advancedPanel==='quantize'" title="Bật/tắt công cụ căn nhịp" @click="togglePanel('quantize')"><i class="fas fa-align-left"></i> Nhịp <i class="fas fa-angle-down"></i></button>
+      <button type="button" :class="{ 'mx-roll-panel-active': advancedPanel==='velocity' }" :aria-expanded="advancedPanel==='velocity'" title="Bật/tắt công cụ Velocity nâng cao" @click="togglePanel('velocity')"><i class="fas fa-sliders-h"></i> Velocity <i class="fas fa-angle-down"></i></button>
       <span class="mx-roll-grow"></span>
-      <button type="button" title="Ctrl+Z" :disabled="disabled || !undoHistory.length" @click="undoEdit"><i class="fas fa-undo"></i> Hoàn tác</button>
-      <button type="button" title="Ctrl+Y hoặc Ctrl+Shift+Z" :disabled="disabled || !redoHistory.length" @click="redoEdit"><i class="fas fa-redo"></i> Làm lại</button>
+      <button type="button" title="Hoàn tác · Ctrl+Z" aria-label="Hoàn tác" :disabled="disabled || !undoHistory.length" @click="undoEdit"><i class="fas fa-undo"></i></button>
+      <button type="button" title="Làm lại · Ctrl+Y" aria-label="Làm lại" :disabled="disabled || !redoHistory.length" @click="redoEdit"><i class="fas fa-redo"></i></button>
     </div>
-    <div class="mx-roll-quantbar" aria-label="Quantize & Snap nâng cao">
-      <span class="mx-roll-quant-title"><i class="fas fa-grip-lines-vertical"></i> Quantize</span>
+    <div v-if="advancedPanel==='quantize'" class="mx-roll-quantbar mx-roll-compact-panel" aria-label="Căn nhịp nâng cao">
       <label>Lưới <select v-model.number="quantDivision" :disabled="disabled" aria-label="Lưới Quantize">
-        <option :value="4">1/4</option><option :value="8">1/8</option>
-        <option :value="16">1/16</option><option :value="32">1/32</option><option :value="64">1/64</option>
-        <option :value="12">1/8T</option><option :value="24">1/16T</option>
+        <option :value="4">1/4</option><option :value="8">1/8</option><option :value="16">1/16</option>
+        <option :value="32">1/32</option><option :value="64">1/64</option><option :value="12">1/8T</option><option :value="24">1/16T</option>
       </select></label>
-      <label title="Độ mạnh căn nhịp 25–100%">Strength
-        <select v-model.number="quantStrength" :disabled="disabled" aria-label="Độ mạnh Quantize">
-          <option :value="25">25%</option><option :value="50">50%</option>
-          <option :value="75">75%</option><option :value="100">100%</option>
-        </select>
-      </label>
-      <label title="Swing 0% là thẳng; 100% đẩy offbeat trễ thêm nửa ô lưới">Swing
-        <input v-model.number="quantSwing" :disabled="disabled" type="range" min="0" max="100" step="5" aria-label="Độ Swing">
+      <label>Strength <select v-model.number="quantStrength" :disabled="disabled" aria-label="Độ mạnh Quantize">
+        <option :value="25">25%</option><option :value="50">50%</option><option :value="75">75%</option><option :value="100">100%</option>
+      </select></label>
+      <label>Swing <input v-model.number="quantSwing" :disabled="disabled" type="range" min="0" max="100" step="5" aria-label="Độ Swing">
         <span class="mx-roll-quant-value">{{ quantSwing }}%</span>
       </label>
       <span class="mx-roll-grow"></span>
-      <span class="mx-roll-quant-scope">{{ selectionCount ? selectionCount + ' nốt được chọn' : 'Toàn bộ track' }}</span>
-      <button type="button" class="mx-roll-quant-apply" title="Q · Căn vị trí bắt đầu nốt theo nhịp; có thể hoàn tác bằng Ctrl+Z" :disabled="disabled || !draft.length" @click="applyQuantize"><i class="fas fa-align-left"></i> Căn nhịp (Q)</button>
+      <span class="mx-roll-quant-scope">{{ selectionCount ? selectionCount + ' nốt' : 'Cả track' }}</span>
+      <button type="button" class="mx-roll-quant-apply" title="Căn nhịp · Q · Ctrl+Z để hoàn tác" :disabled="disabled || !draft.length" @click="applyQuantize">Căn nhịp (Q)</button>
+    </div>
+    <div v-else-if="advancedPanel==='velocity'" class="mx-roll-quantbar mx-roll-compact-panel mx-roll-velocity-tools" aria-label="Velocity nâng cao">
+      <label>Mức <input v-model.number="velocitySet" :disabled="disabled" aria-label="Velocity đặt cố định" type="number" min="1" max="127" step="1"></label>
+      <button type="button" title="Đặt cùng lực đánh cho các nốt được chọn" :disabled="disabled || !draft.length" @click="applyVelocitySet">Đặt</button>
+      <button type="button" title="Giảm lực đánh 5 đơn vị" :disabled="disabled || !draft.length" @click="applyVelocityDelta(-5)">−5</button>
+      <button type="button" title="Tăng lực đánh 5 đơn vị" :disabled="disabled || !draft.length" @click="applyVelocityDelta(5)">+5</button>
+      <span class="mx-roll-separator"></span>
+      <label>Từ <input v-model.number="velocityFrom" type="number" min="1" max="127" :disabled="disabled" aria-label="Velocity đầu"></label>
+      <label>Đến <input v-model.number="velocityTo" type="number" min="1" max="127" :disabled="disabled" aria-label="Velocity cuối"></label>
+      <button type="button" title="Tạo Velocity tăng/giảm từ trái sang phải" :disabled="disabled || !draft.length" @click="applyVelocityRamp(false)">Dốc ↗</button>
+      <button type="button" title="Đảo chiều dốc Velocity" :disabled="disabled || !draft.length" @click="applyVelocityRamp(true)">↘</button>
+      <span class="mx-roll-separator"></span>
+      <label>± <select v-model.number="humanizeAmount" :disabled="disabled" aria-label="Biên độ Humanize"><option :value="5">5</option><option :value="10">10</option><option :value="12">12</option><option :value="20">20</option></select></label>
+      <button type="button" title="Biến thiên lực đánh tự nhiên trong biên độ đã chọn" :disabled="disabled || !draft.length" @click="applyVelocityHumanize">Humanize</button>
+      <button type="button" :class="{ 'mx-roll-panel-active': velocityDrawing }" :aria-pressed="velocityDrawing" title="Vẽ đường thẳng bằng cách kéo chuột trên làn Velocity" :disabled="disabled" @click="velocityDrawing=!velocityDrawing"><i class="fas fa-pencil-alt"></i> Vẽ</button>
     </div>
     <div class="mx-roll-ruler" @click="seekOnRuler">
       <div :style="{ width: gridWidth + 'px', transform: 'translateX(-' + gridScrollLeft + 'px)' }">
@@ -374,17 +465,17 @@ onUnmounted(()=>{stopDrag();window.removeEventListener('pointermove',moveMarquee
     <div class="mx-roll-velocity-title">
       <span><i class="fas fa-sliders-h"></i> Velocity — Lực đánh (1–127)</span>
       <span v-if="selected >= 0">Nốt {{ draft[selected]?.name }} · {{ Math.round((draft[selected]?.velocity || 0) * 127) }}</span>
-      <span v-else>Kéo từng cột lên/xuống để điều chỉnh sắc thái</span>
+      <span v-else>{{ velocityDrawing ? "Vẽ đường: kéo chuột trên vùng Velocity" : "Kéo cột để chỉnh lực đánh (chọn nhiều nốt để chỉnh cả nhóm)" }}</span>
     </div>
-    <div class="mx-roll-velocity-window">
+    <div ref="velocityWindow" class="mx-roll-velocity-window" :class="{ 'mx-roll-velocity-drawing': velocityDrawing }" @pointerdown="beginVelocityDraw">
       <div class="mx-roll-velocity-inner" :style="{ width: gridWidth + 'px', transform: 'translateX(-' + gridScrollLeft + 'px)' }">
         <span class="mx-roll-velocity-cursor" :style="{left:playheadX+'px'}"></span>
         <span v-for="(note, i) in draft" :key="i" class="mx-roll-velocity-bar" :class="{ selected: selectedIndices.includes(i) }"
           :title="note.name + ' · Velocity ' + Math.round(note.velocity * 127)"
           :style="{ left: KEY_W + note.time * pixelsPerSecond + 'px', height: (note.velocity * 100) + '%', backgroundColor: part.color }"
-          @pointerdown.prevent="startDrag($event, i, 'velocity')"></span>
+          @pointerdown.prevent="velocityBarDown($event, i)"></span>
       </div>
     </div>
-    <div class="mx-roll-hint">Nhấp đúp vùng trống: thêm nốt · Kéo nốt: đổi cao độ/thời điểm · Kéo mép phải: đổi độ dài · Nhấp đúp nốt: xóa</div>
+    <div class="mx-roll-hint">Nhấp đúp thêm nốt · Kéo để sửa · Ctrl+Z hoàn tác · Nhịp / Velocity: mở công cụ nâng cao</div>
   </section>
 </template>

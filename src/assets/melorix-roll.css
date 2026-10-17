@@ -84,3 +84,25 @@
 .mx-roll-quantbar .mx-roll-quant-apply{background:#99592f;border-color:#d78a4b;color:#fff2e4;font-weight:700;font-size:11px;padding:5px 10px;flex:none}
 .mx-roll-quantbar .mx-roll-quant-apply:not(:disabled):hover{background:#bd7140}
 @media(max-width:760px){.mx-roll-quantbar{gap:6px;padding:0 7px}.mx-roll-quant-scope{display:none}}
+
+/* 3C — compact, collapsible editor controls; more room for actual note editing. */
+.mx-roll-top{flex-basis:32px;gap:7px;padding:0 8px}
+.mx-roll-top label{gap:4px}
+.mx-roll-top input[type=range]{width:55px}
+.mx-roll-editbar-compact{flex-basis:30px;gap:4px;padding:0 7px}
+.mx-roll-editbar-compact button{font-size:11px;padding:4px 8px;min-height:24px}
+.mx-roll-editbar-compact .mx-roll-selection-count{font-size:10px;min-width:43px;margin-right:3px;color:#ffba78}
+.mx-roll-separator{width:1px;height:18px;background:#4a5666;flex:none;margin:0 4px}
+.mx-roll-panel-active{background:#6d5035!important;color:#ffe7c8!important;border-color:#d08b52!important}
+.mx-roll-compact-panel{flex-basis:34px;gap:7px;padding:0 8px}
+.mx-roll-compact-panel button{flex:none;font-size:10px;min-height:23px}
+.mx-roll-compact-panel input[type=range]{width:66px}
+.mx-roll-velocity-tools label{font-size:10px}
+.mx-roll-velocity-tools input[type=number]{width:45px;background:#2c3440;color:#dae2ed;border:1px solid #465363;border-radius:3px;padding:3px 4px;font-size:10px}
+.mx-roll-velocity-tools select{min-width:48px}
+.mx-roll-velocity-title{flex-basis:23px;font-size:10px;padding:0 8px}
+.mx-roll-velocity-window{flex-basis:72px}
+.mx-roll-velocity-drawing,.mx-roll-velocity-drawing .mx-roll-velocity-bar{cursor:crosshair}
+.mx-roll-velocity-drawing{touch-action:none}
+.mx-roll-hint{flex-basis:18px}
+@media(max-height:620px){.mx-roll-velocity-window{flex-basis:56px}.mx-roll-compact-panel{flex-basis:31px}}
