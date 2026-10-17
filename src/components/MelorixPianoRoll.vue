@@ -41,7 +41,7 @@ function centerKeys(){
  const p=pitches.length?(Math.min(...pitches)+Math.max(...pitches))/2:60
  e.scrollTop=Math.max(0,(HIGH-p)*ROW-e.clientHeight/2)
 }
-watch(() => props.currentTime, followPlayhead)
+watch(() => props.currentTime, () => followPlayhead())
 function seekOnRuler(e:MouseEvent){
  const rect=(e.currentTarget as HTMLElement).getBoundingClientRect()
  const seconds=rulerSeekTime(e.clientX,rect.left,gridScrollLeft.value,pixelsPerSecond.value,KEY_W,props.duration)
