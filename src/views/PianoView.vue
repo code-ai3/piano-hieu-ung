@@ -1214,6 +1214,30 @@ function seekFromTimeline(event: MouseEvent) {
   lastScheduledIdx = 0
   keyState.value = {}
 }
+function downloadEditedMidi() {
+  if (!allNotes.value.length) return
+  // Export a fresh Standard MIDI File from edited notes, keeping each track separate.
+  const result = new Midi()
+  result.header.setTempo(midiTempo.value)
+  for (const part of midiParts.value) {
+    const track = result.addTrack()
+    track.name = part.name
+    track.channel = Math.max(0, part.channel - 1)
+    for (const note of allNotes.value) {
+      if (note.trackId !== part.id) continue
+      track.addNote({ midi: note.midi, time: note.time, duration: note.duration, velocity: note.velocity })
+    }
+  }
+  const blob = new Blob([result.toArray() as BlobPart], { type: 'audio/midi' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = (currentTrack.value?.name || 'melorix') + '-edited.mid'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 30_000)
+}
 function captureFrame() {
   const canvas = canvasRef.value
   if (!canvas) return
@@ -1249,6 +1273,7 @@ watch(() => currentTime.value, (t) => {
             <input type="file" class="hidden" accept="audio/*" :disabled="loadingMidi || converting || exporting" @change="onFileUpload($event); closeMenus()">
           </label>
           <button type="button" @click="showPlaylist = !showPlaylist"><i class="fas fa-folder-open mr-2"></i> Thư viện bài nhạc</button>
+          <button type="button" :disabled="exporting || !allNotes.length" @click="downloadEditedMidi"><i class="fas fa-save mr-2"></i> Lưu MIDI đã chỉnh (.mid)</button>
           <button type="button" :disabled="exporting" @click="showExport = true"><i class="fas fa-file-video mr-2"></i> Xuất video MP4</button>
         </div></details>
         <details name="melorix-main-menu"><summary>Chỉnh sửa</summary><div class="mx-menu-pop">
