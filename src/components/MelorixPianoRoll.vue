@@ -3,6 +3,7 @@ import { computed, ref, watch, nextTick, onUnmounted } from 'vue'
 import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
 import { midiNoteName, snapMidiTime, clampMidiVelocity } from '@/util/midi-edit'
 import { playheadLeft, rulerSeekTime } from '@/util/piano-roll-playhead'
+import { cloneNotes, sameNotes, copyMidiNotes, pasteMidiNotes, moveMidiNotes, selectMidiInBox } from '@/util/piano-roll-selection'
 const props=defineProps<{part:MidiPart; notes:MidiNoteEvent[]; duration:number; bpm:number; disabled:boolean; currentTime:number; playing:boolean}>()
 const emit=defineEmits<{(e:'change',notes:MidiNoteEvent[]):void;(e:'close'):void;(e:'seek',time:number):void;(e:'audition-start',midi:number):void;(e:'audition-stop'):void}>()
 const ROW=19, KEY_W=54, HIGH=108, LOW=21
@@ -21,6 +22,13 @@ const snapDivision=ref(16)
 const tool=ref<'select'|'draw'|'erase'>('select')
 const draft=ref<MidiNoteEvent[]>([])
 const selected=ref(-1)
+const selectedIndices=ref<number[]>([])
+const clipboard=ref<MidiNoteEvent[]>([])
+const undoHistory=ref<MidiNoteEvent[][]>([])
+const redoHistory=ref<MidiNoteEvent[][]>([])
+const marquee=ref<{x1:number;y1:number;x2:number;y2:number;additive:boolean}|null>(null)
+const rollRoot=ref<HTMLElement|null>(null)
+const selectionCount=computed(()=>selectedIndices.value.length)
 const auditionPitch=ref<number|null>(null)
 let auditionPointerId:number|null=null
 
