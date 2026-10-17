@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Midi } from '@tonejs/midi'
-import { extractMidiParts, filterMidiParts, trackColor } from '@/util/midi-tracks'
+import { extractMidiParts, filterMidiParts } from '@/util/midi-tracks'
 import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
 import { SplendidGrandPiano, renderOffline } from 'smplr'
 import Btn from '@/components/Btn.vue'
@@ -23,6 +23,7 @@ const allNotes = ref<NoteEvent[]>([])
 const midiParts = ref<MidiPart[]>([])
 const notes = computed(() => filterMidiParts(allNotes.value, midiParts.value))
 const enabledPartCount = computed(() => midiParts.value.filter(part => part.enabled).length)
+const trackRgbMap = computed(() => new Map(midiParts.value.map(part => [part.id, hexRgb(part.color)] as const)))
 const showTrackPanel = ref(false)
 const uploadError = ref('')
 const noteRange = ref({ min: 21, max: 108 })
@@ -521,7 +522,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
 
   // ---- 音符掉落（仅钢琴+电子琴音色） ----
   for (const n of notes.value) {
-    const [ar, ag, ab] = hexRgb(trackColor(n.trackId, midiParts.value, noteActiveColor.value))
+    const [ar, ag, ab] = (trackRgbMap.value.get(n.trackId) || hexRgb(noteActiveColor.value))
     const noteEnd = n.time + n.duration
     // 燃烧时长 = 音符播放时长：接触后随发声同步燃尽
     const burnDur = Math.max(0.05, n.duration)
@@ -627,7 +628,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
   ctx.save()
   ctx.globalCompositeOperation = 'lighter'
   for (const n of notes.value) {
-    const [ar, ag, ab] = hexRgb(trackColor(n.trackId, midiParts.value, noteActiveColor.value))
+    const [ar, ag, ab] = (trackRgbMap.value.get(n.trackId) || hexRgb(noteActiveColor.value))
     const age = targetTime - n.time
     const burnDur = Math.max(0.05, n.duration)
     const smokeLife = Math.max(0.4, burnDur * 0.85)
