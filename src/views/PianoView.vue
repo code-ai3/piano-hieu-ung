@@ -627,7 +627,7 @@ function resetPiano() {
   pianoLoaded.value = false; initPianoPromise = null
 }
 
-function pause() { playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
+function pause() { stopPianoAudition(); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
 function stop() {
   playState.value = 'idle'; currentTime.value = 0
   lastScheduledIdx = 0; pianoLoading = false
