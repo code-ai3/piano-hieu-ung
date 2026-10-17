@@ -145,7 +145,7 @@ onUnmounted(stopDrag)
           @pointerdown.stop="onKeyPointerDown" @pointermove.stop="onKeyPointerMove"
           @pointerup.stop="onKeyPointerUp" @pointercancel.stop="onKeyPointerUp"
           @lostpointercapture="stopKeyAudition">
-          <div v-for="pitch in keyList" :key="pitch" :class="['mx-roll-key', { black: keyLabel(pitch).includes('#') }]" :style="{ height: ROW + 'px' }">{{ pitch % 12 === 0 ? keyLabel(pitch) : '' }}</div>
+          <div v-for="pitch in keyList" :key="pitch" :class="['mx-roll-key', { black: keyLabel(pitch).includes('#'), auditioning: auditionPitch === pitch }]" :style="{ height: ROW + 'px' }">{{ pitch % 12 === 0 ? keyLabel(pitch) : '' }}</div>
         </div>
         <div v-for="(note, i) in draft" :key="i" class="mx-roll-note" :class="{ selected: selected === i, sounding: playing && currentTime >= note.time && currentTime < note.time + note.duration }"
           :title="note.name + ' · ' + note.time.toFixed(2) + 's · Velocity ' + Math.round(note.velocity * 127)"
