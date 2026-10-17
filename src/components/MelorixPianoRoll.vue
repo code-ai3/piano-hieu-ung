@@ -269,11 +269,11 @@ function onKeyLostCapture(e:PointerEvent){
 }
 function keyLabel(midi:number){return midiNoteName(midi)}
 watch(()=>props.disabled,disabled=>{if(disabled)stopKeyAudition()})
-onUnmounted(()=>{stopDrag();stopKeyAudition()})
+onUnmounted(()=>{stopDrag();stopMarquee(new PointerEvent("pointerup"));stopKeyAudition()})
 </script>
 
 <template>
-  <section class="mx-roll" aria-label="Trình chỉnh sửa MIDI Piano Roll">
+  <section ref="rollRoot" class="mx-roll" tabindex="0" @keydown="onEditorKeyDown" aria-label="Trình chỉnh sửa MIDI Piano Roll">
     <div class="mx-roll-top">
       <strong><i class="fas fa-keyboard"></i> Piano Roll</strong>
       <span class="mx-roll-track" :style="{ color: part.color }">{{ part.name }}</span>
@@ -296,14 +296,14 @@ onUnmounted(()=>{stopDrag();stopKeyAudition()})
       </div>
     </div>
     <div ref="scroll" class="mx-roll-scroll" @scroll="syncScroll">
-      <div class="mx-roll-grid" :style="{ width: gridWidth + 'px', height: ROW * (HIGH - LOW + 1) + 'px', backgroundSize: (60 / Math.max(20, bpm) * pixelsPerSecond) + 'px ' + ROW + 'px' }" @dblclick.self="onGridDouble">
+      <div ref="gridRef" class="mx-roll-grid" @pointerdown.self="startMarquee" :style="{ width: gridWidth + 'px', height: ROW * (HIGH - LOW + 1) + 'px', backgroundSize: (60 / Math.max(20, bpm) * pixelsPerSecond) + 'px ' + ROW + 'px' }" @dblclick.self="onGridDouble">
         <div class="mx-roll-keys" role="group" aria-label="Bàn phím Piano để nghe thử nốt"
           @pointerdown.stop="onKeyPointerDown" @pointermove.stop="onKeyPointerMove"
           @pointerup.stop="onKeyPointerUp" @pointercancel.stop="onKeyPointerUp"
           @lostpointercapture="onKeyLostCapture">
           <div v-for="pitch in keyList" :key="pitch" :class="['mx-roll-key', { black: keyLabel(pitch).includes('#'), auditioning: auditionPitch === pitch }]" :style="{ height: ROW + 'px' }">{{ pitch % 12 === 0 ? keyLabel(pitch) : '' }}</div>
         </div>
-        <div v-for="(note, i) in draft" :key="i" class="mx-roll-note" :class="{ selected: selected === i, sounding: playing && currentTime >= note.time && currentTime < note.time + note.duration }"
+        <div v-for="(note, i) in draft" :key="i" class="mx-roll-note" :class="{ selected: selectedIndices.includes(i), sounding: playing && currentTime >= note.time && currentTime < note.time + note.duration }"
           :title="note.name + ' · ' + note.time.toFixed(2) + 's · Velocity ' + Math.round(note.velocity * 127)"
           :style="{ left: KEY_W + note.time * pixelsPerSecond + 'px', top: (HIGH - note.midi) * ROW + 1 + 'px', width: Math.max(5, note.duration * pixelsPerSecond) + 'px', height: ROW - 2 + 'px', backgroundColor: part.color }"
           @pointerdown.stop="noteDown($event, i)" @dblclick.stop="noteDbl($event, i)">
@@ -321,7 +321,7 @@ onUnmounted(()=>{stopDrag();stopKeyAudition()})
     <div class="mx-roll-velocity-window">
       <div class="mx-roll-velocity-inner" :style="{ width: gridWidth + 'px', transform: 'translateX(-' + gridScrollLeft + 'px)' }">
         <span class="mx-roll-velocity-cursor" :style="{left:playheadX+'px'}"></span>
-        <span v-for="(note, i) in draft" :key="i" class="mx-roll-velocity-bar" :class="{ selected: selected === i }"
+        <span v-for="(note, i) in draft" :key="i" class="mx-roll-velocity-bar" :class="{ selected: selectedIndices.includes(i) }"
           :title="note.name + ' · Velocity ' + Math.round(note.velocity * 127)"
           :style="{ left: KEY_W + note.time * pixelsPerSecond + 'px', height: (note.velocity * 100) + '%', backgroundColor: part.color }"
           @pointerdown.prevent="startDrag($event, i, 'velocity')"></span>
