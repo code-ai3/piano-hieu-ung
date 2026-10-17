@@ -1,5 +1,6 @@
 import type { MidiNoteEvent } from './midi-tracks'
-import { midiNoteName } from './midi-edit'
+const PITCH_NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
+function pitchName(n:number){return PITCH_NAMES[n%12]+(Math.floor(n/12)-1)}
 export function cloneNotes(notes: readonly MidiNoteEvent[]): MidiNoteEvent[] {
   return notes.map(n => ({ ...n }))
 }
@@ -28,7 +29,7 @@ export function moveMidiNotes(notes: readonly MidiNoteEvent[], indices: readonly
   return notes.map((n, i) => {
     if (!set.has(i)) return { ...n }
     const midi = Math.round(n.midi + pitchOffset)
-    return { ...n, midi, name: midiNoteName(midi), time: Math.max(0, n.time + timeOffset) }
+    return { ...n, midi, name: pitchName(midi), time: Math.max(0, n.time + timeOffset) }
   })
 }
 export interface MidiBox { x1:number; x2:number; y1:number; y2:number }
