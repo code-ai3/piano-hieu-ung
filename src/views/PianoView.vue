@@ -164,6 +164,7 @@ async function exportVideo() {
   exportProgress.value = 0
   exportEta.value = 0
   exportPhase.value = 'preparing'
+  let fileWriter: FileSystemWritableFileStream | null = null
   try {
     const { width: w, height: h, fps } = formatDimensions.value
     const exportSeconds = selectedExportSeconds.value
@@ -174,7 +175,6 @@ async function exportVideo() {
 
     // 选保存位置（支持时走流式写盘，省内存）
     let fileHandle: any = null
-    let fileWriter: FileSystemWritableFileStream | null = null
     if (supportsFsApi) {
       try {
         fileHandle = await (window as any).showSaveFilePicker({
@@ -253,6 +253,7 @@ async function exportVideo() {
 
     if (fileWriter) {
       await fileWriter.close()
+      fileWriter = null
     } else {
       // BufferTarget：把 buffer 当下载
       const buf = (target as InstanceType<typeof BufferTarget>).buffer!
@@ -264,6 +265,9 @@ async function exportVideo() {
     }
   } catch (e) {
     console.error(e)
+    if (fileWriter) {
+      try { await fileWriter.abort() } catch (abortError) { console.warn('Could not abort incomplete export', abortError) }
+    }
     uploadError.value = t('piano.videoExportError')
   } finally {
     // Always restore the preview timestamp, including failed/aborted exports.
