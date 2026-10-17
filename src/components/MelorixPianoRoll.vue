@@ -111,7 +111,14 @@ function onKeyPointerUp(e:PointerEvent){
  const key=e.currentTarget as HTMLElement
  if(key.hasPointerCapture(e.pointerId))key.releasePointerCapture(e.pointerId)
 }
-function stopKeyAudition(){auditionPointerId=null;auditionPitch.value=null;emit('audition-stop')}
+function stopKeyAudition(){
+ if(auditionPitch.value!==null)emit('audition-stop')
+ auditionPointerId=null
+ auditionPitch.value=null
+}
+function onKeyLostCapture(e:PointerEvent){
+ if(auditionPointerId===e.pointerId)stopKeyAudition()
+}
 function keyLabel(midi:number){return midiNoteName(midi)}
 watch(()=>props.disabled,disabled=>{if(disabled)stopKeyAudition()})
 onUnmounted(()=>{stopDrag();stopKeyAudition()})
@@ -145,7 +152,7 @@ onUnmounted(()=>{stopDrag();stopKeyAudition()})
         <div class="mx-roll-keys" role="group" aria-label="Bàn phím Piano để nghe thử nốt"
           @pointerdown.stop="onKeyPointerDown" @pointermove.stop="onKeyPointerMove"
           @pointerup.stop="onKeyPointerUp" @pointercancel.stop="onKeyPointerUp"
-          @lostpointercapture="stopKeyAudition">
+          @lostpointercapture="onKeyLostCapture">
           <div v-for="pitch in keyList" :key="pitch" :class="['mx-roll-key', { black: keyLabel(pitch).includes('#'), auditioning: auditionPitch === pitch }]" :style="{ height: ROW + 'px' }">{{ pitch % 12 === 0 ? keyLabel(pitch) : '' }}</div>
         </div>
         <div v-for="(note, i) in draft" :key="i" class="mx-roll-note" :class="{ selected: selected === i, sounding: playing && currentTime >= note.time && currentTime < note.time + note.duration }"
