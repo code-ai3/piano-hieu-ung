@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run test:tracks && npm run test:video && npm run test:velocity && npm run test:export && npm run test:editor && npm run test:playhead && run-p type-check \"build-only {@}\" --",
+    "build": "npm run test:tracks && npm run test:video && npm run test:velocity && npm run test:export && npm run test:editor && npm run test:playhead && npm run test:selection && run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
     "test:tracks": "node --experimental-strip-types tests/midi-tracks.mjs",
     "test:video": "node --experimental-strip-types tests/video-format.mjs",
@@ -14,6 +14,7 @@
     "test:export": "node --experimental-strip-types tests/export-timing.mjs",
     "test:editor": "node --experimental-strip-types tests/midi-edit.mjs",
     "test:playhead": "node --experimental-strip-types tests/piano-roll-playhead.mjs",
+    "test:selection": "node --experimental-strip-types tests/piano-roll-selection.mjs",
     "build-only": "vite build",
     "type-check": "vue-tsc --build --force"
   },
