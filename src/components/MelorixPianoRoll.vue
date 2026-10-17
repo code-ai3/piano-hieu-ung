@@ -102,6 +102,15 @@ function onKeyPointerDown(e:PointerEvent){
  try{(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)}catch{}
  changeAudition(pitchAtPointer(e))
 }
+function onKeyPointerMove(e:PointerEvent){
+ if(auditionPointerId===e.pointerId)changeAudition(pitchAtPointer(e))
+}
+function onKeyPointerUp(e:PointerEvent){
+ if(auditionPointerId!==e.pointerId)return
+ stopKeyAudition()
+ const key=e.currentTarget as HTMLElement
+ if(key.hasPointerCapture(e.pointerId))key.releasePointerCapture(e.pointerId)
+}
 function stopKeyAudition(){auditionPointerId=null;auditionPitch.value=null;emit('audition-stop')}
 function keyLabel(midi:number){return midiNoteName(midi)}
 onUnmounted(stopDrag)
