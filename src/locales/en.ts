@@ -22,6 +22,12 @@ export default {
     importAudioError: 'Audio transcription failed. Try a shorter MP3/WAV file.',
     importMidiError: 'Unable to read this MIDI file. Check .mid/.midi format and try again.',
     videoExportError: 'Video export failed. Try the latest Chrome and verify free disk space.',
+    trackMixer: 'MIDI Tracks',
+    trackMixerHelp: 'Mute/solo individual parts and choose their note colors. Changing the mix restarts playback.',
+    enableAllTracks: 'Enable all', disableAllTracks: 'Disable all',
+    soloTrack: 'Solo', trackColor: 'Track color',
+    noteCount: 'notes', noMidiTracks: 'Import a MIDI file to view its tracks.',
+    noActiveTrack: 'No tracks are enabled. Select at least one to play or export.',
     dismissError: 'Dismiss',
   },
 }
