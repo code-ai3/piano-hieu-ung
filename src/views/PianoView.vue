@@ -1020,7 +1020,10 @@ watch(() => currentTime.value, (t) => {
           <span v-else class="inline-flex items-center gap-1.5 py-2 px-3.5 text-sm rounded-lg border border-black/15 dark:border-white/15 bg-white/50 dark:bg-white/[0.06] text-primary-500">
             <i class="fas fa-spinner fa-spin"></i>{{ loadingMidi ? t('piano.loading') : t('piano.converting') }}
           </span>
-          <Btn @click="showBgSettings = !showBgSettings" size="small" type="default">
+          <Btn @click="showTrackPanel = !showTrackPanel" size="small" type="default">
+             <i class="fas fa-layer-group"></i>{{ t('piano.trackMixer') }} ({{ midiParts.length }})
+           </Btn>
+           <Btn @click="showBgSettings = !showBgSettings" size="small" type="default">
             <i class="fas fa-music"></i>{{ t('piano.noteAreaSettings') }}
           </Btn>
           <Btn @click="showPianoSettings = !showPianoSettings" size="small" type="default">
@@ -1041,6 +1044,38 @@ watch(() => currentTime.value, (t) => {
         </div>
       </div>
     </div>
+
+    <div v-if="!isFullscreen && uploadError" role="alert" class="rounded-lg px-4 py-3 mb-3 text-sm bg-red-50 text-red-800 dark:bg-red-900/30 dark:text-red-200 flex items-center justify-between gap-3">
+      <span>{{ uploadError }}</span>
+      <button type="button" class="underline font-semibold" @click="uploadError = ''">{{ t('piano.dismissError') }}</button>
+    </div>
+    <!-- MIDI tracks from Cakewalk, NeuralNote or Tsumugi. All rendering, playback and export share notes. -->
+    <section v-if="!isFullscreen && showTrackPanel" class="glass-card p-4 mb-4" :aria-label="t('piano.trackMixer')">
+      <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+        <div>
+          <h2 class="font-semibold text-base">{{ t('piano.trackMixer') }}</h2>
+          <p class="text-xs opacity-65">{{ t('piano.trackMixerHelp') }}</p>
+        </div>
+        <div class="flex items-center gap-2 text-sm">
+          <span class="opacity-70">{{ enabledPartCount }}/{{ midiParts.length }}</span>
+          <button type="button" :disabled="exporting" class="px-3 py-1.5 rounded-lg border border-black/15 dark:border-white/20 hover:bg-primary-500/10 disabled:opacity-40" @click="setAllParts(true)">{{ t('piano.enableAllTracks') }}</button>
+          <button type="button" :disabled="exporting" class="px-3 py-1.5 rounded-lg border border-black/15 dark:border-white/20 hover:bg-primary-500/10 disabled:opacity-40" @click="setAllParts(false)">{{ t('piano.disableAllTracks') }}</button>
+        </div>
+      </div>
+      <p v-if="midiParts.length === 0" class="text-sm opacity-70">{{ t('piano.noMidiTracks') }}</p>
+      <p v-else-if="enabledPartCount === 0" class="text-sm text-amber-600 dark:text-amber-300 mb-2" role="status">{{ t('piano.noActiveTrack') }}</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[320px] overflow-y-auto">
+        <div v-for="part in midiParts" :key="part.id" class="flex items-center gap-2 rounded-lg border border-black/10 dark:border-white/15 bg-white/40 dark:bg-white/5 px-3 py-2">
+          <input type="checkbox" :checked="part.enabled" :disabled="exporting" @change="onPartToggle(part.id, $event)" :aria-label="part.name" class="accent-primary-500 w-4 h-4">
+          <div class="min-w-0 flex-1">
+            <div class="truncate text-sm font-medium" :title="part.name">{{ part.name }}</div>
+            <div class="text-xs opacity-60">{{ part.noteCount }} {{ t('piano.noteCount') }} · MIDI #{{ part.id + 1 }}</div>
+          </div>
+          <input type="color" :value="part.color" :disabled="exporting" @input="onPartColorInput(part.id, $event)" :aria-label="t('piano.trackColor') + ': ' + part.name" class="w-8 h-8 rounded border-0 bg-transparent cursor-pointer">
+          <button type="button" :disabled="exporting" class="text-xs px-2.5 py-1.5 rounded-lg border border-black/15 dark:border-white/20 disabled:opacity-40" @click="soloPart(part.id)">{{ t('piano.soloTrack') }}</button>
+        </div>
+      </div>
+    </section>
 
     <!-- 音符区设置 Modal -->
     <Modal v-model:show="showBgSettings" :title="t('piano.noteAreaSettings')">
