@@ -1,5 +1,15 @@
 import assert from 'node:assert/strict'
-import {midiNoteName,clampMidiVelocity} from '../src/util/midi-edit.ts'
-assert.equal(midiNoteName(60),'C4')
-assert.equal(clampMidiVelocity(140),127)
-console.log('PASS MIDI note helpers')
+import { midiNoteName, clampMidiVelocity, snapMidiTime, clampDuration } from '../src/util/midi-edit.ts'
+assert.equal(midiNoteName(60), 'C4')
+assert.equal(midiNoteName(61), 'C#4')
+assert.equal(midiNoteName(48), 'C3')
+assert.equal(clampMidiVelocity(0), 1)
+assert.equal(clampMidiVelocity(140), 127)
+assert.equal(clampMidiVelocity(NaN), 80)
+assert.equal(clampMidiVelocity(77.8), 78)
+assert.equal(snapMidiTime(0.37, 0.125), 0.375)
+assert.equal(snapMidiTime(-4, 0.25), 0)
+assert.equal(snapMidiTime(1.45, 0), 1.45)
+assert.equal(clampDuration(-1), 0.04)
+assert.equal(clampDuration(0.7), 0.7)
+console.log('PASS: MIDI note names, snap intervals, durations, velocity 1..127')
