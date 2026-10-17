@@ -202,7 +202,6 @@ async function exportVideo() {
       }
     }, { duration: exportSeconds })
     const audioBuf = result.audioBuffer
-    const sr = audioBuf.sampleRate
 
     // mediabunny output：流式写盘用 StreamTarget，否则用 BufferTarget
     const target: any = fileWriter
