@@ -622,12 +622,13 @@ async function play() {
 
 function resetPiano() {
   stopPianoAudition()
+  stopChordAudition()
   piano?.stop(); piano = null
   audioCtx.value?.close(); audioCtx.value = null
   pianoLoaded.value = false; initPianoPromise = null
 }
 
-function pause() { stopPianoAudition(); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
+function pause() { stopChordAudition(); stopPianoAudition(); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
 function stop() {
   playState.value = 'idle'; currentTime.value = 0
   lastScheduledIdx = 0; pianoLoading = false
@@ -643,6 +644,7 @@ function stopPianoAudition() {
 }
 async function startPianoAudition(midi: number) {
  if(exporting.value) return
+ stopChordAudition()
  stopPianoAudition()
  const request = auditionRequest
  try {
@@ -657,6 +659,34 @@ async function startPianoAudition(midi: number) {
  } catch(error) { console.error('Piano audition failed:',error) }
 }
 
+
+const CHORD_STOP_ID='melorix-editor-chord'
+let chordRequest=0
+let chordStopTimer:ReturnType<typeof setTimeout>|null=null
+function stopChordAudition(){
+ chordRequest++
+ if(chordStopTimer!==null){clearTimeout(chordStopTimer);chordStopTimer=null}
+ piano?.stop(CHORD_STOP_ID)
+}
+async function startChordAudition(pitches:number[]){
+ if(exporting.value||!pitches.length)return
+ stopChordAudition()
+ stopPianoAudition()
+ const request=chordRequest
+ try {
+  const loading=initPiano()
+  const earlyResume=audioCtx.value?.resume()
+  await loading
+  await earlyResume
+  await audioCtx.value?.resume()
+  await piano?.load
+  if(request!==chordRequest||exporting.value||!piano)return
+  for(const pitch of pitches){
+   piano.start({note:midiNoteName(pitch),velocity:95,stopId:CHORD_STOP_ID})
+  }
+  chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
+ }catch(error){console.error('Chord audition failed:',error)}
+}
 
 // ---- Canvas 渲染 ----
 function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: number) {
@@ -1677,7 +1707,7 @@ watch(() => currentTime.value, (t) => {
         <div v-if="!isFullscreen && pianoRollPart" class="mx-roll-divider" role="separator" aria-orientation="horizontal" title="Kéo lên/xuống để chỉnh chiều cao Piano Roll" @pointerdown="beginPianoRollResize"></div>
         <MelorixPianoRoll v-if="!isFullscreen && pianoRollPart" :key="pianoRollPart.id" :style="{ height: pianoRollHeight + 'px' }"
           :part="pianoRollPart" :notes="pianoRollNotes" :duration="duration" :bpm="midiTempo"
-          :disabled="exporting" :current-time="currentTime / speed" :playing="playState === 'playing'" @seek="seekFromPianoRoll" @change="updatePianoRollNotes" @audition-start="startPianoAudition" @audition-stop="stopPianoAudition" @close="pianoRollTrackId = null" />
+          :disabled="exporting" :current-time="currentTime / speed" :playing="playState === 'playing'" @seek="seekFromPianoRoll" @change="updatePianoRollNotes" @audition-start="startPianoAudition" @audition-stop="stopPianoAudition" @chord-audition="startChordAudition" @close="pianoRollTrackId = null" />
       </div> <!-- workspace stage -->
       <aside v-if="!isFullscreen && isInspectorOpen" class="mx-inspector" aria-label="Thuộc tính MELORIX">
         <div class="mx-inspector-top"><i class="fas fa-sliders-h"></i> Cài đặt <span style="margin-left:auto;font-weight:400;color:#929eae">Thuộc tính</span>
