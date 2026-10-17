@@ -141,7 +141,10 @@ onUnmounted(stopDrag)
     </div>
     <div ref="scroll" class="mx-roll-scroll" @scroll="syncScroll">
       <div class="mx-roll-grid" :style="{ width: gridWidth + 'px', height: ROW * (HIGH - LOW + 1) + 'px', backgroundSize: (60 / Math.max(20, bpm) * pixelsPerSecond) + 'px ' + ROW + 'px' }" @dblclick.self="onGridDouble">
-        <div class="mx-roll-keys">
+        <div class="mx-roll-keys" role="group" aria-label="Bàn phím Piano để nghe thử nốt"
+          @pointerdown.stop="onKeyPointerDown" @pointermove.stop="onKeyPointerMove"
+          @pointerup.stop="onKeyPointerUp" @pointercancel.stop="onKeyPointerUp"
+          @lostpointercapture="stopKeyAudition">
           <div v-for="pitch in keyList" :key="pitch" :class="['mx-roll-key', { black: keyLabel(pitch).includes('#') }]" :style="{ height: ROW + 'px' }">{{ pitch % 12 === 0 ? keyLabel(pitch) : '' }}</div>
         </div>
         <div v-for="(note, i) in draft" :key="i" class="mx-roll-note" :class="{ selected: selected === i, sounding: playing && currentTime >= note.time && currentTime < note.time + note.duration }"
