@@ -40,6 +40,12 @@ export default {
     velocityVisualHint: 'Nốt mạnh sáng hơn và nhiều hiệu ứng hơn; nốt nhẹ dịu hơn.',
     velocityMode_off: 'Tắt', velocityMode_natural: 'Tự nhiên', velocityMode_expressive: 'Nổi bật',
     velocitySensitivity: 'Độ phản ứng', velocitySourceHint: 'Dùng Velocity từ MIDI; không tự tạo biểu cảm nếu mọi nốt có lực đánh giống nhau.',
+    exportLength: 'Độ dài video xuất',
+    exportPreview15: 'Xuất thử 15 giây',
+    exportPreview30: 'Xuất thử 30 giây',
+    exportFullSong: 'Xuất toàn bài',
+    exportDurationHint: 'Độ dài được chọn: {seconds} giây',
+    exportPreparingAudio: 'Đang dựng âm thanh...',
     dismissError: 'Đóng',
   },
 }
