@@ -108,7 +108,6 @@ function fitPreviewCanvas() {
   const height = Math.max(1, Math.floor(Math.min(availableHeight, width / ratio)))
   fittedPreview.value = { width, height }
 }
-watch([videoFormat, isFullscreen], () => { void nextTick(fitPreviewCanvas) })
 
 
 const CANVAS_H = 560
@@ -138,6 +137,7 @@ const showPlaylist = ref(false)
 const currentTrack = computed(() => playlist.value[currentTrackIdx.value])
 const repeat = ref(false)
 const isFullscreen = ref(false)
+watch([videoFormat, isFullscreen], () => { void nextTick(fitPreviewCanvas) })
 const noteActiveColor = ref('#5cf6fe')
 // 音符接触特效：smoke = 燃烧烟雾消散，diffuse = 扩散光环
 const noteEffect = ref<'smoke' | 'diffuse'>('smoke')
