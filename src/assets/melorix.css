@@ -136,3 +136,16 @@ html, body, #app { width:100%; height:100%; min-height:0; overflow:hidden; overs
   .mx-preview-head { flex-basis:28px; }
   .mx-transport { flex-basis:44px; }
 }
+
+/* Responsive properties drawer, without creating a second page scroll. */
+.mx-inspector-backdrop { display:none; }
+.mx-inspector-close { display:none; margin-left:8px; min-width:26px; min-height:26px; }
+@media(max-width:840px){
+  .mx-inspector-backdrop { display:block; position:fixed; inset:0; z-index:69; background:rgba(0,0,0,.48); }
+  .mx-inspector-close { display:inline-grid; place-items:center; }
+  .mx-inspector { scrollbar-width:thin; }
+}
+@media(max-height:490px){
+  .mx-preview-canvas-area { min-height:0; }
+  .mx-preview-head { font-size:11px; }
+}
