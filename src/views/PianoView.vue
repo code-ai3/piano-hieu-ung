@@ -435,8 +435,8 @@ let pianoLoading = false
 
 let initPianoPromise: Promise<void> | null = null
 async function initPiano() {
-  if (piano) return
   if (initPianoPromise) { await initPianoPromise; return }
+  if (piano) return
   initPianoPromise = (async () => {
     const ctx = new AudioContext()
     // 自定义 storage：修复文件名中 # 被浏览器当 hash 截断的问题
