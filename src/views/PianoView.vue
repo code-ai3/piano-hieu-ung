@@ -106,6 +106,9 @@ function toggleInspectorPanel() {
 }
 // Keep native <details> semantics but enforce desktop-style exclusive menus.
 const menuBarRef = ref<HTMLElement | null>(null)
+// Distinguish a menu opened by hovering from an explicit click to avoid
+// immediately toggling it closed when users click after a hover switch.
+let menuOpenedByHover: HTMLDetailsElement | null = null
 function closeMenus(except?: HTMLDetailsElement | null) {
   for (const menu of menuBarRef.value?.querySelectorAll<HTMLDetailsElement>('details') ?? []) {
     if (menu !== except) menu.open = false
@@ -116,7 +119,14 @@ function onMenuClick(e: MouseEvent) {
   const summary = element.closest('summary')
   if (summary) {
     const selected = summary.closest('details') as HTMLDetailsElement | null
-    // The native summary click will toggle the selected menu after this handler.
+    if (selected?.open && selected === menuOpenedByHover) {
+      // Hover already opened this menu; keep it open on the first click.
+      e.preventDefault()
+      menuOpenedByHover = null
+      return
+    }
+    menuOpenedByHover = null
+    // The native summary click will toggle this menu after the handler.
     closeMenus(selected)
     return
   }
@@ -134,9 +144,13 @@ function onMenuPointerOver(e: PointerEvent) {
   if (!anyOpen) return
   closeMenus(incoming)
   incoming.open = true
+  menuOpenedByHover = incoming
 }
 function onDocumentPointerDown(e: PointerEvent) {
-  if (menuBarRef.value && !menuBarRef.value.contains(e.target as Node)) closeMenus()
+  if (menuBarRef.value && !menuBarRef.value.contains(e.target as Node)) {
+    menuOpenedByHover = null
+    closeMenus()
+  }
 }
 const fittedPreview = ref({ width: 960, height: 540 })
 let previewResizeObserver: ResizeObserver | null = null
@@ -1084,7 +1098,7 @@ function onKeyDown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     const menuWasOpen = Array.from(menuBarRef.value?.querySelectorAll<HTMLDetailsElement>('details') ?? [])
       .some(menu => menu.open)
-    if (menuWasOpen) { closeMenus(); e.preventDefault(); return }
+    if (menuWasOpen) { menuOpenedByHover = null; closeMenus(); e.preventDefault(); return }
   }
   // Space should not interrupt native menu controls, file selectors, or text entry.
   const target = e.target as HTMLElement
