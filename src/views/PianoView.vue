@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Midi } from '@tonejs/midi'
+import { extractMidiParts, filterMidiParts } from '@/util/midi-tracks'
+import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
 import { SplendidGrandPiano, renderOffline } from 'smplr'
 import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
@@ -11,15 +13,19 @@ import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
 
 // ---- 类型 ----
-interface NoteEvent {
-  midi: number; name: string; time: number; duration: number; velocity: number
-}
+type NoteEvent = MidiNoteEvent
 
 // ---- 状态 ----
 const playState = ref<'idle' | 'playing' | 'paused'>('idle')
 const currentTime = ref(0)
 const speed = ref(1)
-const notes = ref<NoteEvent[]>([])
+const allNotes = ref<NoteEvent[]>([])
+const midiParts = ref<MidiPart[]>([])
+const notes = computed(() => filterMidiParts(allNotes.value, midiParts.value))
+const enabledPartCount = computed(() => midiParts.value.filter(part => part.enabled).length)
+const trackRgbMap = computed(() => new Map(midiParts.value.map(part => [part.id, hexRgb(part.color)] as const)))
+const showTrackPanel = ref(false)
+const uploadError = ref('')
 const noteRange = ref({ min: 21, max: 108 })
 const duration = ref(0)
 const pianoLoaded = ref(false)
@@ -28,18 +34,19 @@ const converting = ref(false)
 const bpSettings = ref({ onsetThresh: 0.7, frameThresh: 0.3, minNoteLen: 5 })
 
 async function onFileUpload(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
-  if (!file) return
-  if (file.name.match(/\.(mid|midi)$/i)) {
-    await handleUpload(e)
-  } else {
-    await handleAudioUpload(e)
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file || exporting.value) return
+  uploadError.value = ''
+  try {
+    if (/\.(mid|midi)$/i.test(file.name)) await handleUpload(file)
+    else await handleAudioUpload(file)
+  } finally {
+    input.value = '' // reselect same file is supported
   }
 }
 
-async function handleAudioUpload(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
-  if (!file) return
+async function handleAudioUpload(file: File) {
   converting.value = true
   try {
     const { audioFileToMidi } = await import('@/util/audio-to-midi')
@@ -51,10 +58,11 @@ async function handleAudioUpload(e: Event) {
     const blob = new Blob([bytes as BlobPart], { type: 'audio/midi' })
     const url = URL.createObjectURL(blob)
     const name = file.name.replace(/\.[^.]+$/, '')
-    playlist.value.push({ name: `[转录] ${name}`, file: url })
+    playlist.value.push({ name: `${t('piano.aiTranscriptionLabel')} ${name}`, file: url })
     loadTrack(playlist.value.length - 1)
   } catch (e: any) {
     console.error(e)
+    uploadError.value = t('piano.importAudioError')
   } finally {
     converting.value = false
   }
@@ -119,6 +127,8 @@ const exportProgress = ref(0)
 const exportEta = ref(0)   // 剩余秒数
 
 async function exportVideo() {
+  if (!notes.value.length) { uploadError.value = t('piano.noActiveTrack'); return }
+  uploadError.value = ''
   exporting.value = true
   exportProgress.value = 0
   exportEta.value = 0
@@ -216,6 +226,7 @@ async function exportVideo() {
     }
   } catch (e) {
     console.error(e)
+    uploadError.value = t('piano.videoExportError')
   } finally {
     exporting.value = false
     exportProgress.value = 0
@@ -282,7 +293,8 @@ function loadTrack(idx: number) {
   currentTime.value = 0
   lastScheduledIdx = 0
   playState.value = 'idle'
-  loadMidi(playlist.value[idx].file).then(() => { play() })
+  uploadError.value = ''
+  void loadMidi(playlist.value[idx].file).then(ok => { if (ok) void play() })
 }
 
 function nextTrack() {
@@ -314,42 +326,101 @@ async function initPiano() {
   try { await initPianoPromise } finally { initPianoPromise = null }
 }
 
-// ---- MIDI 加载 ----
-async function loadMidi(src: string) {
+// ---- Nạp MIDI: giữ tên, channel và màu của từng track ----
+let midiLoadSeq = 0
+async function loadMidi(src: string): Promise<boolean> {
+  const request = ++midiLoadSeq
   loadingMidi.value = true
   try {
     const midi = await Midi.fromUrl(src)
+    if (request !== midiLoadSeq) return false
     processMidi(midi)
-  } catch (e) { console.error(e) }
-  finally { loadingMidi.value = false }
+    return true
+  } catch (e) {
+    console.error(e)
+    if (request === midiLoadSeq) uploadError.value = t('piano.importMidiError')
+    return false
+  } finally {
+    if (request === midiLoadSeq) loadingMidi.value = false
+  }
 }
 
+function updateNoteRange() {
+  const enabledNotes = notes.value
+  if (!enabledNotes.length) {
+    noteRange.value = { min: 21, max: 108 }
+    return
+  }
+  let min = 127, max = 0
+  for (const note of enabledNotes) {
+    min = Math.min(min, note.midi)
+    max = Math.max(max, note.midi)
+  }
+  noteRange.value = { min: Math.max(21, min - 12), max: Math.min(108, max + 12) }
+}
 function processMidi(midi: Midi) {
-  const allNotes: NoteEvent[] = []
-  let minNote = 127; let maxNote = 0
-  midi.tracks.forEach(track => {
-    track.notes.forEach(n => {
-      allNotes.push({ midi: n.midi, name: n.name, time: n.time, duration: n.duration, velocity: n.velocity })
-      if (n.midi < minNote) minNote = n.midi
-      if (n.midi > maxNote) maxNote = n.midi
-    })
-  })
-  allNotes.sort((a, b) => a.time - b.time)
-  notes.value = allNotes
-  noteRange.value = { min: Math.max(21, minNote - 12), max: Math.min(108, maxNote + 12) }
-  duration.value = midi.duration || allNotes[allNotes.length - 1]?.time + allNotes[allNotes.length - 1]?.duration || 0
-  currentTime.value = 0; playState.value = 'idle'; lastScheduledIdx = 0
+  const parsed = extractMidiParts(midi)
+  midiParts.value = parsed.parts
+  allNotes.value = parsed.events
+  duration.value = midi.duration || parsed.events.reduce((end, n) => Math.max(end, n.time + n.duration), 0)
+  currentTime.value = 0
+  playState.value = 'idle'
+  lastScheduledIdx = 0
+  keyState.value = {}
+  updateNoteRange()
 }
-
-async function handleUpload(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
-  if (!file) return
-  const buf = await file.arrayBuffer()
-  const midi = new Midi(buf)
-  const name = midi.name || file.name.replace(/\.midi?$/i, '')
-  const url = URL.createObjectURL(new Blob([buf], { type: 'audio/midi' }))
-  playlist.value.push({ name, file: url })
-  loadTrack(playlist.value.length - 1)
+function resetAfterTrackChange() {
+  // Audio is scheduled ahead of time; stop that schedule before changing a track mix.
+  piano?.stop()
+  playState.value = 'idle'
+  currentTime.value = 0
+  lastScheduledIdx = 0
+  keyState.value = {}
+  updateNoteRange()
+}
+function setPartEnabled(id: number, enabled: boolean) {
+  if (exporting.value) return
+  const part = midiParts.value.find(part => part.id === id)
+  if (part && part.enabled !== enabled) {
+    part.enabled = enabled
+    resetAfterTrackChange()
+  }
+}
+function onPartToggle(id: number, event: Event) {
+  setPartEnabled(id, (event.target as HTMLInputElement).checked)
+}
+function setAllParts(enabled: boolean) {
+  if (exporting.value) return
+  midiParts.value.forEach(part => { part.enabled = enabled })
+  resetAfterTrackChange()
+}
+function soloPart(id: number) {
+  if (exporting.value) return
+  const wasSolo = midiParts.value.filter(p => p.enabled).length === 1 && midiParts.value.some(p => p.id === id && p.enabled)
+  midiParts.value.forEach(part => { part.enabled = wasSolo || part.id === id })
+  resetAfterTrackChange()
+}
+function onPartColorInput(id: number, event: Event) {
+  if (exporting.value) return
+  const part = midiParts.value.find(part => part.id === id)
+  if (part) part.color = (event.target as HTMLInputElement).value
+}
+function hexRgb(color: string): [number, number, number] {
+  const hex = color.replace('#', '')
+  return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)]
+}
+async function handleUpload(file: File) {
+  try {
+    const buf = await file.arrayBuffer()
+    const midi = new Midi(buf)
+    const name = midi.name || file.name.replace(/\.midi?$/i, '')
+    const url = URL.createObjectURL(new Blob([buf], { type: 'audio/midi' }))
+    playlist.value.push({ name, file: url })
+    loadTrack(playlist.value.length - 1)
+  } catch (e) {
+    console.error(e)
+    uploadError.value = t('piano.importMidiError')
+  }
 }
 
 // ---- 音频调度器（smplr） ----
@@ -447,12 +518,11 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
   ctx.fillRect(0, 0, cw, notesAreaH)
 
   // 激活色（统一用于下落音符与燃烧/粒子特效）
-  const ac = noteActiveColor.value
-  const ar = parseInt(ac.slice(1, 3), 16), ag = parseInt(ac.slice(3, 5), 16), ab = parseInt(ac.slice(5, 7), 16)
+  const [ar, ag, ab] = hexRgb(noteActiveColor.value)
 
   // ---- 音符掉落（仅钢琴+电子琴音色） ----
   for (const n of notes.value) {
-
+    const [ar, ag, ab] = (trackRgbMap.value.get(n.trackId) || hexRgb(noteActiveColor.value))
     const noteEnd = n.time + n.duration
     // 燃烧时长 = 音符播放时长：接触后随发声同步燃尽
     const burnDur = Math.max(0.05, n.duration)
@@ -464,7 +534,6 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     const rawYBottom = notesAreaH - ((noteEnd - timeBottom) / visibleTime) * notesAreaH
     const yBottom = Math.min(rawYBottom, notesAreaH)  // 不画进钢琴区域
     const { x, w: nw } = noteXW(n.midi, min, keyW)
-    const hue = ((n.midi - min) / (max - min || 1)) * 280 + 160
     const rx = Math.min(4, nw / 4)
     const cx = x + nw / 2
     // 燃烧几何：接触瞬间音符底贴分割线、高 noteH，以此为基准无跳变
@@ -474,8 +543,8 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     if (age < 0) {
       // 尚未接触分割线：正常下落绘制（按音高多彩色）
       const alpha = n.velocity * 0.5 + 0.25
-      ctx.fillStyle = `hsla(${hue}, 65%, 55%, ${alpha})`
-      ctx.strokeStyle = `hsla(${hue}, 65%, 65%, ${Math.min(1, alpha + 0.25)})`
+      ctx.fillStyle = `rgba(${ar},${ag},${ab},${alpha})`
+      ctx.strokeStyle = `rgba(${ar},${ag},${ab},${Math.min(1, alpha + 0.25)})`
       ctx.lineWidth = 2
       const nh = Math.max(2, yTop - yBottom)
       ctx.beginPath(); roundRect(ctx, x + 1, yBottom, nw - 2, nh, rx); ctx.fill()
@@ -493,7 +562,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
         const actR = 6 + actProgress * 40
         const actAlpha = (1 - actProgress) * (1 - actProgress) * 0.5
         const actH = Math.max(2, yTop - yBottom)
-        ctx.fillStyle = `hsla(${hue}, 65%, 55%, ${actAlpha})`
+        ctx.fillStyle = `rgba(${ar},${ag},${ab},${actAlpha})`
         ctx.beginPath(); roundRect(ctx, x - actR/2, yBottom - actR/2, nw + actR, actH + actR, rx + 2); ctx.fill()
       }
       ctx.fillStyle = `rgba(${ar},${ag},${ab},${alpha})`
@@ -559,6 +628,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
   ctx.save()
   ctx.globalCompositeOperation = 'lighter'
   for (const n of notes.value) {
+    const [ar, ag, ab] = (trackRgbMap.value.get(n.trackId) || hexRgb(noteActiveColor.value))
     const age = targetTime - n.time
     const burnDur = Math.max(0.05, n.duration)
     const smokeLife = Math.max(0.4, burnDur * 0.85)
@@ -572,7 +642,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
     const noteH = Math.max(8, (n.duration / visibleTime) * notesAreaH)
     const p = age / burnDur
     const frontY = notesAreaH - noteH * p
-    const seed = n.midi * 73856093
+    const seed = n.midi * 73856093 + n.trackId * 19349663
     const burning = age < burnDur  // 燃烧中（燃尽后只残留粒子，不画引线/本体）
 
     // 解体碎片：从前沿位置沿音符本体向外（主要向两侧+上）飞散
@@ -951,7 +1021,10 @@ watch(() => currentTime.value, (t) => {
           <span v-else class="inline-flex items-center gap-1.5 py-2 px-3.5 text-sm rounded-lg border border-black/15 dark:border-white/15 bg-white/50 dark:bg-white/[0.06] text-primary-500">
             <i class="fas fa-spinner fa-spin"></i>{{ loadingMidi ? t('piano.loading') : t('piano.converting') }}
           </span>
-          <Btn @click="showBgSettings = !showBgSettings" size="small" type="default">
+          <Btn @click="showTrackPanel = !showTrackPanel" size="small" type="default">
+             <i class="fas fa-layer-group"></i>{{ t('piano.trackMixer') }} ({{ midiParts.length }})
+           </Btn>
+           <Btn @click="showBgSettings = !showBgSettings" size="small" type="default">
             <i class="fas fa-music"></i>{{ t('piano.noteAreaSettings') }}
           </Btn>
           <Btn @click="showPianoSettings = !showPianoSettings" size="small" type="default">
@@ -972,6 +1045,38 @@ watch(() => currentTime.value, (t) => {
         </div>
       </div>
     </div>
+
+    <div v-if="!isFullscreen && uploadError" role="alert" class="rounded-lg px-4 py-3 mb-3 text-sm bg-red-50 text-red-800 dark:bg-red-900/30 dark:text-red-200 flex items-center justify-between gap-3">
+      <span>{{ uploadError }}</span>
+      <button type="button" class="underline font-semibold" @click="uploadError = ''">{{ t('piano.dismissError') }}</button>
+    </div>
+    <!-- MIDI tracks from Cakewalk, NeuralNote or Tsumugi. All rendering, playback and export share notes. -->
+    <section v-if="!isFullscreen && showTrackPanel" class="glass-card p-4 mb-4" :aria-label="t('piano.trackMixer')">
+      <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+        <div>
+          <h2 class="font-semibold text-base">{{ t('piano.trackMixer') }}</h2>
+          <p class="text-xs opacity-65">{{ t('piano.trackMixerHelp') }}</p>
+        </div>
+        <div class="flex items-center gap-2 text-sm">
+          <span class="opacity-70">{{ enabledPartCount }}/{{ midiParts.length }}</span>
+          <button type="button" :disabled="exporting" class="px-3 py-1.5 rounded-lg border border-black/15 dark:border-white/20 hover:bg-primary-500/10 disabled:opacity-40" @click="setAllParts(true)">{{ t('piano.enableAllTracks') }}</button>
+          <button type="button" :disabled="exporting" class="px-3 py-1.5 rounded-lg border border-black/15 dark:border-white/20 hover:bg-primary-500/10 disabled:opacity-40" @click="setAllParts(false)">{{ t('piano.disableAllTracks') }}</button>
+        </div>
+      </div>
+      <p v-if="midiParts.length === 0" class="text-sm opacity-70">{{ t('piano.noMidiTracks') }}</p>
+      <p v-else-if="enabledPartCount === 0" class="text-sm text-amber-600 dark:text-amber-300 mb-2" role="status">{{ t('piano.noActiveTrack') }}</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[320px] overflow-y-auto">
+        <div v-for="part in midiParts" :key="part.id" class="flex items-center gap-2 rounded-lg border border-black/10 dark:border-white/15 bg-white/40 dark:bg-white/5 px-3 py-2">
+          <input type="checkbox" :checked="part.enabled" :disabled="exporting" @change="onPartToggle(part.id, $event)" :aria-label="part.name" class="accent-primary-500 w-4 h-4">
+          <div class="min-w-0 flex-1">
+            <div class="truncate text-sm font-medium" :title="part.name">{{ part.name }}</div>
+            <div class="text-xs opacity-60">{{ part.noteCount }} {{ t('piano.noteCount') }} · MIDI #{{ part.id + 1 }}</div>
+          </div>
+          <input type="color" :value="part.color" :disabled="exporting" @input="onPartColorInput(part.id, $event)" :aria-label="t('piano.trackColor') + ': ' + part.name" class="w-8 h-8 rounded border-0 bg-transparent cursor-pointer">
+          <button type="button" :disabled="exporting" class="text-xs px-2.5 py-1.5 rounded-lg border border-black/15 dark:border-white/20 disabled:opacity-40" @click="soloPart(part.id)">{{ t('piano.soloTrack') }}</button>
+        </div>
+      </div>
+    </section>
 
     <!-- 音符区设置 Modal -->
     <Modal v-model:show="showBgSettings" :title="t('piano.noteAreaSettings')">

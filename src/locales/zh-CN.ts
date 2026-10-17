@@ -22,6 +22,12 @@ export default {
     importAudioError: '音频转录失败，请尝试更短的 MP3/WAV 文件。',
     importMidiError: '无法读取 MIDI 文件，请检查 .mid/.midi 格式后重试。',
     videoExportError: '视频导出失败，请尝试最新版 Chrome 并检查磁盘剩余空间。',
+    trackMixer: 'MIDI 轨道',
+    trackMixerHelp: '分别静音/独奏轨道并设置音符颜色。切换轨道后播放会回到开头。',
+    enableAllTracks: '全部开启', disableAllTracks: '全部关闭',
+    soloTrack: '独奏', trackColor: '轨道颜色',
+    noteCount: '音符', noMidiTracks: '请先导入 MIDI 文件。',
+    noActiveTrack: '尚未开启轨道。请至少选择一个轨道以播放或导出。',
     dismissError: '关闭',
   },
 }

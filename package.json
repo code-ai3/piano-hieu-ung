@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
+    "test:tracks": "node --experimental-strip-types tests/midi-tracks.mjs",
     "build-only": "vite build",
     "type-check": "vue-tsc --build --force"
   },

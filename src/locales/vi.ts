@@ -26,6 +26,12 @@ export default {
     importAudioError: 'Không nhận diện được âm thanh. Hãy thử tệp MP3/WAV khác hoặc đoạn ngắn hơn.',
     importMidiError: 'Không đọc được MIDI. Hãy kiểm tra tệp .mid/.midi.',
     videoExportError: 'Xuất video thất bại. Hãy thử trình duyệt Chrome mới và kiểm tra dung lượng trống.',
+    trackMixer: 'Các track MIDI',
+    trackMixerHelp: 'Tắt/bật từng nhạc cụ, nghe riêng từng track và đặt màu nốt. Khi đổi lựa chọn, bài sẽ trở về đầu.',
+    enableAllTracks: 'Bật tất cả', disableAllTracks: 'Tắt tất cả',
+    soloTrack: 'Nghe riêng', trackColor: 'Màu của track',
+    noteCount: 'nốt', noMidiTracks: 'Hãy nhập một file MIDI để xem các track.',
+    noActiveTrack: 'Chưa bật track nào. Hãy chọn ít nhất một track để phát hoặc xuất video.',
     dismissError: 'Đóng',
   },
 }
