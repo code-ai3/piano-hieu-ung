@@ -36,6 +36,12 @@ export default {
     velocityVisualHint: 'Strong notes glow and spark more; soft notes stay subtle.',
     velocityMode_off: 'Off', velocityMode_natural: 'Natural', velocityMode_expressive: 'Expressive',
     velocitySensitivity: 'Response', velocitySourceHint: 'Uses original MIDI velocities; equally strong notes cannot acquire missing musical dynamics.',
+    exportLength: 'Export length',
+    exportPreview15: 'Test clip (15 seconds)',
+    exportPreview30: 'Test clip (30 seconds)',
+    exportFullSong: 'Full song',
+    exportDurationHint: 'Selected duration: {seconds} seconds',
+    exportPreparingAudio: 'Rendering audio...',
     dismissError: 'Dismiss',
   },
 }
