@@ -58,3 +58,56 @@ function noteDown(e:PointerEvent,index:number){if(tool.value==='erase'){removeNo
 function noteDbl(e:MouseEvent,index:number){e.stopPropagation();removeNote(index)}
 function keyLabel(midi:number){return midiNoteName(midi)}
 </script>
+
+<template>
+  <section class="mx-roll" aria-label="Trình chỉnh sửa MIDI Piano Roll">
+    <div class="mx-roll-top">
+      <strong><i class="fas fa-keyboard"></i> Piano Roll</strong>
+      <span class="mx-roll-track" :style="{ color: part.color }">{{ part.name }}</span>
+      <span class="mx-roll-stats">{{ draft.length }} nốt · {{ Math.round(bpm) }} BPM</span>
+      <span class="mx-roll-grow"></span>
+      <label>Công cụ <select v-model="tool" :disabled="disabled">
+        <option value="select">Di chuyển</option><option value="draw">Vẽ nốt</option><option value="erase">Xóa nốt</option>
+      </select></label>
+      <label>Snap <select v-model.number="snapDivision">
+        <option :value="0">Tắt</option><option :value="4">1/4</option><option :value="8">1/8</option>
+        <option :value="16">1/16</option><option :value="32">1/32</option>
+      </select></label>
+      <label>Zoom <input v-model.number="pixelsPerSecond" type="range" min="18" max="140" step="2"></label>
+      <button type="button" title="Đóng Piano Roll" @click="emit('close')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="mx-roll-ruler">
+      <div :style="{ width: gridWidth + 'px', transform: 'translateX(-' + gridScrollLeft + 'px)' }">
+        <span v-for="sec in ticks" :key="sec" :style="{ left: KEY_W + sec * pixelsPerSecond + 'px' }">{{ sec }}s</span>
+      </div>
+    </div>
+    <div ref="scroll" class="mx-roll-scroll" @scroll="syncScroll">
+      <div class="mx-roll-grid" :style="{ width: gridWidth + 'px', height: ROW * (HIGH - LOW + 1) + 'px', backgroundSize: (60 / Math.max(20, bpm) * pixelsPerSecond) + 'px ' + ROW + 'px' }" @dblclick.self="onGridDouble">
+        <div class="mx-roll-keys">
+          <div v-for="pitch in keyList" :key="pitch" :class="['mx-roll-key', { black: keyLabel(pitch).includes('#') }]" :style="{ height: ROW + 'px' }">{{ pitch % 12 === 0 ? keyLabel(pitch) : '' }}</div>
+        </div>
+        <div v-for="(note, i) in draft" :key="i" class="mx-roll-note" :class="{ selected: selected === i }"
+          :title="note.name + ' · ' + note.time.toFixed(2) + 's · Velocity ' + Math.round(note.velocity * 127)"
+          :style="{ left: KEY_W + note.time * pixelsPerSecond + 'px', top: (HIGH - note.midi) * ROW + 1 + 'px', width: Math.max(5, note.duration * pixelsPerSecond) + 'px', height: ROW - 2 + 'px', backgroundColor: part.color }"
+          @pointerdown.stop="noteDown($event, i)" @dblclick.stop="noteDbl($event, i)">
+          <span class="mx-roll-note-label">{{ note.name }}</span>
+          <span class="mx-roll-resize" title="Kéo để đổi độ dài" @pointerdown.stop="startDrag($event, i, 'resize')"></span>
+        </div>
+      </div>
+    </div>
+    <div class="mx-roll-velocity-title">
+      <span><i class="fas fa-sliders-h"></i> Velocity — Lực đánh (1–127)</span>
+      <span v-if="selected >= 0">Nốt {{ draft[selected]?.name }} · {{ Math.round((draft[selected]?.velocity || 0) * 127) }}</span>
+      <span v-else>Kéo từng cột lên/xuống để điều chỉnh sắc thái</span>
+    </div>
+    <div class="mx-roll-velocity-window">
+      <div class="mx-roll-velocity-inner" :style="{ width: gridWidth + 'px', transform: 'translateX(-' + gridScrollLeft + 'px)' }">
+        <span v-for="(note, i) in draft" :key="i" class="mx-roll-velocity-bar" :class="{ selected: selected === i }"
+          :title="note.name + ' · Velocity ' + Math.round(note.velocity * 127)"
+          :style="{ left: KEY_W + note.time * pixelsPerSecond + 'px', height: (note.velocity * 100) + '%', backgroundColor: part.color }"
+          @pointerdown.prevent="startDrag($event, i, 'velocity')"></span>
+      </div>
+    </div>
+    <div class="mx-roll-hint">Nhấp đúp vùng trống: thêm nốt · Kéo nốt: đổi cao độ/thời điểm · Kéo mép phải: đổi độ dài · Nhấp đúp nốt: xóa</div>
+  </section>
+</template>
