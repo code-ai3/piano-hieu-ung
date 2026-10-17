@@ -12,6 +12,8 @@ import type { VideoFormat, PortraitKeyboard } from '@/util/video-format'
 import { SplendidGrandPiano, renderOffline } from 'smplr'
 import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
+import MelorixPianoRoll from '@/components/MelorixPianoRoll.vue'
+import '@/assets/melorix-roll.css'
 import AppCheckbox from '@/components/AppCheckbox.vue'
 import { Output, Mp4OutputFormat, BufferTarget, StreamTarget, VideoSampleSource, VideoSample, AudioSampleSource, AudioSample } from 'mediabunny'
 import { useI18n } from 'vue-i18n'
@@ -26,6 +28,11 @@ const playState = ref<'idle' | 'playing' | 'paused'>('idle')
 const currentTime = ref(0)
 const speed = ref(1)
 const allNotes = ref<NoteEvent[]>([])
+const midiTempo = ref(120)
+const pianoRollTrackId = ref<number | null>(null)
+const pianoRollHeight = ref(330)
+const pianoRollPart = computed(() => midiParts.value.find(part => part.id === pianoRollTrackId.value) || null)
+const pianoRollNotes = computed(() => allNotes.value.filter(note => note.trackId === pianoRollTrackId.value))
 const midiParts = ref<MidiPart[]>([])
 const notes = computed(() => filterMidiParts(allNotes.value, midiParts.value))
 const enabledPartCount = computed(() => midiParts.value.filter(part => part.enabled).length)
@@ -479,6 +486,8 @@ function updateNoteRange() {
   noteRange.value = { min: Math.max(21, min - 12), max: Math.min(108, max + 12) }
 }
 function processMidi(midi: Midi) {
+  pianoRollTrackId.value = null
+  midiTempo.value = midi.header.tempos[0]?.bpm || 120
   const parsed = extractMidiParts(midi)
   midiParts.value = parsed.parts
   allNotes.value = parsed.events
@@ -488,6 +497,42 @@ function processMidi(midi: Midi) {
   lastScheduledIdx = 0
   keyState.value = {}
   updateNoteRange()
+}
+function openPianoRoll(id: number) {
+  if (exporting.value || !midiParts.value.some(part => part.id === id)) return
+  pianoRollTrackId.value = id
+  if (playState.value === 'playing') pause()
+}
+function updatePianoRollNotes(edited: NoteEvent[]) {
+  const id = pianoRollTrackId.value
+  if (id === null || exporting.value) return
+  // Never modify notes on any other track. All playback and export reads allNotes.
+  if (playState.value === 'playing') pause()
+  piano?.stop()
+  allNotes.value = [
+    ...allNotes.value.filter(note => note.trackId !== id),
+    ...edited.map(note => ({ ...note, trackId: id })),
+  ].sort((a,b) => a.time-b.time || a.midi-b.midi)
+  const part = midiParts.value.find(part => part.id === id)
+  if (part) part.noteCount = edited.length
+  duration.value = allNotes.value.reduce((max, note) => Math.max(max, note.time + note.duration), 0)
+  lastScheduledIdx = 0
+  keyState.value = {}
+  updateNoteRange()
+}
+function beginPianoRollResize(e: PointerEvent) {
+  e.preventDefault()
+  const startY = e.clientY
+  const initial = pianoRollHeight.value
+  function move(event: PointerEvent) {
+    pianoRollHeight.value = Math.min(Math.round(window.innerHeight * 0.68), Math.max(200, initial + startY - event.clientY))
+  }
+  function stop() {
+    window.removeEventListener('pointermove',move)
+    window.removeEventListener('pointerup',stop)
+  }
+  window.addEventListener('pointermove',move)
+  window.addEventListener('pointerup',stop)
 }
 function resetAfterTrackChange() {
   // Audio is scheduled ahead of time; stop that schedule before changing a track mix.
@@ -1169,6 +1214,30 @@ function seekFromTimeline(event: MouseEvent) {
   lastScheduledIdx = 0
   keyState.value = {}
 }
+function downloadEditedMidi() {
+  if (!allNotes.value.length) return
+  // Export a fresh Standard MIDI File from edited notes, keeping each track separate.
+  const result = new Midi()
+  result.header.setTempo(midiTempo.value)
+  for (const part of midiParts.value) {
+    const track = result.addTrack()
+    track.name = part.name
+    track.channel = Math.max(0, part.channel - 1)
+    for (const note of allNotes.value) {
+      if (note.trackId !== part.id) continue
+      track.addNote({ midi: note.midi, time: note.time, duration: note.duration, velocity: note.velocity })
+    }
+  }
+  const blob = new Blob([result.toArray() as BlobPart], { type: 'audio/midi' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = (currentTrack.value?.name || 'melorix') + '-edited.mid'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 30_000)
+}
 function captureFrame() {
   const canvas = canvasRef.value
   if (!canvas) return
@@ -1204,6 +1273,7 @@ watch(() => currentTime.value, (t) => {
             <input type="file" class="hidden" accept="audio/*" :disabled="loadingMidi || converting || exporting" @change="onFileUpload($event); closeMenus()">
           </label>
           <button type="button" @click="showPlaylist = !showPlaylist"><i class="fas fa-folder-open mr-2"></i> Thư viện bài nhạc</button>
+          <button type="button" :disabled="exporting || !allNotes.length" @click="downloadEditedMidi"><i class="fas fa-save mr-2"></i> Lưu MIDI đã chỉnh (.mid)</button>
           <button type="button" :disabled="exporting" @click="showExport = true"><i class="fas fa-file-video mr-2"></i> Xuất video MP4</button>
         </div></details>
         <details name="melorix-main-menu"><summary>Chỉnh sửa</summary><div class="mx-menu-pop">
@@ -1280,7 +1350,7 @@ watch(() => currentTime.value, (t) => {
               <span>{{ part.noteCount }} nốt</span>
               <input type="color" :value="part.color" :disabled="exporting" :aria-label="'Màu ' + part.name" @input="onPartColorInput(part.id, $event)">
             </div>
-            <div class="mx-track-side-minimap" :aria-label="'Tổng quan nốt của ' + part.name" role="img">
+            <div class="mx-track-side-minimap mx-editable-track" :aria-label="'Nhấp đúp để chỉnh từng nốt trong ' + part.name" :title="'Nhấp đúp để chỉnh Piano Roll: ' + part.name" role="button" tabindex="0" @dblclick.stop="openPianoRoll(part.id)" @keydown.enter="openPianoRoll(part.id)">
               <span v-for="(bar,idx) in part.bars" :key="idx" class="mx-track-side-mini-note" :style="{ left: bar.left + '%', width: bar.width + '%', backgroundColor: part.color }"></span>
             </div>
           </section>
@@ -1309,7 +1379,7 @@ watch(() => currentTime.value, (t) => {
                 <button type="button" class="mx-track-mini" :aria-pressed="part.enabled && enabledPartCount === 1" :disabled="exporting" @click="soloPart(part.id)">S</button>
                 <input type="color" class="mx-track-color" :value="part.color" :disabled="exporting" :aria-label="'Màu track ' + part.name" @input="onPartColorInput(part.id, $event)">
               </div>
-              <button type="button" class="mx-lane" :class="{ 'mx-lane-muted': !part.enabled }" :aria-label="'Chọn thời điểm cho ' + part.name" @click="seekFromTimeline">
+              <button type="button" class="mx-lane" :class="{ 'mx-lane-muted': !part.enabled }" :aria-label="'Chọn thời điểm cho ' + part.name" @click="seekFromTimeline" @dblclick.stop="openPianoRoll(part.id)">
                 <span v-for="(bar,index) in part.bars" :key="index" class="mx-note" :style="{ left: bar.left + '%', width: bar.width + '%', top: bar.top + 'px', background: part.color, color: part.color }"></span>
                 <span class="mx-cursor" :style="{ left: progressPct + '%' }"></span>
               </button>
@@ -1570,6 +1640,10 @@ watch(() => currentTime.value, (t) => {
 
       </div>
         </section> <!-- preview -->
+        <div v-if="!isFullscreen && pianoRollPart" class="mx-roll-divider" role="separator" aria-orientation="horizontal" title="Kéo lên/xuống để chỉnh chiều cao Piano Roll" @pointerdown="beginPianoRollResize"></div>
+        <MelorixPianoRoll v-if="!isFullscreen && pianoRollPart" :key="pianoRollPart.id" :style="{ height: pianoRollHeight + 'px' }"
+          :part="pianoRollPart" :notes="pianoRollNotes" :duration="duration" :bpm="midiTempo"
+          :disabled="exporting" @change="updatePianoRollNotes" @close="pianoRollTrackId = null" />
       </div> <!-- workspace stage -->
       <aside v-if="!isFullscreen && isInspectorOpen" class="mx-inspector" aria-label="Thuộc tính MELORIX">
         <div class="mx-inspector-top"><i class="fas fa-sliders-h"></i> Cài đặt <span style="margin-left:auto;font-weight:400;color:#929eae">Thuộc tính</span>
