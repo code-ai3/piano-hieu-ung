@@ -35,6 +35,11 @@ const displayRange = computed(() => videoFormat.value === 'portrait'
   ? portraitKeyboardRange(notes.value, portraitKeyboard.value, noteRange.value)
   : noteRange.value)
 const formatDimensions = computed(() => videoDimensions(videoFormat.value))
+const hiddenPortraitNotes = computed(() => {
+  if (videoFormat.value !== 'portrait') return 0
+  const { min, max } = displayRange.value
+  return notes.value.reduce((count, n) => count + (n.midi < min || n.midi > max ? 1 : 0), 0)
+})
 function onKeyboardModeChange(event: Event) {
   portraitKeyboard.value = (event.target as HTMLSelectElement).value as PortraitKeyboard
 }
@@ -1211,11 +1216,41 @@ watch(() => currentTime.value, (t) => {
       </div>
     </Modal>
 
-    <!-- 导出视频 Modal -->
+    <!-- Video format is shared by the preview canvas and the export canvas. -->
     <Modal v-model:show="showExport" :title="t('piano.exportVideo')">
       <div class="flex flex-col gap-4 p-4 text-black/85 dark:text-white/90">
         <template v-if="!exporting">
-          <p class="text-sm text-black/60 dark:text-white/70 m-0">{{ t('piano.exportHint') }}</p>
+          <p class="text-sm font-medium">{{ t('piano.videoRatioLabel') }}</p>
+          <div class="grid grid-cols-2 gap-2" role="group" :aria-label="t('piano.videoRatioLabel')">
+            <button type="button" :aria-pressed="videoFormat === 'portrait'" @click="videoFormat = 'portrait'"
+              class="rounded-xl border p-3 text-left transition-colors"
+              :class="videoFormat === 'portrait' ? 'border-primary-500 bg-primary-500/10' : 'border-black/15 dark:border-white/15 hover:bg-primary-500/5'">
+              <span class="block text-sm font-semibold">{{ t('piano.portraitFormat') }}</span>
+              <span class="block text-xs opacity-65 mt-1">1080 × 1920 · 30 FPS</span>
+            </button>
+            <button type="button" :aria-pressed="videoFormat === 'landscape'" @click="videoFormat = 'landscape'"
+              class="rounded-xl border p-3 text-left transition-colors"
+              :class="videoFormat === 'landscape' ? 'border-primary-500 bg-primary-500/10' : 'border-black/15 dark:border-white/15 hover:bg-primary-500/5'">
+              <span class="block text-sm font-semibold">{{ t('piano.landscapeFormat') }}</span>
+              <span class="block text-xs opacity-65 mt-1">1920 × 1080 · 30 FPS</span>
+            </button>
+          </div>
+          <label v-if="videoFormat === 'portrait'" class="flex flex-col gap-2 text-sm">
+            <span class="font-medium">{{ t('piano.portraitKeyboardLabel') }}</span>
+            <select :value="portraitKeyboard" @change="onKeyboardModeChange($event)"
+              class="p-2 rounded-lg border border-black/15 dark:border-white/15 bg-white/80 text-black dark:bg-[#23232c] dark:text-white">
+              <option value="auto">{{ t('piano.portraitKeyboardAuto') }}</option>
+              <option value="24">C1–B4 (MIDI 24–71)</option>
+              <option value="36">C2–B5 (MIDI 36–83)</option>
+              <option value="48">C3–B6 (MIDI 48–95)</option>
+              <option value="60">C4–B7 (MIDI 60–107)</option>
+              <option value="all">{{ t('piano.portraitKeyboardAll') }}</option>
+            </select>
+          </label>
+          <p v-if="videoFormat === 'portrait' && hiddenPortraitNotes > 0" role="status" class="text-xs text-amber-700 dark:text-amber-300">
+            {{ t('piano.notesOutsideFrame', { count: hiddenPortraitNotes }) }}
+          </p>
+          <p class="text-xs text-black/60 dark:text-white/60 m-0">{{ t('piano.exportHint') }}</p>
           <Btn @click="exportVideo" type="primary">
             <i class="fas fa-download"></i>
             {{ t('piano.startExport') }}
@@ -1237,6 +1272,7 @@ watch(() => currentTime.value, (t) => {
       </div>
     </Modal>
 
+    <p v-if="!isFullscreen" class="text-xs opacity-65 text-center mb-2">{{ videoFormat === 'portrait' ? t('piano.portraitFormat') : t('piano.landscapeFormat') }} · {{ formatDimensions.width }} × {{ formatDimensions.height }} · 30 FPS</p>
     <!-- 展示区域 -->
     <div :class="['glass-card overflow-hidden flex-1 flex flex-col min-h-0 relative', isFullscreen ? '!rounded-none !border-0' : '']">
       <canvas ref="canvasRef" class="block bg-black/95 dark:bg-black mx-auto"
