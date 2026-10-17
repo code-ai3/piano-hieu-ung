@@ -209,10 +209,12 @@ async function exportVideo() {
     output.addAudioTrack(as)
     await output.start()
 
-    // 整段音频送入
-    const fullSample = new AudioSample({ format: 'f32-planar', sampleRate: sr, numberOfFrames: audioBuf.length, numberOfChannels: 1, timestamp: 0, data: audioBuf.getChannelData(0) })
-    await as.add(fullSample)
-    fullSample.close(); as.close()
+    // Preserve all rendered audio channels, including stereo. Mediabunny splits long buffers.
+    for (const audioSample of AudioSample.fromAudioBuffer(audioBuf, 0)) {
+      try { await as.add(audioSample) }
+      finally { audioSample.close() }
+    }
+    as.close()
 
     // 离屏 canvas 渲染（独立于 DOM）+ 边渲边编码
     const offCanvas = document.createElement('canvas')
@@ -501,15 +503,20 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
   const ctx = canvas.getContext('2d')!
   let cw: number, ch: number
   if (targetCanvas && targetW && targetH) {
-    // 离屏导出：固定尺寸，1:1 像素，不缩放
-    canvas.width = targetW; canvas.height = targetH
+    // Do not reallocate a 1080x1920 canvas every frame: this is expensive.
+    if (canvas.width !== targetW) canvas.width = targetW
+    if (canvas.height !== targetH) canvas.height = targetH
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
     cw = targetW; ch = targetH
   } else {
-    canvas.width = canvas.offsetWidth * devicePixelRatio
-    canvas.height = canvas.offsetHeight * devicePixelRatio
-    ctx.scale(devicePixelRatio, devicePixelRatio)
-    cw = canvas.width / devicePixelRatio
-    ch = canvas.height / devicePixelRatio
+    const dpr = window.devicePixelRatio || 1
+    const pixelW = Math.max(1, Math.round(canvas.offsetWidth * dpr))
+    const pixelH = Math.max(1, Math.round(canvas.offsetHeight * dpr))
+    if (canvas.width !== pixelW) canvas.width = pixelW
+    if (canvas.height !== pixelH) canvas.height = pixelH
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    cw = canvas.width / dpr
+    ch = canvas.height / dpr
   }
   // Keep the same keyboard proportion for portrait preview and exported frames.
   const isExport = !!targetCanvas
