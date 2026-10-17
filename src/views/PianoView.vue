@@ -25,13 +25,11 @@ const duration = ref(0)
 const pianoLoaded = ref(false)
 const loadingMidi = ref(false)
 const converting = ref(false)
-const uploadError = ref('')
 const bpSettings = ref({ onsetThresh: 0.7, frameThresh: 0.3, minNoteLen: 5 })
 
 async function onFileUpload(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
-  uploadError.value = ''
   if (file.name.match(/\.(mid|midi)$/i)) {
     await handleUpload(e)
   } else {
@@ -53,11 +51,10 @@ async function handleAudioUpload(e: Event) {
     const blob = new Blob([bytes as BlobPart], { type: 'audio/midi' })
     const url = URL.createObjectURL(blob)
     const name = file.name.replace(/\.[^.]+$/, '')
-    playlist.value.push({ name: `${t('piano.aiTranscriptionLabel')} ${name}`, file: url })
+    playlist.value.push({ name: `[转录] ${name}`, file: url })
     loadTrack(playlist.value.length - 1)
   } catch (e: any) {
     console.error(e)
-    uploadError.value = t('piano.importAudioError')
   } finally {
     converting.value = false
   }
@@ -219,7 +216,6 @@ async function exportVideo() {
     }
   } catch (e) {
     console.error(e)
-    uploadError.value = t('piano.videoExportError')
   } finally {
     exporting.value = false
     exportProgress.value = 0
@@ -229,8 +225,8 @@ async function exportVideo() {
 }
 const showBgSettings = ref(false)
 const bgPresets = [
-  { name: 'piano.bgStars', url: '/wallpaper/star.jpg', type: 'image' as const },
-  { name: 'piano.bgWaves', url: '/wallpaper/waves.mp4', type: 'video' as const },
+  { name: '星空', url: '/wallpaper/star.jpg', type: 'image' as const },
+  { name: '波浪', url: '/wallpaper/waves.mp4', type: 'video' as const },
 ]
 const bgMedia = ref<{ url: string; type: 'image' | 'video' } | null>(bgPresets[0])
 const bgMediaEl = ref<HTMLVideoElement | null>(null)
@@ -324,10 +320,8 @@ async function loadMidi(src: string) {
   try {
     const midi = await Midi.fromUrl(src)
     processMidi(midi)
-  } catch (e) {
-    console.error(e)
-    uploadError.value = t('piano.importMidiError')
-  } finally { loadingMidi.value = false }
+  } catch (e) { console.error(e) }
+  finally { loadingMidi.value = false }
 }
 
 function processMidi(midi: Midi) {
@@ -350,17 +344,12 @@ function processMidi(midi: Midi) {
 async function handleUpload(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
-  try {
-    const buf = await file.arrayBuffer()
-    const midi = new Midi(buf)
-    const name = midi.name || file.name.replace(/\.midi?$/i, '')
-    const url = URL.createObjectURL(new Blob([buf], { type: 'audio/midi' }))
-    playlist.value.push({ name, file: url })
-    loadTrack(playlist.value.length - 1)
-  } catch (err) {
-    console.error(err)
-    uploadError.value = t('piano.importMidiError')
-  }
+  const buf = await file.arrayBuffer()
+  const midi = new Midi(buf)
+  const name = midi.name || file.name.replace(/\.midi?$/i, '')
+  const url = URL.createObjectURL(new Blob([buf], { type: 'audio/midi' }))
+  playlist.value.push({ name, file: url })
+  loadTrack(playlist.value.length - 1)
 }
 
 // ---- 音频调度器（smplr） ----
@@ -951,10 +940,6 @@ watch(() => currentTime.value, (t) => {
       <p class="text-sm text-black/60 dark:text-white/70 m-0 max-xl:text-[0.85rem]">{{ t('piano.subtitle') }}</p>
     </div>
 
-    <div v-if="uploadError" role="alert" class="bg-red-50 text-red-800 dark:bg-red-900/30 dark:text-red-200 rounded-lg px-4 py-3 mb-3 flex items-center justify-between gap-3 w-full">
-      <span>{{ uploadError }}</span>
-      <button type="button" :title="t('piano.dismissError')" @click="uploadError = ''" class="font-semibold underline">{{ t('piano.dismissError') }}</button>
-    </div>
     <!-- 设置区域 -->
     <div v-if="!isFullscreen" class="glass-card p-4 mb-4 flex-shrink-0 max-sm:p-3">
       <div class="flex items-center gap-3 flex-wrap justify-between">
@@ -1028,7 +1013,7 @@ watch(() => currentTime.value, (t) => {
             <button v-for="p in bgPresets" :key="p.url" @click="applyBgPreset(p)"
               class="py-1.5 px-3 text-sm rounded-lg border transition-all"
               :class="bgMedia?.url === p.url ? 'border-primary-500/40 bg-primary-500/10 text-primary-500' : 'border-black/15 dark:border-white/15 bg-white/50 dark:bg-white/[0.06] text-black/60 dark:text-white/60 hover:bg-primary-500/10'">
-              {{ t(p.name) }}
+              {{ p.name }}
             </button>
             <label class="py-1.5 px-3 text-sm rounded-lg border border-black/15 dark:border-white/15 bg-white/50 dark:bg-white/[0.06] text-primary-500 cursor-pointer transition-all hover:bg-primary-500/10 hover:border-primary-500/40">
               <i class="fas fa-plus mr-1"></i>{{ t('piano.custom') }}
