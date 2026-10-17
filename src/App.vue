@@ -9,21 +9,13 @@ import { switchLocale } from './i18n'
 
 const { t, locale } = useI18n()
 
-const isDark = ref(true)
 const showLang = ref(false)
 
-function toggleTheme() {
-  isDark.value = !isDark.value
-  document.documentElement.classList.toggle('dark', isDark.value)
-  try { localStorage.setItem('theme', isDark.value ? 'dark' : 'light') } catch { /* optional */ }
-}
-
 onMounted(() => {
-  let saved: string | null = null
-  try { saved = localStorage.getItem('theme') } catch { /* optional */ }
-  isDark.value = saved ? saved === 'dark' : true
-  document.documentElement.classList.toggle('dark', isDark.value)
+  // MELORIX workstation is dark-only in this visual preview.
+  document.documentElement.classList.add('dark')
   document.documentElement.lang = locale.value === 'zh-CN' ? 'zh-CN' : locale.value
+
 })
 
 const langs = computed(() => [
@@ -37,7 +29,7 @@ function pickLang(key: string) {
   showLang.value = false
 }
 
-// 顶部右下角浮动按钮：主题 + 语言
+// Desktop app locale button
 </script>
 
 <template>
@@ -49,9 +41,6 @@ function pickLang(key: string) {
   <div class="mx-global-tools">
     <Btn shape="square" type="default" float :title="t('app.language')" @click="showLang = true">
       <i class="fas fa-language fa-lg"></i>
-    </Btn>
-    <Btn shape="square" type="default" float :title="t('app.theme')" @click="toggleTheme">
-      <i :class="isDark ? 'fas fa-sun fa-lg' : 'fas fa-moon fa-lg'"></i>
     </Btn>
   </div>
 
