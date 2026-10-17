@@ -89,6 +89,7 @@ function pitchAtPointer(e:PointerEvent):number|null{
  if(x<0||x>KEY_W||y<0||y>=ROW*(HIGH-LOW+1))return null
  return Math.max(LOW,Math.min(HIGH,HIGH-Math.floor(y/ROW)))
 }
+function stopKeyAudition(){auditionPointerId=null;auditionPitch.value=null;emit('audition-stop')}
 function keyLabel(midi:number){return midiNoteName(midi)}
 onUnmounted(stopDrag)
 </script>
