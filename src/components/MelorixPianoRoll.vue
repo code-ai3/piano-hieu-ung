@@ -83,6 +83,40 @@ function commit(before?:MidiNoteEvent[]){
  setSelection(draft.value.flatMap((note,i)=>keep.has(note)?[i]:[]))
  emit('change',cloneNotes(draft.value))
 }
+function gridPointer(e:PointerEvent){
+ const el=gridRef.value
+ if(!el)return {x:0,y:0}
+ const rect=el.getBoundingClientRect()
+ return {x:Math.max(KEY_W,e.clientX-rect.left),y:Math.max(0,e.clientY-rect.top)}
+}
+const gridRef=ref<HTMLElement|null>(null)
+function startMarquee(e:PointerEvent){
+ if(props.disabled||e.button!==0)return
+ e.preventDefault()
+ rollRoot.value?.focus({preventScroll:true})
+ const p=gridPointer(e)
+ marquee.value={x1:p.x,x2:p.x,y1:p.y,y2:p.y,additive:e.shiftKey||e.ctrlKey||e.metaKey}
+ window.addEventListener('pointermove',moveMarquee)
+ window.addEventListener('pointerup',stopMarquee)
+}
+function moveMarquee(e:PointerEvent){
+ if(!marquee.value)return
+ const p=gridPointer(e)
+ marquee.value={...marquee.value,x2:p.x,y2:p.y}
+}
+function stopMarquee(e:PointerEvent){
+ if(marquee.value){
+  const box={...marquee.value,...gridPointer(e)}
+  box.x2=gridPointer(e).x
+  box.y2=gridPointer(e).y
+  const found=Math.abs(box.x2-box.x1)>3||Math.abs(box.y2-box.y1)>3
+   ?selectMidiInBox(draft.value,box,pixelsPerSecond.value,KEY_W,HIGH,ROW):[]
+  setSelection(box.additive?[...selectedIndices.value,...found]:found)
+  marquee.value=null
+ }
+ window.removeEventListener('pointermove',moveMarquee)
+ window.removeEventListener('pointerup',stopMarquee)
+}
 function copySelection(){
  if(!selectionCount.value)return
  clipboard.value=copyMidiNotes(draft.value,selectedIndices.value)
