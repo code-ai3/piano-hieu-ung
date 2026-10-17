@@ -278,3 +278,13 @@ html, body, #app { width:100%; height:100%; min-height:0; overflow:hidden; overs
   .mx-track-side-item { padding:6px 8px; }
   .mx-transport { flex-basis:46px; }
 }
+
+/* Fullscreen is preview-only irrespective of remembered sidebar visibility. */
+.mx-fullscreen .mx-workspace,
+.mx-fullscreen .mx-workspace.mx-tracks-open,
+.mx-fullscreen .mx-workspace.mx-inspector-open,
+.mx-fullscreen .mx-workspace.mx-tracks-open.mx-inspector-open {
+  grid-template-columns:minmax(0,1fr);
+  padding:0;
+}
+.mx-fullscreen .mx-preview { border:0!important; border-radius:0!important; }
