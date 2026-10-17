@@ -92,6 +92,24 @@ let piano: SplendidGrandPiano | null = null
 let rafId = 0
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+const canvasAreaRef = ref<HTMLDivElement | null>(null)
+const isInspectorOpen = ref(false)
+const fittedPreview = ref({ width: 960, height: 540 })
+let previewResizeObserver: ResizeObserver | null = null
+
+function fitPreviewCanvas() {
+  const host = canvasAreaRef.value
+  if (!host) return
+  const availableWidth = host.clientWidth
+  const availableHeight = host.clientHeight
+  if (availableWidth <= 0 || availableHeight <= 0) return
+  const ratio = videoFormat.value === 'portrait' ? 9 / 16 : 16 / 9
+  const width = Math.max(1, Math.floor(Math.min(availableWidth, availableHeight * ratio)))
+  const height = Math.max(1, Math.floor(Math.min(availableHeight, width / ratio)))
+  fittedPreview.value = { width, height }
+}
+watch([videoFormat, isFullscreen], () => { void nextTick(fitPreviewCanvas) })
+
 
 const CANVAS_H = 560
 const PIANO_H = 120
@@ -1034,12 +1052,21 @@ onMounted(() => {
   document.addEventListener('keydown', onKeyDown)
   document.addEventListener('fullscreenchange', onFullscreenChange)
   document.addEventListener('webkitfullscreenchange', onFullscreenChange)
+  void nextTick(() => {
+    const host = canvasAreaRef.value
+    if (!host) return
+    previewResizeObserver = new ResizeObserver(fitPreviewCanvas)
+    previewResizeObserver.observe(host)
+    fitPreviewCanvas()
+  })
 })
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   document.removeEventListener('webkitfullscreenchange', onFullscreenChange)
+  previewResizeObserver?.disconnect()
+  previewResizeObserver = null
   cancelAnimationFrame(rafId)
   resetPiano()
 })
@@ -1144,6 +1171,7 @@ watch(() => currentTime.value, (t) => {
       <div class="mx-spacer"></div>
       <span class="mx-format">{{ videoFormat === 'portrait' ? '9:16' : '16:9' }} · 30 FPS</span>
       <button class="mx-btn" type="button" @click="toggleFullscreen"><i class="fas fa-expand"></i> Xem trước</button>
+      <button class="mx-btn mx-inspector-trigger" type="button" :aria-expanded="isInspectorOpen" @click="isInspectorOpen = !isInspectorOpen"><i class="fas fa-sliders-h"></i> Thuộc tính</button>
       <button class="mx-btn mx-btn-primary" type="button" :disabled="exporting" @click="showExport = true"><i class="fas fa-file-export"></i>{{ exporting ? 'Đang xuất...' : 'Xuất video' }}</button>
     </div>
 
@@ -1151,7 +1179,8 @@ watch(() => currentTime.value, (t) => {
       {{ uploadError }} <button class="mx-track-mini" type="button" @click="uploadError = ''">{{ t('piano.dismissError') }}</button>
     </div>
 
-    <div class="mx-workspace">
+    <div class="mx-workspace" :class="{ 'mx-inspector-open': isInspectorOpen }">
+      <div v-if="isInspectorOpen && !isFullscreen" class="mx-inspector-backdrop" @click="isInspectorOpen = false" aria-hidden="true"></div>
       <div class="mx-stage">
         <nav v-if="!isFullscreen" class="mx-tabs" aria-label="Bảng làm việc">
           <button type="button" class="mx-tab mx-tab-active" @click="showTrackPanel = !showTrackPanel"><i class="fas fa-layer-group"></i> Track MIDI <span>({{ midiParts.length }})</span></button>
@@ -1394,21 +1423,18 @@ watch(() => currentTime.value, (t) => {
               <button class="mx-btn mx-btn-icon" type="button" title="Toàn màn hình" @click="toggleFullscreen"><i class="fas fa-expand"></i></button>
             </span>
           </header>
-          <div class="mx-preview-canvas-area">
+          <div ref="canvasAreaRef" class="mx-preview-canvas-area">
       <canvas ref="canvasRef" class="block bg-black/95 dark:bg-black mx-auto"
-        :class="isFullscreen && videoFormat === 'landscape' ? 'flex-1 w-full' : 'flex-shrink-0'"
-        :style="videoFormat === 'portrait'
-          ? { aspectRatio: '9 / 16', width: isFullscreen ? 'min(100%, 50.625vh)' : 'min(100%, 414px)', height: 'auto' }
-          : { width: '100%', maxWidth: '1120px', aspectRatio: '16 / 9', height: 'auto' }"></canvas>
+        :style="{ width: fittedPreview.width + 'px', height: fittedPreview.height + 'px' }"></canvas>
           </div>
 
       <!-- 进度条 -->
-      <div v-show="!(isFullscreen && hideControlsInFullscreen)" class="h-1.5 bg-black/10 dark:bg-white/[0.06] flex-shrink-0">
+      <div v-show="!(isFullscreen && hideControlsInFullscreen)" class="mx-preview-progress h-1.5 bg-black/10 dark:bg-white/[0.06] flex-shrink-0">
         <div class="h-full bg-primary-500/80" :style="{ width: progressPct + '%' }"></div>
       </div>
 
       <!-- 底部控制栏 -->
-      <div v-show="!(isFullscreen && hideControlsInFullscreen)" class="flex items-center gap-3 px-4 py-2.5 bg-white/5 dark:bg-white/[0.02] flex-shrink-0 relative">
+      <div v-show="!(isFullscreen && hideControlsInFullscreen)" class="mx-transport flex items-center gap-3 px-4 py-2.5 bg-white/5 dark:bg-white/[0.02] flex-shrink-0 relative">
         <!-- 播放列表按钮 -->
         <button @click="showPlaylist = !showPlaylist" class="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 border border-[rgba(255,255,255,0.5)] bg-[rgba(255,255,255,0.4)] shadow-glass-light text-[#191c1e] dark:bg-[rgba(255,255,255,0.1)] dark:border-[rgba(255,255,255,0.1)] dark:text-white/85 dark:shadow-none transition-all duration-300 hover:-translate-y-px hover:bg-[rgba(255,255,255,0.5)] hover:border-[rgba(255,255,255,0.5)] hover:shadow-glass-hover-light active:translate-y-0 active:bg-[rgba(255,255,255,0.3)] dark:hover:bg-[rgba(255,255,255,0.15)] dark:hover:border-[rgba(255,255,255,0.15)] dark:active:bg-[rgba(255,255,255,0.08)]">
           <i class="fas fa-list text-xs"></i>
@@ -1455,7 +1481,9 @@ watch(() => currentTime.value, (t) => {
         </section> <!-- preview -->
       </div> <!-- workspace stage -->
       <aside v-if="!isFullscreen" class="mx-inspector" aria-label="Thuộc tính MELORIX">
-        <div class="mx-inspector-top"><i class="fas fa-sliders-h"></i> Cài đặt <span style="margin-left:auto;font-weight:400;color:#929eae">Thuộc tính</span></div>
+        <div class="mx-inspector-top"><i class="fas fa-sliders-h"></i> Cài đặt <span style="margin-left:auto;font-weight:400;color:#929eae">Thuộc tính</span>
+          <button type="button" class="mx-inspector-close mx-track-mini" aria-label="Đóng thuộc tính" @click="isInspectorOpen = false"><i class="fas fa-times"></i></button>
+        </div>
         <section class="mx-panel">
           <h3><i class="fas fa-fire mr-2" style="color:#ff9c45"></i>Hiệu ứng nốt rơi</h3>
           <label class="mx-field"><span>Kiểu hiệu ứng</span><select v-model="noteEffect"><option value="smoke">Phát sáng + Hạt bụi</option><option value="diffuse">Hào quang lan tỏa</option></select></label>
