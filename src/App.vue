@@ -14,20 +14,21 @@ const showLang = ref(false)
 function toggleTheme() {
   isDark.value = !isDark.value
   document.documentElement.classList.toggle('dark', isDark.value)
-  localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
+  try { localStorage.setItem('theme', isDark.value ? 'dark' : 'light') } catch { /* optional */ }
 }
 
 onMounted(() => {
-  const saved = localStorage.getItem('theme')
+  let saved: string | null = null
+  try { saved = localStorage.getItem('theme') } catch { /* optional */ }
   isDark.value = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
   document.documentElement.classList.toggle('dark', isDark.value)
-  document.documentElement.lang = locale.value === 'en' ? 'en' : 'zh'
+  document.documentElement.lang = locale.value === 'zh-CN' ? 'zh-CN' : locale.value
 })
 
-const langLabel = computed(() => (locale.value === 'en' ? 'English' : '中文'))
 const langs = computed(() => [
-  { key: 'zh-CN', label: '中文' },
+  { key: 'vi', label: 'Tiếng Việt' },
   { key: 'en', label: 'English' },
+  { key: 'zh-CN', label: '中文' },
 ])
 
 function pickLang(key: string) {
@@ -51,9 +52,9 @@ function pickLang(key: string) {
                       #f7f9fb"></div>
 
   <!-- 主内容 -->
-  <div class="relative z-10 min-h-screen flex flex-col items-center py-6">
+  <main class="relative z-10 min-h-screen flex flex-col items-center py-6">
     <PianoView />
-  </div>
+  </main>
 
   <!-- 右下角浮动控制 -->
   <div class="fixed right-5 bottom-5 z-50 flex gap-2.5">
