@@ -21,6 +21,9 @@ const snapDivision=ref(16)
 const tool=ref<'select'|'draw'|'erase'>('select')
 const draft=ref<MidiNoteEvent[]>([])
 const selected=ref(-1)
+const auditionPitch=ref<number|null>(null)
+let auditionPointerId:number|null=null
+
 const totalWidth=computed(()=>Math.max(1100,(Math.max(props.duration,...draft.value.map(n=>n.time+n.duration),0)+5)*pixelsPerSecond.value))
 const gridWidth=computed(()=>totalWidth.value+KEY_W)
 const snap=computed(()=>snapDivision.value ? 60/Math.max(20,props.bpm)*4/snapDivision.value : 0)
