@@ -1,7 +1,7 @@
 export default {
-  app: { title: 'Piano Hiệu Ứng', theme: 'Đổi giao diện sáng/tối', language: 'Ngôn ngữ' },
+  app: { title: 'MELORIX', theme: 'Đổi giao diện sáng/tối', language: 'Ngôn ngữ' },
   piano: {
-    title: 'Piano Hiệu Ứng',
+    title: 'MELORIX',
     subtitle: 'Tạo video nốt nhạc rơi từ MIDI hoặc âm thanh ngay trên trình duyệt',
     uploadMidi: 'Chọn MIDI', uploadMidiMusic: 'Nhập MIDI / Âm thanh',
     loading: 'Đang tải...', converting: 'AI đang nhận diện nốt...',
