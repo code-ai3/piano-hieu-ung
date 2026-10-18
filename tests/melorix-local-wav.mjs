@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict'
+import {validLocalWavFile,localWavLabel,samplePitchRate,createLocalSampleSpec,LOCAL_WAV_LIMIT_BYTES} from '../src/util/melorix-local-wav.ts'
+assert.equal(validLocalWavFile('Erhu.WAV',12500),true)
+assert.equal(validLocalWavFile('Kontakt.nki',12500),false)
+assert.equal(validLocalWavFile('Piano.vst3',12500),false)
+assert.equal(validLocalWavFile('sample.wav',30),false)
+assert.equal(validLocalWavFile('sample.wav',LOCAL_WAV_LIMIT_BYTES+1),false)
+assert.equal(localWavLabel('Erhu Hmoob.wav'),'Erhu Hmoob')
+assert.equal(localWavLabel('.wav'),'Nhạc cụ cá nhân')
+assert.equal(samplePitchRate(69,69),1)
+assert.equal(samplePitchRate(72,60),2)
+assert.equal(samplePitchRate(48,60),.5)
+assert.ok(Math.abs(samplePitchRate(60,69)-Math.pow(2,-9/12))<1e-10)
+assert.deepEqual(createLocalSampleSpec(4,'Sáo Hmoob.wav',72),{id:'user:4',label:'Sáo Hmoob',rootMidi:72})
+assert.equal(createLocalSampleSpec(5,'Bass.wav',200).rootMidi,108)
+console.log('PASS local WAV: file filtering, size limit, safe naming, pitch mapping, bank ID')
