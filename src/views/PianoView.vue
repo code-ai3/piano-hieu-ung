@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Midi } from '@tonejs/midi'
-import { extractMidiParts, filterMidiParts } from '@/util/midi-tracks'
+import { extractMidiParts, filterMidiParts, TRACK_COLORS } from '@/util/midi-tracks'
 import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
 import { portraitKeyboardRange, videoDimensions } from '@/util/video-format'
 import { exportDurationSeconds, exportFrameCount, musicalTimeAtFrame, previewClockForMusicalTime } from '@/util/export-timing'
@@ -118,6 +118,10 @@ function openTrackComposer(){
  if(window.innerWidth<=1000)isInspectorOpen.value=false
  trackComposerPreviewOpen.value=true
 }
+function openInstrumentTrackPanel(){
+ isTrackPanelOpen.value=true
+ if(window.innerWidth<=1000)isInspectorOpen.value=false
+}
 function toggleInstrumentPreview(id:number){
  instrumentPreviewTrackId.value=instrumentPreviewTrackId.value===id?null:id
 }
@@ -140,7 +144,7 @@ function assignTrackPreset(id:number,e:Event){
 }
 function createInstrumentTrack(){
  if(exporting.value)return
- const p=makeInstrumentTrack(midiParts.value,newTrackPreset.value,newTrackName.value)
+ const p=makeInstrumentTrack(midiParts.value,newTrackPreset.value,newTrackName.value,TRACK_COLORS[midiParts.value.length%TRACK_COLORS.length])
  if(playState.value==='playing')pause()
  else {stopSynthVoices(synthScheduledVoices);piano?.stop()}
  midiParts.value.push(p)
@@ -1439,7 +1443,7 @@ watch(() => currentTime.value, (t) => {
         </div></details>
         <details name="melorix-main-menu"><summary>Nhạc cụ</summary><div class="mx-menu-pop" aria-label="Menu nhạc cụ">
           <button type="button" @click="openTrackComposer"><i class="fas fa-plus mr-2"></i> Thêm track nhạc cụ</button>
-          <button type="button" @click="isTrackPanelOpen = true; if(window.innerWidth<=1000)isInspectorOpen = false"><i class="fas fa-layer-group mr-2"></i> Chọn tiếng cho từng track</button>
+          <button type="button" @click="openInstrumentTrackPanel"><i class="fas fa-layer-group mr-2"></i> Chọn tiếng cho từng track</button>
           <div class="mx-menu-caption">Piano và 5 tiếng tổng hợp có sẵn. Thư viện WAV/Kontakt cá nhân sẽ bổ sung ở Bước 3.</div>
         </div></details>
         <details name="melorix-main-menu"><summary>Công cụ</summary><div class="mx-menu-pop">

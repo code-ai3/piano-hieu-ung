@@ -10,17 +10,18 @@ const parts=[
  {id:2,name:'Left',instrument:'Piano',channel:3,noteCount:9,enabled:true,color:'#ffffff'}
 ]
 const original=structuredClone(parts)
-const added=makeInstrumentTrack(parts,'organ','  Erhu nghiên cứu  ')
+const added=makeInstrumentTrack(parts,'organ','  Erhu nghiên cứu  ','#123456')
 assert.equal(added.id,3)
 assert.equal(added.name,'Erhu nghiên cứu')
 assert.equal(added.instrument,'Organ (Web Synth)')
 assert.equal(added.channel,2)
 assert.equal(added.noteCount,0)
+assert.equal(added.color,'#123456')
 assert.equal(added.enabled,true)
 assert.deepEqual(parts,original)
-assert.equal(makeInstrumentTrack([], 'piano').id,0)
+assert.equal(makeInstrumentTrack([], 'piano','','#654321').id,0)
 const fullChannels=Array.from({length:15},(_,id)=>({...parts[0],id,channel:id<9?id+1:id+2}))
-assert.equal(makeInstrumentTrack(fullChannels,'piano').channel,1)
+assert.equal(makeInstrumentTrack(fullChannels,'piano','','#ffffff').channel,1)
 for(const item of INSTRUMENT_PRESETS){
  const s=synthVoicePlan(item.id,69,1,1)
  assert.equal(s.freq,440)

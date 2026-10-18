@@ -1,5 +1,4 @@
 import type { MidiPart } from './midi-tracks'
-import { TRACK_COLORS } from './midi-tracks'
 
 export const INSTRUMENT_PRESETS = [
  { id:'piano', label:'Acoustic Grand Piano', program:0 },
@@ -16,13 +15,13 @@ export function isInstrumentPreset(value:string):value is InstrumentPreset{
 export function instrumentPreset(id:InstrumentPreset){
  return INSTRUMENT_PRESETS.find(p=>p.id===id)??INSTRUMENT_PRESETS[0]
 }
-export function makeInstrumentTrack(parts:readonly MidiPart[],preset:InstrumentPreset,name?:string):MidiPart{
+export function makeInstrumentTrack(parts:readonly MidiPart[],preset:InstrumentPreset,name:string,color:string):MidiPart{
  const id=parts.reduce((m,p)=>Math.max(m,p.id),-1)+1
  const occupied=new Set(parts.map(p=>p.channel))
  const channel=Array.from({length:16},(_,i)=>i+1).filter(v=>v!==10).find(v=>!occupied.has(v))??1
  return {id,name:name?.trim().slice(0,60)||`Nhạc cụ ${parts.length+1}`,
   instrument:instrumentPreset(preset).label,channel,noteCount:0,enabled:true,
-  color:TRACK_COLORS[parts.length%TRACK_COLORS.length]}
+  color}
 }
 // One authoritative voice plan for WebAudio and unit tests. These are
 // synthesized timbres, not recorded acoustic Kontakt/VST instruments.
