@@ -18,6 +18,8 @@ import { INSTRUMENT_PRESETS, instrumentPreset, isInstrumentPreset, makeInstrumen
 import type { InstrumentPreset, SynthVoice } from '@/util/melorix-instruments'
 import { createLocalSampleSpec, validLocalWavFile, samplePitchRate } from '@/util/melorix-local-wav'
 import type { LocalInstrumentId, LocalSampleSpec } from '@/util/melorix-local-wav'
+import { inspectKontaktNki, inferKontaktWavRoot, kontaktImportCheck, closestKontaktSample } from '@/util/melorix-kontakt-import'
+import type { KontaktNkiInspection } from '@/util/melorix-kontakt-import'
 import '@/assets/melorix-roll.css'
 import AppCheckbox from '@/components/AppCheckbox.vue'
 import { Output, Mp4OutputFormat, BufferTarget, StreamTarget, VideoSampleSource, VideoSample, AudioSampleSource, AudioSample } from 'mediabunny'
@@ -117,6 +119,74 @@ const newTrackPreset=ref<TrackInstrument>('piano')
 const assignedTrackPresets=ref<Record<number,TrackInstrument>>({})
 const localSamples=ref<LocalSampleSpec[]>([])
 const localSampleBuffers=new Map<LocalInstrumentId,AudioBuffer>()
+
+type KontaktZone={rootMidi:number;buffer:AudioBuffer}
+const kontaktBanks=new Map<LocalInstrumentId,KontaktZone[]>()
+const kontaktOpen=ref(false)
+const kontaktNkiFile=ref<File|null>(null)
+const kontaktInspection=ref<KontaktNkiInspection|null>(null)
+const kontaktWavFiles=ref<File[]>([])
+const kontaktRootMappings=ref<(number|null)[]>([])
+const kontaktBusy=ref(false)
+const kontaktError=ref('')
+const kontaktReady=computed(()=>kontaktInspection.value?.supportedContainer===true&&kontaktImportCheck(kontaktRootMappings.value,kontaktWavFiles.value.length).ok)
+function openKontaktImporter(){
+ isTrackPanelOpen.value=true
+ if(window.innerWidth<=1000)isInspectorOpen.value=false
+ sampleImportOpen.value=false;trackComposerPreviewOpen.value=false;kontaktOpen.value=true
+}
+async function onKontaktNkiChoose(e:Event){
+ const file=(e.target as HTMLInputElement).files?.[0]??null
+ kontaktNkiFile.value=file;kontaktInspection.value=null;kontaktError.value=''
+ kontaktRootMappings.value=kontaktWavFiles.value.map(()=>null)
+ if(!file)return
+ if(!/\.nki$/i.test(file.name)||file.size<96||file.size>12*1024*1024){
+  kontaktError.value='File .nki không hợp lệ hoặc lớn hơn 12 MB';return
+ }
+ try{
+  const inspection=inspectKontaktNki(await file.arrayBuffer(),file.name)
+  kontaktInspection.value=inspection
+  if(!inspection.supportedContainer)kontaktError.value=inspection.note
+  else kontaktRootMappings.value=kontaktWavFiles.value.map(f=>inferKontaktWavRoot(file.name,f.name))
+ }catch{kontaktError.value='Không thể đọc file .nki'}
+}
+function onKontaktWavsChoose(e:Event){
+ const files=Array.from((e.target as HTMLInputElement).files??[])
+ kontaktWavFiles.value=files;kontaktError.value=''
+ kontaktRootMappings.value=files.map(f=>kontaktNkiFile.value?inferKontaktWavRoot(kontaktNkiFile.value.name,f.name):null)
+}
+async function importKontaktCompatibility(){
+ if(exporting.value||kontaktBusy.value)return
+ const file=kontaktNkiFile.value,inspection=kontaktInspection.value
+ if(!file||!inspection?.supportedContainer){kontaktError.value='Bạn cần chọn file NKI tương thích';return}
+ const files=kontaktWavFiles.value
+ const mapped=kontaktImportCheck(kontaktRootMappings.value,files.length)
+ if(!mapped.ok){kontaktError.value='Còn '+mapped.unmapped+' WAV cần chọn nốt gốc';return}
+ if(files.length>64||files.some(f=>!validLocalWavFile(f.name,f.size))||
+ files.reduce((sum,f)=>sum+f.size,0)>160*1024*1024){
+  kontaktError.value='Tối đa 64 WAV, 25 MB mỗi file, tổng 160 MB';return
+ }
+ kontaktBusy.value=true;kontaktError.value=''
+ try{
+  const decoder=new OfflineAudioContext(1,1,44100)
+  const zones:KontaktZone[]=[]
+  for(let i=0;i<files.length;i++){
+   const buff=await decoder.decodeAudioData(await files[i].arrayBuffer())
+   if(buff.duration<.02||!buff.length)throw Error('Bad WAV '+files[i].name)
+   zones.push({rootMidi:kontaktRootMappings.value[i]!,buffer:buff})
+  }
+  const name=inspection.name
+  const spec=createLocalSampleSpec(nextLocalSample++,name+'.wav',60)
+  kontaktBanks.set(spec.id,zones)
+  localSamples.value=[...localSamples.value,{...spec,label:name+' (Kontakt tương thích)'}]
+  newTrackName.value=name;newTrackPreset.value=spec.id
+  kontaktOpen.value=false;trackComposerPreviewOpen.value=true
+ }catch(error){
+  console.error('NKI/WAV import error:',error)
+  kontaktError.value='Không giải mã được tất cả WAV; kiểm tra các tệp mẫu'
+ }finally{kontaktBusy.value=false}
+}
+
 const allInstruments=computed(()=>[
  ...INSTRUMENT_PRESETS.map(p=>({id:p.id,label:p.label})),
  ...localSamples.value.map(p=>({id:p.id,label:p.label+' (Cá nhân)'}))
@@ -724,15 +794,18 @@ function routedNote(ctx:AudioContext,midi:number,velocity:number,when:number,dur
  let voice:SynthVoice
  if(isInstrumentPreset(preset))voice=playSynthVoice(ctx,midi,velocity,when,duration,preset)
  else{
-  const buffer=localSampleBuffers.get(preset)
-  const info=localSamples.value.find(s=>s.id===preset)
-  if(!buffer||!info)return
+  const bank=kontaktBanks.get(preset)
+  const zone=bank?closestKontaktSample(bank,midi):null
+  const one=localSamples.value.find(s=>s.id===preset)
+  const buffer=zone?.buffer??localSampleBuffers.get(preset)
+  const root=zone?.rootMidi??one?.rootMidi
+  if(!buffer||root===undefined)return
   const start=Math.max(ctx.currentTime+.003,when)
   const length=Math.max(.06,Number.isFinite(duration)?duration:.5)
   const source=ctx.createBufferSource()
   const gain=ctx.createGain()
   source.buffer=buffer
-  source.playbackRate.setValueAtTime(samplePitchRate(midi,info.rootMidi),start)
+  source.playbackRate.setValueAtTime(samplePitchRate(midi,root),start)
   const level=Math.min(1,Math.max(.01,velocity/127))*.7
   gain.gain.setValueAtTime(.0001,start)
   gain.gain.linearRampToValueAtTime(level,start+.012)
@@ -1529,8 +1602,9 @@ watch(() => currentTime.value, (t) => {
         <details name="melorix-main-menu"><summary>Nhạc cụ</summary><div class="mx-menu-pop" aria-label="Menu nhạc cụ">
           <button type="button" @click="openTrackComposer"><i class="fas fa-plus mr-2"></i> Thêm track nhạc cụ</button>
           <button type="button" @click="openPersonalInstrumentImport"><i class="fas fa-file-audio mr-2"></i> Thêm nhạc cụ của tôi (WAV)</button>
+          <button type="button" @click="openKontaktImporter"><i class="fas fa-folder-open mr-2"></i> Nhập thư viện Kontakt (.nki + Samples)</button>
           <button type="button" @click="openInstrumentTrackPanel"><i class="fas fa-layer-group mr-2"></i> Chọn tiếng cho từng track</button>
-          <div class="mx-menu-caption">{{ localSamples.length }} mẫu WAV cá nhân · Nạp cục bộ, không tải lên máy chủ. Kontakt .nki/VST3 chưa chạy trên web.</div>
+          <div class="mx-menu-caption">{{ localSamples.length }} nhạc cụ cá nhân · WAV đơn hoặc Kontakt tương thích + Samples. Không chạy bộ máy Kontakt gốc.</div>
         </div></details>
         <details name="melorix-main-menu"><summary>Công cụ</summary><div class="mx-menu-pop">
           <button type="button" @click="showBgSettings = true">Hiệu ứng nốt rơi</button>
@@ -1567,6 +1641,36 @@ watch(() => currentTime.value, (t) => {
           <button type="button" class="mx-track-add-btn" :aria-expanded="trackComposerPreviewOpen" aria-label="Tạo track nhạc cụ mới" title="Thêm track nhạc cụ" :disabled="exporting" @click="toggleTrackComposerPreview"><i class="fas fa-plus"></i></button>
           <button type="button" class="mx-side-close" aria-label="Ẩn danh sách track" title="Ẩn track" @click="isTrackPanelOpen = false"><i class="fas fa-times"></i></button>
         </div>
+
+        <form v-if="kontaktOpen" class="mx-track-ui-preview mx-track-add-form mx-kontakt-form" @submit.prevent="importKontaktCompatibility">
+          <div class="mx-track-ui-preview-title"><i class="fas fa-folder-open"></i> Nhập thư viện Kontakt</div>
+          <label>1. Tệp nhạc cụ (.nki)
+            <input type="file" accept=".nki,application/octet-stream" :disabled="kontaktBusy" aria-label="Chọn file Kontakt NKI" @change="onKontaktNkiChoose">
+          </label>
+          <p v-if="kontaktInspection" :class="{ 'mx-kontakt-good': kontaktInspection.supportedContainer }">
+            {{ kontaktInspection.name }} · {{ kontaktInspection.format }}. {{ kontaktInspection.note }}
+          </p>
+          <label>2. Chọn tất cả các mẫu WAV của nhạc cụ
+            <input type="file" accept=".wav,audio/wav" multiple :disabled="kontaktBusy" aria-label="Chọn các file WAV trong thư mục Samples" @change="onKontaktWavsChoose">
+          </label>
+          <p>Trên iPad, vào ứng dụng Tệp và chọn nhiều WAV trong thư mục Samples; không tải file lên máy chủ.</p>
+          <p v-if="kontaktWavFiles.length">{{ kontaktWavFiles.length }} WAV · {{ kontaktRootMappings.filter(m=>m!==null).length }} đã biết nốt gốc.</p>
+          <div v-if="kontaktWavFiles.length" class="mx-kontakt-mappings">
+            <label v-for="(sample,index) in kontaktWavFiles" :key="index">
+              <span :title="sample.name">{{ sample.name }}</span>
+              <select v-model.number="kontaktRootMappings[index]" :disabled="kontaktBusy" :aria-label="'Nốt gốc ' + sample.name">
+                <option :value="null">Chọn nốt</option>
+                <option v-for="n in 88" :key="n" :value="n+20">{{ midiNoteName(n+20) }}</option>
+              </select>
+            </label>
+          </div>
+          <p class="mx-kontakt-notice">Đây là chế độ tương thích phát WAV, không tái tạo hiệu ứng, key-switch, script hay ánh xạ phím gốc từ Kontakt. Erhu Hmoob Nplog tự nhận diện 7 nốt; các mẫu khác có thể cần chọn nốt gốc thủ công.</p>
+          <p v-if="kontaktError" role="alert" class="mx-instrument-import-error">{{ kontaktError }}</p>
+          <div class="mx-track-form-actions">
+            <button type="submit" :disabled="exporting || kontaktBusy || !kontaktReady">{{ kontaktBusy ? 'Đang đọc WAV…' : 'Nhập nhạc cụ' }}</button>
+            <button type="button" @click="kontaktOpen=false">Hủy</button>
+          </div>
+        </form>
         <form v-if="sampleImportOpen" class="mx-track-ui-preview mx-track-add-form" @submit.prevent="importPersonalWav">
           <div class="mx-track-ui-preview-title"><i class="fas fa-file-audio"></i> Thêm nhạc cụ của tôi</div>
           <label>Tệp âm thanh (.wav)
@@ -1600,7 +1704,7 @@ watch(() => currentTime.value, (t) => {
             <button type="submit" :disabled="exporting"><i class="fas fa-plus"></i> Tạo và mở Piano Roll</button>
             <button type="button" @click="trackComposerPreviewOpen = false">Hủy</button>
           </div>
-          <p>Có thể dùng WAV đã nạp hoặc tiếng dựng sẵn. Kontakt .nki/VST3 cần xử lý riêng.</p>
+          <p>Chọn tiếng có sẵn, WAV cá nhân hoặc Kontakt tương thích (cần WAV đi kèm).</p>
         </form>
         <div class="mx-track-sidebar-actions">
           <button type="button" :disabled="exporting || !midiParts.length" @click="setAllParts(true)">Bật tất cả</button>
@@ -1632,7 +1736,7 @@ watch(() => currentTime.value, (t) => {
                   <option v-for="item in allInstruments" :key="item.id" :value="item.id">{{ item.label }}</option>
                 </select>
               </label>
-              <p>Đổi tiếng ngay khi chọn. Nạp thêm WAV từ menu Nhạc cụ → Thêm nhạc cụ của tôi.</p>
+              <p>Đổi tiếng ngay khi chọn. Thêm WAV hoặc NKI + Samples từ menu Nhạc cụ.</p>
             </div>
             <div class="mx-track-side-minimap mx-editable-track" :aria-label="'Nhấp đúp để chỉnh từng nốt trong ' + part.name" :title="'Nhấp đúp để chỉnh Piano Roll: ' + part.name" role="button" tabindex="0" @dblclick.stop="openPianoRoll(part.id)" @keydown.enter="openPianoRoll(part.id)">
               <span v-for="(bar,idx) in part.bars" :key="idx" class="mx-track-side-mini-note" :style="{ left: bar.left + '%', width: bar.width + '%', backgroundColor: part.color }"></span>
