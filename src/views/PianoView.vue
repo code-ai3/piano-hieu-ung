@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Midi } from '@tonejs/midi'
-import { extractMidiParts, filterMidiParts } from '@/util/midi-tracks'
+import { extractMidiParts, filterMidiParts, TRACK_COLORS } from '@/util/midi-tracks'
 import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
 import { portraitKeyboardRange, videoDimensions } from '@/util/video-format'
 import { exportDurationSeconds, exportFrameCount, musicalTimeAtFrame, previewClockForMusicalTime } from '@/util/export-timing'
@@ -14,6 +14,8 @@ import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
 import MelorixPianoRoll from '@/components/MelorixPianoRoll.vue'
 import { midiNoteName } from '@/util/midi-edit'
+import { INSTRUMENT_PRESETS, instrumentPreset, isInstrumentPreset, makeInstrumentTrack, playSynthVoice } from '@/util/melorix-instruments'
+import type { InstrumentPreset, SynthVoice } from '@/util/melorix-instruments'
 import '@/assets/melorix-roll.css'
 import AppCheckbox from '@/components/AppCheckbox.vue'
 import { Output, Mp4OutputFormat, BufferTarget, StreamTarget, VideoSampleSource, VideoSample, AudioSampleSource, AudioSample } from 'mediabunny'
@@ -104,15 +106,55 @@ const canvasAreaRef = ref<HTMLDivElement | null>(null)
 const isInspectorOpen = ref(typeof window !== 'undefined' && window.innerWidth > 1000)
 const isTrackPanelOpen = ref(typeof window !== 'undefined' && window.innerWidth > 1000)
 const isTimelineOpen = ref(false)
-// UI-only scaffolding for the instrument library. Track creation and actual
-// instrument assignment are intentionally deferred to Phase 2.
+// Instrument routing is per track and survives Piano Roll edits.
 const trackComposerPreviewOpen = ref(false)
 const instrumentPreviewTrackId = ref<number | null>(null)
+const newTrackName=ref('')
+const newTrackPreset=ref<InstrumentPreset>('piano')
+const assignedTrackPresets=ref<Record<number,InstrumentPreset>>({})
+function trackPreset(id:number):InstrumentPreset {return assignedTrackPresets.value[id]??'piano'}
+function openTrackComposer(){
+ isTrackPanelOpen.value=true
+ if(window.innerWidth<=1000)isInspectorOpen.value=false
+ trackComposerPreviewOpen.value=true
+}
+function openInstrumentTrackPanel(){
+ isTrackPanelOpen.value=true
+ if(window.innerWidth<=1000)isInspectorOpen.value=false
+}
 function toggleInstrumentPreview(id:number){
  instrumentPreviewTrackId.value=instrumentPreviewTrackId.value===id?null:id
 }
 function toggleTrackComposerPreview(){
  trackComposerPreviewOpen.value=!trackComposerPreviewOpen.value
+}
+function assignTrackPreset(id:number,e:Event){
+ if(exporting.value)return
+ const selection=(e.target as HTMLSelectElement).value
+ if(!isInstrumentPreset(selection))return
+ const part=midiParts.value.find(p=>p.id===id)
+ if(!part)return
+ if(playState.value==='playing')pause()
+ else {stopSynthVoices(synthScheduledVoices);stopPianoAudition();stopChordAudition();piano?.stop()}
+ assignedTrackPresets.value={...assignedTrackPresets.value,[id]:selection}
+ part.instrument=instrumentPreset(selection).label
+ lastScheduledIdx=0
+ playState.value='idle'
+ instrumentPreviewTrackId.value=null
+}
+function createInstrumentTrack(){
+ if(exporting.value)return
+ const p=makeInstrumentTrack(midiParts.value,newTrackPreset.value,newTrackName.value,TRACK_COLORS[midiParts.value.length%TRACK_COLORS.length])
+ if(playState.value==='playing')pause()
+ else {stopSynthVoices(synthScheduledVoices);piano?.stop()}
+ midiParts.value.push(p)
+ assignedTrackPresets.value={...assignedTrackPresets.value,[p.id]:newTrackPreset.value}
+ newTrackName.value=''
+ trackComposerPreviewOpen.value=false
+ instrumentPreviewTrackId.value=null
+ lastScheduledIdx=0
+ playState.value='idle'
+ openPianoRoll(p.id)
 }
 function toggleTrackPanel() {
   isTrackPanelOpen.value = !isTrackPanelOpen.value
@@ -498,6 +540,9 @@ function updateNoteRange() {
 }
 function processMidi(midi: Midi) {
   pianoRollTrackId.value = null
+  assignedTrackPresets.value={}
+  instrumentPreviewTrackId.value=null
+  trackComposerPreviewOpen.value=false
   midiTempo.value = midi.header.tempos[0]?.bpm || 120
   const parsed = extractMidiParts(midi)
   midiParts.value = parsed.parts
@@ -547,6 +592,7 @@ function beginPianoRollResize(e: PointerEvent) {
 }
 function resetAfterTrackChange() {
   // Audio is scheduled ahead of time; stop that schedule before changing a track mix.
+  stopSynthVoices(synthScheduledVoices)
   piano?.stop()
   playState.value = 'idle'
   currentTime.value = 0
@@ -599,9 +645,24 @@ async function handleUpload(file: File) {
   }
 }
 
-// ---- 音频调度器（smplr） ----
+// ---- Âm sắc MIDI dựng sẵn (Web Audio) và engine Piano sampler hiện hữu ----
 let lastScheduledIdx = 0
 const audioCtx = ref<AudioContext | null>(null)
+const synthScheduledVoices=new Set<SynthVoice>()
+const synthKeyVoices=new Set<SynthVoice>()
+const synthChordVoices=new Set<SynthVoice>()
+function stopSynthVoices(set:Set<SynthVoice>){
+ for(const voice of set)voice.stop()
+ set.clear()
+}
+function synthNote(ctx:AudioContext,midi:number,velocity:number,when:number,duration:number,
+ preset:InstrumentPreset,set:Set<SynthVoice>){
+ const voice=playSynthVoice(ctx,midi,velocity,when,duration,preset)
+ set.add(voice)
+ // Voices have a finite release and stop themselves; bound retained handles
+ // so that long compositions don't accumulate references indefinitely.
+ if(set.size>2400){for(const stale of Array.from(set).slice(0,set.size-2200))set.delete(stale)}
+}
 
 function scheduleAll() {
   const ctx = audioCtx.value
@@ -612,7 +673,9 @@ function scheduleAll() {
     if (n.time < targetTime - 0.02) { lastScheduledIdx = i + 1; continue }
     const delay = (n.time - targetTime) * speed.value
     const t = ctx.currentTime + Math.max(0.003, delay)
-    piano.start({ note: n.name, velocity: n.velocity * 127, time: t })
+    const preset=trackPreset(n.trackId)
+    if(preset==='piano')piano.start({note:n.name,velocity:n.velocity*127,time:t})
+    else synthNote(ctx,n.midi,n.velocity*127,t,n.duration*speed.value,preset,synthScheduledVoices)
   }
 }
 
@@ -633,12 +696,13 @@ async function play() {
 function resetPiano() {
   stopPianoAudition()
   stopChordAudition()
+  stopSynthVoices(synthScheduledVoices)
   piano?.stop(); piano = null
   audioCtx.value?.close(); audioCtx.value = null
   pianoLoaded.value = false; initPianoPromise = null
 }
 
-function pause() { stopChordAudition(); stopPianoAudition(); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
+function pause() { stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
 function stop() {
   playState.value = 'idle'; currentTime.value = 0
   lastScheduledIdx = 0; pianoLoading = false
@@ -650,6 +714,7 @@ const AUDITION_STOP_ID = 'melorix-editor-key'
 let auditionRequest = 0
 function stopPianoAudition() {
  auditionRequest++
+ stopSynthVoices(synthKeyVoices)
  piano?.stop(AUDITION_STOP_ID)
 }
 async function startPianoAudition(midi: number) {
@@ -665,7 +730,9 @@ async function startPianoAudition(midi: number) {
   await audioCtx.value?.resume()
   await piano?.load
   if(request !== auditionRequest || exporting.value || !piano) return
-  piano.start({ note: midiNoteName(midi), velocity: 95, stopId: AUDITION_STOP_ID })
+  const preset=trackPreset(pianoRollTrackId.value??-1)
+  if(preset==='piano')piano.start({note:midiNoteName(midi),velocity:95,stopId:AUDITION_STOP_ID})
+  else if(audioCtx.value)synthNote(audioCtx.value,midi,95,audioCtx.value.currentTime+.003,8,preset,synthKeyVoices)
  } catch(error) { console.error('Piano audition failed:',error) }
 }
 
@@ -675,6 +742,7 @@ let chordRequest=0
 let chordStopTimer:ReturnType<typeof setTimeout>|null=null
 function stopChordAudition(){
  chordRequest++
+ stopSynthVoices(synthChordVoices)
  if(chordStopTimer!==null){clearTimeout(chordStopTimer);chordStopTimer=null}
  piano?.stop(CHORD_STOP_ID)
 }
@@ -691,8 +759,10 @@ async function startChordAudition(pitches:number[]){
   await audioCtx.value?.resume()
   await piano?.load
   if(request!==chordRequest||exporting.value||!piano)return
+  const preset=trackPreset(pianoRollTrackId.value??-1)
   for(const pitch of pitches){
-   piano.start({note:midiNoteName(pitch),velocity:95,stopId:CHORD_STOP_ID})
+   if(preset==='piano')piano.start({note:midiNoteName(pitch),velocity:95,stopId:CHORD_STOP_ID})
+   else if(audioCtx.value)synthNote(audioCtx.value,pitch,95,audioCtx.value.currentTime+.003,1.2,preset,synthChordVoices)
   }
   chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
  }catch(error){console.error('Chord audition failed:',error)}
@@ -1194,7 +1264,7 @@ function loop() {
   if (playState.value === 'playing') {
     currentTime.value += (performance.now() - lastFrameTime) / 1000
     if (currentTime.value >= duration.value) {
-      if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; piano?.stop(); scheduleAll() }
+      if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; stopSynthVoices(synthScheduledVoices); piano?.stop(); scheduleAll() }
       else { nextTrack() }
     }
   }
@@ -1297,6 +1367,8 @@ function downloadEditedMidi() {
     const track = result.addTrack()
     track.name = part.name
     track.channel = Math.max(0, part.channel - 1)
+    const chosen=assignedTrackPresets.value[part.id]
+    if(chosen)track.instrument.number=instrumentPreset(chosen).program
     for (const note of allNotes.value) {
       if (note.trackId !== part.id) continue
       track.addNote({ midi: note.midi, time: note.time, duration: note.duration, velocity: note.velocity })
@@ -1370,8 +1442,9 @@ watch(() => currentTime.value, (t) => {
           <div class="mx-menu-caption">{{ midiParts.length }} track · {{ enabledPartCount }} đang bật</div>
         </div></details>
         <details name="melorix-main-menu"><summary>Nhạc cụ</summary><div class="mx-menu-pop" aria-label="Menu nhạc cụ">
-          <button type="button" @click="isTrackPanelOpen = true"><i class="fas fa-layer-group mr-2"></i> Xem các track và nhạc cụ</button>
-          <div class="mx-menu-caption">Bước 1 — Bố cục thư viện nhạc cụ. Thêm track và đổi âm sắc sẽ hoạt động ở Bước 2.</div>
+          <button type="button" @click="openTrackComposer"><i class="fas fa-plus mr-2"></i> Thêm track nhạc cụ</button>
+          <button type="button" @click="openInstrumentTrackPanel"><i class="fas fa-layer-group mr-2"></i> Chọn tiếng cho từng track</button>
+          <div class="mx-menu-caption">Piano và 5 tiếng tổng hợp có sẵn. Thư viện WAV/Kontakt cá nhân sẽ bổ sung ở Bước 3.</div>
         </div></details>
         <details name="melorix-main-menu"><summary>Công cụ</summary><div class="mx-menu-pop">
           <button type="button" @click="showBgSettings = true">Hiệu ứng nốt rơi</button>
@@ -1405,14 +1478,23 @@ watch(() => currentTime.value, (t) => {
         <div class="mx-inspector-top mx-track-sidebar-title">
           <i class="fas fa-layer-group"></i><span>Track MIDI</span>
           <span class="mx-track-side-count">{{ enabledPartCount }}/{{ midiParts.length }}</span>
-          <button type="button" class="mx-track-add-btn" :aria-expanded="trackComposerPreviewOpen" aria-label="Thêm track nhạc cụ (giao diện Bước 1)" title="Thêm track nhạc cụ — Bước 2 sẽ kích hoạt" @click="toggleTrackComposerPreview"><i class="fas fa-plus"></i></button>
+          <button type="button" class="mx-track-add-btn" :aria-expanded="trackComposerPreviewOpen" aria-label="Tạo track nhạc cụ mới" title="Thêm track nhạc cụ" :disabled="exporting" @click="toggleTrackComposerPreview"><i class="fas fa-plus"></i></button>
           <button type="button" class="mx-side-close" aria-label="Ẩn danh sách track" title="Ẩn track" @click="isTrackPanelOpen = false"><i class="fas fa-times"></i></button>
         </div>
-        <div v-if="trackComposerPreviewOpen" class="mx-track-ui-preview" role="status">
-          <div class="mx-track-ui-preview-title"><i class="fas fa-plus-circle"></i> Thêm track nhạc cụ</div>
-          <p>Bước 1: đã bố trí nút tạo track. Bước 2 sẽ cho phép tạo track và chọn nhạc cụ có sẵn hoặc của bạn.</p>
-          <button type="button" @click="trackComposerPreviewOpen = false">Đóng</button>
-        </div>
+        <form v-if="trackComposerPreviewOpen" class="mx-track-ui-preview mx-track-add-form" @submit.prevent="createInstrumentTrack">
+          <div class="mx-track-ui-preview-title"><i class="fas fa-plus-circle"></i> Tạo track nhạc cụ</div>
+          <label>Tên track<input v-model="newTrackName" type="text" maxlength="60" placeholder="Nhạc cụ mới" aria-label="Tên track mới"></label>
+          <label>Âm sắc có sẵn
+            <select v-model="newTrackPreset" aria-label="Chọn âm sắc cho track mới">
+              <option v-for="item in INSTRUMENT_PRESETS" :key="item.id" :value="item.id">{{ item.label }}</option>
+            </select>
+          </label>
+          <div class="mx-track-form-actions">
+            <button type="submit" :disabled="exporting"><i class="fas fa-plus"></i> Tạo và mở Piano Roll</button>
+            <button type="button" @click="trackComposerPreviewOpen = false">Hủy</button>
+          </div>
+          <p>Thư viện nhạc cụ cá nhân: Bước 3. Chưa hỗ trợ .nki/VST trực tiếp.</p>
+        </form>
         <div class="mx-track-sidebar-actions">
           <button type="button" :disabled="exporting || !midiParts.length" @click="setAllParts(true)">Bật tất cả</button>
           <button type="button" :disabled="exporting || !midiParts.length" @click="setAllParts(false)">Tắt tất cả</button>
@@ -1430,16 +1512,20 @@ watch(() => currentTime.value, (t) => {
               <button type="button" class="mx-track-mini" :aria-pressed="part.enabled && enabledPartCount === 1" :disabled="exporting" @click="soloPart(part.id)" title="Solo">S</button>
             </div>
             <div class="mx-track-side-sub">
-              <button type="button" class="mx-track-instrument-trigger" :aria-expanded="instrumentPreviewTrackId === part.id" :aria-label="'Chọn nhạc cụ cho ' + part.name + ' (giao diện Bước 1)'" :title="'Đổi nhạc cụ của ' + part.name + ' — Bước 2 sẽ kích hoạt'" @click="toggleInstrumentPreview(part.id)">
+              <button type="button" class="mx-track-instrument-trigger" :aria-expanded="instrumentPreviewTrackId === part.id" :aria-label="'Chọn nhạc cụ cho ' + part.name" :title="'Thay âm sắc cho ' + part.name" :disabled="exporting" @click="toggleInstrumentPreview(part.id)">
                 <span>{{ part.instrument || 'MIDI' }}</span>
                 <i class="fas fa-chevron-down" aria-hidden="true"></i>
               </button>
               <span>{{ part.noteCount }} nốt</span>
               <input type="color" :value="part.color" :disabled="exporting" :aria-label="'Màu ' + part.name" @input="onPartColorInput(part.id, $event)">
             </div>
-            <div v-if="instrumentPreviewTrackId === part.id" class="mx-track-instrument-preview" role="status">
-              <div><i class="fas fa-music"></i> {{ part.instrument || 'MIDI' }}</div>
-              <p>Bước 2: đổi sang nhạc cụ có sẵn hoặc nạp nhạc cụ cá nhân.</p>
+            <div v-if="instrumentPreviewTrackId === part.id" class="mx-track-instrument-preview">
+              <label><i class="fas fa-music"></i> Âm sắc của {{ part.name }}
+                <select :value="trackPreset(part.id)" :disabled="exporting" :aria-label="'Âm sắc track ' + part.name" @change="assignTrackPreset(part.id,$event)">
+                  <option v-for="item in INSTRUMENT_PRESETS" :key="item.id" :value="item.id">{{ item.label }}</option>
+                </select>
+              </label>
+              <p>Đổi tiếng ngay khi chọn. Nhạc cụ cá nhân: Bước 3.</p>
             </div>
             <div class="mx-track-side-minimap mx-editable-track" :aria-label="'Nhấp đúp để chỉnh từng nốt trong ' + part.name" :title="'Nhấp đúp để chỉnh Piano Roll: ' + part.name" role="button" tabindex="0" @dblclick.stop="openPianoRoll(part.id)" @keydown.enter="openPianoRoll(part.id)">
               <span v-for="(bar,idx) in part.bars" :key="idx" class="mx-track-side-mini-note" :style="{ left: bar.left + '%', width: bar.width + '%', backgroundColor: part.color }"></span>

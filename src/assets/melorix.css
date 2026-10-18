@@ -324,3 +324,15 @@ html, body, #app { width:100%; height:100%; min-height:0; overflow:hidden; overs
 .mx-track-instrument-trigger[aria-expanded="true"] i { transform:rotate(180deg); }
 .mx-track-instrument-preview { margin:5px 0 0; }
 .mx-track-instrument-preview > div { color:#ffc389; font-weight:600; }
+
+/* Phase 2: real track creation and per-track preset selector, compact. */
+.mx-track-add-btn:disabled,.mx-track-instrument-trigger:disabled{opacity:.4;cursor:default}
+.mx-track-add-form label,.mx-track-instrument-preview label{display:flex;flex-direction:column;align-items:stretch;gap:4px;font-size:10px;color:#bccbdb;margin-top:7px}
+.mx-track-add-form input[type=text],.mx-track-add-form select,.mx-track-instrument-preview select{
+ display:block;width:100%;min-width:0;border:1px solid #586779;border-radius:4px;
+ background:#1c2631;color:#e1ebf6;font-size:11px;padding:6px 7px;
+}
+.mx-track-form-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px}
+.mx-track-form-actions button{font-size:10px;padding:5px 8px}
+.mx-track-form-actions button[type=submit]{background:#734a30;color:#fff1dc;border-color:#aa7045}
+.mx-track-ui-preview p,.mx-track-instrument-preview p{color:#aebdcc;font-size:10px;margin-top:6px}
