@@ -104,6 +104,16 @@ const canvasAreaRef = ref<HTMLDivElement | null>(null)
 const isInspectorOpen = ref(typeof window !== 'undefined' && window.innerWidth > 1000)
 const isTrackPanelOpen = ref(typeof window !== 'undefined' && window.innerWidth > 1000)
 const isTimelineOpen = ref(false)
+// UI-only scaffolding for the instrument library. Track creation and actual
+// instrument assignment are intentionally deferred to Phase 2.
+const trackComposerPreviewOpen = ref(false)
+const instrumentPreviewTrackId = ref<number | null>(null)
+function toggleInstrumentPreview(id:number){
+ instrumentPreviewTrackId.value=instrumentPreviewTrackId.value===id?null:id
+}
+function toggleTrackComposerPreview(){
+ trackComposerPreviewOpen.value=!trackComposerPreviewOpen.value
+}
 function toggleTrackPanel() {
   isTrackPanelOpen.value = !isTrackPanelOpen.value
   if (window.innerWidth <= 1000 && isTrackPanelOpen.value) isInspectorOpen.value = false
@@ -1359,6 +1369,10 @@ watch(() => currentTime.value, (t) => {
           <button type="button" :disabled="exporting" @click="setAllParts(false)">Tắt toàn bộ nhạc cụ</button>
           <div class="mx-menu-caption">{{ midiParts.length }} track · {{ enabledPartCount }} đang bật</div>
         </div></details>
+        <details name="melorix-main-menu"><summary>Nhạc cụ</summary><div class="mx-menu-pop" aria-label="Menu nhạc cụ">
+          <button type="button" @click="isTrackPanelOpen = true"><i class="fas fa-layer-group mr-2"></i> Xem các track và nhạc cụ</button>
+          <div class="mx-menu-caption">Bước 1 — Bố cục thư viện nhạc cụ. Thêm track và đổi âm sắc sẽ hoạt động ở Bước 2.</div>
+        </div></details>
         <details name="melorix-main-menu"><summary>Công cụ</summary><div class="mx-menu-pop">
           <button type="button" @click="showBgSettings = true">Hiệu ứng nốt rơi</button>
           <button type="button" @click="showPianoSettings = true">Bàn phím Piano</button>
@@ -1391,7 +1405,13 @@ watch(() => currentTime.value, (t) => {
         <div class="mx-inspector-top mx-track-sidebar-title">
           <i class="fas fa-layer-group"></i><span>Track MIDI</span>
           <span class="mx-track-side-count">{{ enabledPartCount }}/{{ midiParts.length }}</span>
+          <button type="button" class="mx-track-add-btn" :aria-expanded="trackComposerPreviewOpen" aria-label="Thêm track nhạc cụ (giao diện Bước 1)" title="Thêm track nhạc cụ — Bước 2 sẽ kích hoạt" @click="toggleTrackComposerPreview"><i class="fas fa-plus"></i></button>
           <button type="button" class="mx-side-close" aria-label="Ẩn danh sách track" title="Ẩn track" @click="isTrackPanelOpen = false"><i class="fas fa-times"></i></button>
+        </div>
+        <div v-if="trackComposerPreviewOpen" class="mx-track-ui-preview" role="status">
+          <div class="mx-track-ui-preview-title"><i class="fas fa-plus-circle"></i> Thêm track nhạc cụ</div>
+          <p>Bước 1: đã bố trí nút tạo track. Bước 2 sẽ cho phép tạo track và chọn nhạc cụ có sẵn hoặc của bạn.</p>
+          <button type="button" @click="trackComposerPreviewOpen = false">Đóng</button>
         </div>
         <div class="mx-track-sidebar-actions">
           <button type="button" :disabled="exporting || !midiParts.length" @click="setAllParts(true)">Bật tất cả</button>
@@ -1410,9 +1430,16 @@ watch(() => currentTime.value, (t) => {
               <button type="button" class="mx-track-mini" :aria-pressed="part.enabled && enabledPartCount === 1" :disabled="exporting" @click="soloPart(part.id)" title="Solo">S</button>
             </div>
             <div class="mx-track-side-sub">
-              <span :title="part.instrument || 'MIDI'">{{ part.instrument || 'MIDI' }}</span>
+              <button type="button" class="mx-track-instrument-trigger" :aria-expanded="instrumentPreviewTrackId === part.id" :aria-label="'Chọn nhạc cụ cho ' + part.name + ' (giao diện Bước 1)'" :title="'Đổi nhạc cụ của ' + part.name + ' — Bước 2 sẽ kích hoạt'" @click="toggleInstrumentPreview(part.id)">
+                <span>{{ part.instrument || 'MIDI' }}</span>
+                <i class="fas fa-chevron-down" aria-hidden="true"></i>
+              </button>
               <span>{{ part.noteCount }} nốt</span>
               <input type="color" :value="part.color" :disabled="exporting" :aria-label="'Màu ' + part.name" @input="onPartColorInput(part.id, $event)">
+            </div>
+            <div v-if="instrumentPreviewTrackId === part.id" class="mx-track-instrument-preview" role="status">
+              <div><i class="fas fa-music"></i> {{ part.instrument || 'MIDI' }}</div>
+              <p>Bước 2: đổi sang nhạc cụ có sẵn hoặc nạp nhạc cụ cá nhân.</p>
             </div>
             <div class="mx-track-side-minimap mx-editable-track" :aria-label="'Nhấp đúp để chỉnh từng nốt trong ' + part.name" :title="'Nhấp đúp để chỉnh Piano Roll: ' + part.name" role="button" tabindex="0" @dblclick.stop="openPianoRoll(part.id)" @keydown.enter="openPianoRoll(part.id)">
               <span v-for="(bar,idx) in part.bars" :key="idx" class="mx-track-side-mini-note" :style="{ left: bar.left + '%', width: bar.width + '%', backgroundColor: part.color }"></span>
