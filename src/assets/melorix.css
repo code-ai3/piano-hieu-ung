@@ -336,3 +336,13 @@ html, body, #app { width:100%; height:100%; min-height:0; overflow:hidden; overs
 .mx-track-form-actions button{font-size:10px;padding:5px 8px}
 .mx-track-form-actions button[type=submit]{background:#734a30;color:#fff1dc;border-color:#aa7045}
 .mx-track-ui-preview p,.mx-track-instrument-preview p{color:#aebdcc;font-size:10px;margin-top:6px}
+
+/* Personal WAV bank: easy touch-friendly import on tablets, no extra dock row. */
+.mx-track-add-form input[type=file] {
+ display:block;max-width:100%;font-size:10px;color:#d6dfed;
+}
+.mx-track-add-form input[type=file]::file-selector-button {
+ border:1px solid #586779;background:#2e3b48;color:#e5edf5;
+ border-radius:4px;margin-right:7px;padding:6px;cursor:pointer;
+}
+.mx-instrument-import-error {color:#ffc1a8!important;background:#522d2a;padding:5px 7px;border-radius:4px}
