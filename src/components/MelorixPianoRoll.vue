@@ -10,8 +10,8 @@ import { isPitchInScale, isScaleRoot, snapPitchToScale, correctMidiNotesToScale 
 import type { ScaleMode } from '@/util/piano-roll-scale'
 import { CHORD_INTERVALS, CHORD_LABELS, chordName, chordNoteName, chordPitches, createChordNotes } from '@/util/piano-roll-chords'
 import type { ChordQuality } from '@/util/piano-roll-chords'
-const props=defineProps<{part:MidiPart; notes:MidiNoteEvent[]; duration:number; bpm:number; disabled:boolean; currentTime:number; playing:boolean; trackInstrument:'piano'|'erhu'; sampleReady:boolean; sampleLoading:boolean; sampleMessage:string}>()
-const emit=defineEmits<{(e:'change',notes:MidiNoteEvent[]):void;(e:'close'):void;(e:'seek',time:number):void;(e:'audition-start',midi:number):void;(e:'audition-stop'):void;(e:'chord-audition',pitches:number[]):void;(e:'sample-files',files:File[]):void;(e:'instrument-change',value:'piano'|'erhu'):void}>()
+const props=defineProps<{part:MidiPart; notes:MidiNoteEvent[]; duration:number; bpm:number; disabled:boolean; currentTime:number; playing:boolean}>()
+const emit=defineEmits<{(e:'change',notes:MidiNoteEvent[]):void;(e:'close'):void;(e:'seek',time:number):void;(e:'audition-start',midi:number):void;(e:'audition-stop'):void;(e:'chord-audition',pitches:number[]):void}>()
 const ROW=19, KEY_W=54, HIGH=108, LOW=21
 const scroll=ref<HTMLElement|null>(null)
 const gridScrollLeft=ref(0)
@@ -28,7 +28,7 @@ const snapDivision=ref(16)
 const quantDivision=ref(16)
 const quantStrength=ref(100)
 const quantSwing=ref(0)
-const advancedPanel=ref<'none'|'quantize'|'velocity'|'scale'|'chord'|'instrument'>('none')
+const advancedPanel=ref<'none'|'quantize'|'velocity'|'scale'|'chord'>('none')
 const chordRoot=ref(0)
 const chordQuality=ref<ChordQuality>('major')
 const chordOctave=ref(4)
@@ -155,16 +155,6 @@ function stopMarquee(e:PointerEvent){
  window.removeEventListener('pointermove',moveMarquee)
  window.removeEventListener('pointerup',stopMarquee)
 }
-function onSampleFilesChosen(e:Event){
- const input=e.target as HTMLInputElement
- const files=Array.from(input.files??[])
- if(files.length)emit('sample-files',files)
- input.value=''
-}
-function onInstrumentChosen(e:Event){
- const value=(e.target as HTMLSelectElement).value
- emit('instrument-change',value==='erhu'?'erhu':'piano')
-}
 function copySelection(){
  if(!selectionCount.value)return
  clipboard.value=copyMidiNotes(draft.value,selectedIndices.value)
@@ -188,7 +178,7 @@ function applyQuantize(){
  })
  commit(before)
 }
-function togglePanel(panel:'quantize'|'velocity'|'scale'|'chord'|'instrument'){
+function togglePanel(panel:'quantize'|'velocity'|'scale'|'chord'){
  advancedPanel.value=advancedPanel.value===panel?'none':panel
  if(advancedPanel.value!=='velocity')velocityDrawing.value=false
 }
@@ -465,7 +455,6 @@ onUnmounted(()=>{stopDrag();painting=null;window.removeEventListener('pointermov
       <button type="button" :class="{ 'mx-roll-panel-active': advancedPanel==='velocity' }" :aria-expanded="advancedPanel==='velocity'" title="Bật/tắt công cụ Velocity nâng cao" @click="togglePanel('velocity')"><i class="fas fa-sliders-h"></i> Velocity <i class="fas fa-angle-down"></i></button>
       <button type="button" :class="{ 'mx-roll-panel-active': advancedPanel==='scale' }" :aria-expanded="advancedPanel==='scale'" title="Scale Assistant — Trợ lý âm giai" @click="togglePanel('scale')"><i class="fas fa-music"></i> Scale <i class="fas fa-angle-down"></i></button>
       <button type="button" :class="{ 'mx-roll-panel-active': advancedPanel==='chord' }" :aria-expanded="advancedPanel==='chord'" title="Chord Editor — Soạn hợp âm" @click="togglePanel('chord')"><i class="fas fa-layer-group"></i> Hợp âm <i class="fas fa-angle-down"></i></button>
-      <button type="button" :class="{ 'mx-roll-panel-active': advancedPanel==='instrument' }" :aria-expanded="advancedPanel==='instrument'" title="Chọn tiếng nhạc cụ cho track hiện tại" @click="togglePanel('instrument')"><i class="fas fa-guitar"></i> Nhạc cụ <i class="fas fa-angle-down"></i></button>
       <span class="mx-roll-grow"></span>
       <button type="button" title="Hoàn tác · Ctrl+Z" aria-label="Hoàn tác" :disabled="disabled || !undoHistory.length" @click="undoEdit"><i class="fas fa-undo"></i></button>
       <button type="button" title="Làm lại · Ctrl+Y" aria-label="Làm lại" :disabled="disabled || !redoHistory.length" @click="redoEdit"><i class="fas fa-redo"></i></button>
@@ -543,19 +532,6 @@ onUnmounted(()=>{stopDrag();painting=null;window.removeEventListener('pointermov
       <button type="button" :disabled="disabled || !chordPitchPreview.length" title="Nghe hợp âm bằng tiếng Piano có sẵn" @click="previewChord"><i class="fas fa-volume-up"></i> Nghe</button>
       <button type="button" class="mx-roll-quant-apply" :disabled="disabled || !chordPitchPreview.length" title="Chèn hợp âm tại Playhead vào track đang mở; Ctrl+Z để hoàn tác" @click="insertChord"><i class="fas fa-plus"></i> Chèn</button>
     </div>
-    <div v-if="advancedPanel==='instrument'" class="mx-roll-quantbar mx-roll-compact-panel mx-roll-instrument-tools" aria-label="Nhạc cụ của bạn — Erhu Hmoob Nplog">
-      <label>Track <select :value="trackInstrument" :disabled="disabled" aria-label="Âm thanh phát cho track" @change="onInstrumentChosen">
-        <option value="piano">Piano</option>
-        <option value="erhu">Erhu Hmoob Nplog</option>
-      </select></label>
-      <label class="mx-roll-load-samples" title="Chọn đủ A.wav đến G.wav từ thư mục Erhu Hmoob Nplog Samples">
-        <i class="fas fa-folder-open"></i> Nạp 7 WAV
-        <input type="file" class="mx-roll-file-input" multiple accept=".wav,audio/wav" :disabled="disabled || sampleLoading" @change="onSampleFilesChosen">
-      </label>
-      <span class="mx-roll-sample-status" :class="{ready:sampleReady}" role="status">{{ sampleLoading ? 'Đang đọc mẫu…' : sampleMessage }}</span>
-      <span class="mx-roll-grow"></span>
-      <span class="mx-roll-sample-hint" title="Chỉ nạp trong trình duyệt; tệp không được gửi lên máy chủ. Bản thử nghiệm: xuất MP4 vẫn dùng Piano.">WAV cục bộ · MP4 vẫn Piano</span>
-    </div>
     <div class="mx-roll-ruler" @click="seekOnRuler">
       <div :style="{ width: gridWidth + 'px', transform: 'translateX(-' + gridScrollLeft + 'px)' }">
         <span v-for="sec in ticks" :key="sec" :style="{ left: KEY_W + sec * pixelsPerSecond + 'px' }">{{ sec }}s</span>
@@ -603,6 +579,6 @@ onUnmounted(()=>{stopDrag();painting=null;window.removeEventListener('pointermov
           @pointerdown.prevent="velocityBarDown($event, i)"></span>
       </div>
     </div>
-    <div class="mx-roll-hint">Nhấp đúp thêm nốt · Kéo để sửa · Ctrl+Z hoàn tác · Nhịp / Velocity / Scale / Hợp âm / Nhạc cụ: mở công cụ nâng cao</div>
+    <div class="mx-roll-hint">Nhấp đúp thêm nốt · Kéo để sửa · Ctrl+Z hoàn tác · Nhịp / Velocity / Scale / Hợp âm: mở công cụ nâng cao</div>
   </section>
 </template>

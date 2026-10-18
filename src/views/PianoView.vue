@@ -14,7 +14,6 @@ import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
 import MelorixPianoRoll from '@/components/MelorixPianoRoll.vue'
 import { midiNoteName } from '@/util/midi-edit'
-import { ERHU_ROOTS, ERHU_SAMPLE_NAMES, erhuSampleFileName, validateErhuSampleNames, nearestErhuSample } from '@/util/erhu-hmoob-samples'
 import '@/assets/melorix-roll.css'
 import AppCheckbox from '@/components/AppCheckbox.vue'
 import { Output, Mp4OutputFormat, BufferTarget, StreamTarget, VideoSampleSource, VideoSample, AudioSampleSource, AudioSample } from 'mediabunny'
@@ -32,15 +31,6 @@ const speed = ref(1)
 const allNotes = ref<NoteEvent[]>([])
 const midiTempo = ref(120)
 const pianoRollTrackId = ref<number | null>(null)
-const trackInstruments=ref<Record<number,'piano'|'erhu'>>({})
-const sampleReady=ref(false)
-const sampleLoading=ref(false)
-const sampleMessage=ref('Chưa nạp mẫu A–G')
-const currentRollInstrument=computed(() => trackInstruments.value[pianoRollTrackId.value??-1]??'piano')
-const erhuBuffers=new Map<number,AudioBuffer>()
-const erhuScheduledSources=new Set<AudioBufferSourceNode>()
-const erhuKeySources=new Set<AudioBufferSourceNode>()
-const erhuChordSources=new Set<AudioBufferSourceNode>()
 const pianoRollHeight = ref(330)
 const pianoRollPart = computed(() => midiParts.value.find(part => part.id === pianoRollTrackId.value) || null)
 const pianoRollNotes = computed(() => allNotes.value.filter(note => note.trackId === pianoRollTrackId.value))
@@ -498,7 +488,6 @@ function updateNoteRange() {
 }
 function processMidi(midi: Midi) {
   pianoRollTrackId.value = null
-  trackInstruments.value={}
   midiTempo.value = midi.header.tempos[0]?.bpm || 120
   const parsed = extractMidiParts(midi)
   midiParts.value = parsed.parts
@@ -600,95 +589,6 @@ async function handleUpload(file: File) {
   }
 }
 
-// Hmong Erhu local WAV bank: files are decoded in memory and NEVER uploaded.
-// A.wav=A4 (440Hz), B.wav=B4, C.wav=C5, D.wav=D5, E.wav=E5, F.wav=F5, G.wav=G4.
-function stopErhuSources(sources:Set<AudioBufferSourceNode>){
- for(const source of sources){try{source.stop()}catch{};try{source.disconnect()}catch{}}
- sources.clear()
-}
-function playErhuVoice(ctx:AudioContext,midi:number,velocity:number,when:number,length:number|null,kind:'song'|'key'|'chord'){
- const sample=nearestErhuSample(midi)
- const buffer=erhuBuffers.get(sample.rootMidi)
- if(!buffer)return
- const source=ctx.createBufferSource()
- source.buffer=buffer
- source.playbackRate.setValueAtTime(sample.playbackRate,when)
- const volume=ctx.createGain()
- const level=Math.min(1,Math.max(.001,velocity/127))*.82
- volume.gain.setValueAtTime(.0001,when)
- volume.gain.linearRampToValueAtTime(level,when+.015)
- source.connect(volume);volume.connect(ctx.destination)
- const bucket=kind==='song'?erhuScheduledSources:kind==='key'?erhuKeySources:erhuChordSources
- bucket.add(source)
- source.onended=()=>{bucket.delete(source);source.disconnect();volume.disconnect()}
- source.start(when)
- if(length!==null){
-  const end=when+Math.max(.05,length)
-  volume.gain.setValueAtTime(level,end)
-  volume.gain.linearRampToValueAtTime(.0001,end+.10)
-  source.stop(end+.12)
- }
-}
-async function loadErhuSampleFiles(files:File[]){
- if(sampleLoading.value||exporting.value)return
- const validation=validateErhuSampleNames(files.map(f=>f.name))
- if(!validation.ok){
-  const problems=[
-   validation.missing.length?'Thiếu: '+validation.missing.join(', '):'',
-   validation.duplicates.length?'Trùng tệp':'',
-   validation.unknown.length?'Tệp không hợp lệ':''
-  ].filter(Boolean)
-  sampleMessage.value=problems.join(' · ')
-  return
- }
- if(files.some(f=>f.size===0||f.size>25*1024*1024)){
-  sampleMessage.value='WAV rỗng hoặc lớn hơn 25 MB/tệp';return
- }
- sampleLoading.value=true
- sampleMessage.value='Đang giải mã 7 mẫu...'
- try {
-  await initPiano()
-  const ctx=audioCtx.value
-  if(!ctx)throw Error('AudioContext unavailable')
-  const staged=new Map<number,AudioBuffer>()
-  for(const file of files){
-   const key=erhuSampleFileName(file.name)!
-   if(!/\.wav$/i.test(file.name))throw Error('Invalid file extension')
-   const buff=await ctx.decodeAudioData(await file.arrayBuffer())
-   if(!buff.duration||!Number.isFinite(buff.duration))throw Error('WAV không đọc được: '+file.name)
-   staged.set(ERHU_ROOTS[key],buff)
-  }
-  if(staged.size!==ERHU_SAMPLE_NAMES.length)throw Error('Chưa đủ 7 mẫu WAV')
-  stopErhuSources(erhuScheduledSources)
-  stopErhuSources(erhuKeySources)
-  stopErhuSources(erhuChordSources)
-  erhuBuffers.clear()
-  for(const [k,v] of staged)erhuBuffers.set(k,v)
-  sampleReady.value=true
-  sampleMessage.value='Đã nạp 7 mẫu Erhu ✓'
-  const wasPlaying=playState.value==='playing'
-  if(wasPlaying)pause()
-  const id=pianoRollTrackId.value
-  if(id!==null)trackInstruments.value={...trackInstruments.value,[id]:'erhu'}
-  if(wasPlaying)void play()
- }catch(error){
-  console.error('Erhu sample load failed:',error)
-  sampleMessage.value='Lỗi đọc WAV — thử chọn lại 7 tệp'
- }finally{sampleLoading.value=false}
-}
-function setRollInstrument(choice:'piano'|'erhu'){
- const id=pianoRollTrackId.value
- if(id===null||exporting.value)return
- const wasPlaying=playState.value==='playing'
- if(wasPlaying)pause()
- stopPianoAudition();stopChordAudition()
- trackInstruments.value={...trackInstruments.value,[id]:choice}
- if(wasPlaying)void play()
-}
-function useErhuForCurrentRoll(){
- return sampleReady.value&&currentRollInstrument.value==='erhu'
-}
-
 // ---- 音频调度器（smplr） ----
 let lastScheduledIdx = 0
 const audioCtx = ref<AudioContext | null>(null)
@@ -702,11 +602,7 @@ function scheduleAll() {
     if (n.time < targetTime - 0.02) { lastScheduledIdx = i + 1; continue }
     const delay = (n.time - targetTime) * speed.value
     const t = ctx.currentTime + Math.max(0.003, delay)
-    if(sampleReady.value&&trackInstruments.value[n.trackId]==='erhu'){
-      playErhuVoice(ctx,n.midi,n.velocity*127,t,n.duration*speed.value,'song')
-    }else{
-      piano.start({ note: n.name, velocity: n.velocity * 127, time: t })
-    }
+    piano.start({ note: n.name, velocity: n.velocity * 127, time: t })
   }
 }
 
@@ -727,13 +623,12 @@ async function play() {
 function resetPiano() {
   stopPianoAudition()
   stopChordAudition()
-  stopErhuSources(erhuScheduledSources)
   piano?.stop(); piano = null
   audioCtx.value?.close(); audioCtx.value = null
   pianoLoaded.value = false; initPianoPromise = null
 }
 
-function pause() { stopChordAudition(); stopPianoAudition(); stopErhuSources(erhuScheduledSources); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
+function pause() { stopChordAudition(); stopPianoAudition(); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
 function stop() {
   playState.value = 'idle'; currentTime.value = 0
   lastScheduledIdx = 0; pianoLoading = false
@@ -745,7 +640,6 @@ const AUDITION_STOP_ID = 'melorix-editor-key'
 let auditionRequest = 0
 function stopPianoAudition() {
  auditionRequest++
- stopErhuSources(erhuKeySources)
  piano?.stop(AUDITION_STOP_ID)
 }
 async function startPianoAudition(midi: number) {
@@ -761,9 +655,7 @@ async function startPianoAudition(midi: number) {
   await audioCtx.value?.resume()
   await piano?.load
   if(request !== auditionRequest || exporting.value || !piano) return
-  if(useErhuForCurrentRoll()&&audioCtx.value){
-   playErhuVoice(audioCtx.value,midi,95,audioCtx.value.currentTime+.002,null,'key')
-  }else piano.start({ note: midiNoteName(midi), velocity: 95, stopId: AUDITION_STOP_ID })
+  piano.start({ note: midiNoteName(midi), velocity: 95, stopId: AUDITION_STOP_ID })
  } catch(error) { console.error('Piano audition failed:',error) }
 }
 
@@ -773,7 +665,6 @@ let chordRequest=0
 let chordStopTimer:ReturnType<typeof setTimeout>|null=null
 function stopChordAudition(){
  chordRequest++
- stopErhuSources(erhuChordSources)
  if(chordStopTimer!==null){clearTimeout(chordStopTimer);chordStopTimer=null}
  piano?.stop(CHORD_STOP_ID)
 }
@@ -791,8 +682,7 @@ async function startChordAudition(pitches:number[]){
   await piano?.load
   if(request!==chordRequest||exporting.value||!piano)return
   for(const pitch of pitches){
-   if(useErhuForCurrentRoll()&&audioCtx.value)playErhuVoice(audioCtx.value,pitch,95,audioCtx.value.currentTime+.002,null,'chord')
-   else piano.start({note:midiNoteName(pitch),velocity:95,stopId:CHORD_STOP_ID})
+   piano.start({note:midiNoteName(pitch),velocity:95,stopId:CHORD_STOP_ID})
   }
   chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
  }catch(error){console.error('Chord audition failed:',error)}
@@ -1294,7 +1184,7 @@ function loop() {
   if (playState.value === 'playing') {
     currentTime.value += (performance.now() - lastFrameTime) / 1000
     if (currentTime.value >= duration.value) {
-      if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; piano?.stop(); stopErhuSources(erhuScheduledSources); scheduleAll() }
+      if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; piano?.stop(); scheduleAll() }
       else { nextTrack() }
     }
   }
@@ -1817,10 +1707,7 @@ watch(() => currentTime.value, (t) => {
         <div v-if="!isFullscreen && pianoRollPart" class="mx-roll-divider" role="separator" aria-orientation="horizontal" title="Kéo lên/xuống để chỉnh chiều cao Piano Roll" @pointerdown="beginPianoRollResize"></div>
         <MelorixPianoRoll v-if="!isFullscreen && pianoRollPart" :key="pianoRollPart.id" :style="{ height: pianoRollHeight + 'px' }"
           :part="pianoRollPart" :notes="pianoRollNotes" :duration="duration" :bpm="midiTempo"
-          :disabled="exporting" :current-time="currentTime / speed" :playing="playState === 'playing'"
-          :track-instrument="currentRollInstrument" :sample-ready="sampleReady" :sample-loading="sampleLoading" :sample-message="sampleMessage"
-          @seek="seekFromPianoRoll" @change="updatePianoRollNotes" @audition-start="startPianoAudition" @audition-stop="stopPianoAudition"
-          @chord-audition="startChordAudition" @sample-files="loadErhuSampleFiles" @instrument-change="setRollInstrument" @close="pianoRollTrackId = null" />
+          :disabled="exporting" :current-time="currentTime / speed" :playing="playState === 'playing'" @seek="seekFromPianoRoll" @change="updatePianoRollNotes" @audition-start="startPianoAudition" @audition-stop="stopPianoAudition" @chord-audition="startChordAudition" @close="pianoRollTrackId = null" />
       </div> <!-- workspace stage -->
       <aside v-if="!isFullscreen && isInspectorOpen" class="mx-inspector" aria-label="Thuộc tính MELORIX">
         <div class="mx-inspector-top"><i class="fas fa-sliders-h"></i> Cài đặt <span style="margin-left:auto;font-weight:400;color:#929eae">Thuộc tính</span>
