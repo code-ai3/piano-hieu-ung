@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict'
+import {readFileSync} from 'node:fs'
+const piano=readFileSync(new URL('../src/views/PianoView.vue',import.meta.url),'utf8')
+const library=readFileSync(new URL('../src/components/MelorixPublishedLibrary.vue',import.meta.url),'utf8')
+const manifest=JSON.parse(readFileSync(new URL('../public/instruments/catalog.json',import.meta.url),'utf8'))
+const menu=piano.match(/<summary>Nhạc cụ<\/summary><div class="mx-menu-pop"[^>]*>([\s\S]*?)<\/div><\/details>/)?.[1]
+assert.ok(menu,'Instrument menu must exist')
+assert.equal((menu.match(/<button /g)||[]).length,2,'Instrument menu should only have Add Track and View Library')
+assert.match(menu,/Thêm track/)
+assert.match(menu,/Xem thư viện nhạc cụ/)
+assert.ok(!menu.includes('openMidiConnector'),'No MIDI connection button in ordinary instrument menu')
+assert.ok(!menu.includes('openKontaktRouter'),'No multi-route config in ordinary instrument menu')
+assert.match(piano,/void refreshPublishedInstruments\(\)/,'Read shared instruments on page load')
+assert.match(piano,/publishedInstruments\.value\.filter\(p=>p\.format==='nki'\)/,'Offer published NKI in track instrument dropdown')
+assert.match(piano,/assignedTrackPresets\.value=\{\.\.\.assignedTrackPresets\.value,\[p\.id\]:selected\}/,'Assign chosen library instrument to new track')
+assert.match(piano,/isPublishedTrackInstrument\(preset\)\)return/,'NKI must not pretend to use WebAudio WAV')
+assert.ok(!library.includes("@choose="))
+assert.ok(!library.includes("emit('choose'"))
+assert.ok(!library.includes('publishedInstrumentUrl'),'Library browser must be view only')
+assert.equal(manifest.instruments.filter(i=>i.format==='nki').length,32)
+console.log('PASS: library is view-only; Add Track selects 32 shared NKI; MIDI advanced tools are optional')
