@@ -1642,7 +1642,7 @@ watch(() => currentTime.value, (t) => {
           <button type="button" @click="openTrackComposer"><i class="fas fa-plus mr-2"></i> Thêm track nhạc cụ</button>
           <button type="button" @click="openPersonalInstrumentImport"><i class="fas fa-file-audio mr-2"></i> Thêm nhạc cụ của tôi (WAV)</button>
           <button type="button" @click="openKontaktImporter"><i class="fas fa-folder-open mr-2"></i> Nhập thư viện Kontakt (.nki + Samples)</button>
-          <button type="button" @click="openInstrumentTrackPanel"><i class="fas fa-layer-group mr-2"></i> Chọn tiếng cho từng track</button>
+          <button type="button" @click="openInstrumentTrackPanel()"><i class="fas fa-layer-group mr-2"></i> Chọn tiếng cho từng track</button>
           <div class="mx-menu-caption">{{ localSamples.length }} nhạc cụ cá nhân · WAV đơn hoặc Kontakt tương thích + Samples. Không chạy bộ máy Kontakt gốc.</div>
         </div></details>
         <details name="melorix-main-menu"><summary>Công cụ</summary><div class="mx-menu-pop">
