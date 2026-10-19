@@ -61,8 +61,8 @@ export const midiBridge={
   }else status='Đã ngắt kết nối MIDI ngoài.'
   publish()
  },
- setPlayback(enabled:boolean){playback=enabled&&output!==null;if(!playback)panic();publish()},
- setExternalOnly(enabled:boolean){externalOnly=enabled&&output!==null;publish()},
+ setPlayback(enabled:boolean){playback=enabled&&output!==null;if(!playback){externalOnly=false;panic()}publish()},
+ setExternalOnly(enabled:boolean){externalOnly=enabled&&output!==null;if(externalOnly)playback=true;publish()},
  test(note:number,channel:number){
   if(!output)return
   try{

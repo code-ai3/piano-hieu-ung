@@ -86,14 +86,14 @@ onUnmounted(()=>{unsubscribe?.()})
             <button class="mx-midi-button" type="button" :disabled="!connected" @click="test">Thử nốt</button>
           </div>
           <label class="mx-midi-bridge-checkbox">
-            <input type="checkbox" :checked="playback" :disabled="!connected" @change="setPlayback">
+            <input type="checkbox" :checked="playback" :disabled="!connected || playing" @change="setPlayback">
             Gửi MIDI qua cổng đã chọn khi phát bài (Play)
           </label>
           <label class="mx-midi-bridge-checkbox">
             <input type="checkbox" :checked="externalOnly" :disabled="!connected || playing" @change="setExternalOnly">
             Chỉ nghe Kontakt 8 khi dùng Piano Roll hoặc Play (tắt âm thanh nhạc cụ Web Audio trong MELORIX)
           </label>
-          <p>Để nghe đúng tiếng Erhu/Drum Mix, bật tùy chọn này <strong>trước khi nhấn Play</strong>. Nếu bài đang chạy, bấm Stop trước khi đổi chế độ. Track Piano Roll phải gửi trên đúng kênh MIDI mà Kontakt nhận; bản xuất MP4 chưa thu tiếng Kontakt.</p>
+          <p>Chế độ này tự bật gửi MIDI khi Play. Để nghe đúng tiếng Erhu/Drum Mix, bật tùy chọn này <strong>trước khi nhấn Play</strong>. Nếu bài đang chạy, bấm Stop trước khi đổi chế độ. Track Piano Roll phải gửi trên đúng kênh MIDI mà Kontakt nhận; bản xuất MP4 chưa thu tiếng Kontakt.</p>
           <p class="mx-midi-bridge-status" role="status" aria-live="polite">{{ status }}</p>
           <label class="mx-kontakt-confirm">
             <input type="checkbox" :checked="heardKontakt" :disabled="!connected" @change="confirmHeard">
