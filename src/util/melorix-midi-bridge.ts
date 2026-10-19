@@ -8,6 +8,7 @@ let output:MidiOutputPort|null=null
 let selectedId=''
 let status='Chưa kết nối MIDI ngoài.'
 let playback=false
+let externalOnly=false
 let held:{note:number;channel:number;port:MidiOutputPort}[]=[]
 const listeners=new Set<()=>void>()
 function publish(){for(const listener of listeners)listener()}
@@ -17,7 +18,7 @@ function panic(){
 }
 function refreshPorts(){
  if(output&&(!access?.outputs.has(selectedId)||output.state==='disconnected')){
-  panic();output=null;selectedId='';playback=false
+  panic();output=null;selectedId='';playback=false;externalOnly=false
   status='Cổng MIDI đã ngắt. Vui lòng chọn lại.'
  }
  publish()
@@ -31,6 +32,7 @@ export const midiBridge={
  get selectedId(){return selectedId},
  get status(){return status},
  get playbackEnabled(){return playback},
+ get externalOnly(){return externalOnly&&output!==null},
  subscribe(listener:()=>void){listeners.add(listener);return ()=>{listeners.delete(listener)}},
  async requestAccess(){
   if(!window.isSecureContext){status='Web MIDI cần HTTPS.';publish();return}
@@ -49,7 +51,7 @@ export const midiBridge={
   publish()
  },
  selectPort(id:string){
-  panic();output=null;selectedId='';playback=false
+  panic();output=null;selectedId='';playback=false;externalOnly=false
   if(id){
    const port=access?.outputs.get(id)
    if(port&&port.state!=='disconnected'){
@@ -60,6 +62,7 @@ export const midiBridge={
   publish()
  },
  setPlayback(enabled:boolean){playback=enabled&&output!==null;if(!playback)panic();publish()},
+ setExternalOnly(enabled:boolean){externalOnly=enabled&&output!==null;publish()},
  test(note:number,channel:number){
   if(!output)return
   try{
@@ -94,5 +97,5 @@ export const midiBridge={
  },
  stopAll(){panic()},
  disconnect(){midiBridge.selectPort('')},
- cleanup(){panic();if(access)access.onstatechange=null;access=null;output=null;playback=false;selectedId='';listeners.clear()}
+ cleanup(){panic();if(access)access.onstatechange=null;access=null;output=null;playback=false;externalOnly=false;selectedId='';listeners.clear()}
 }

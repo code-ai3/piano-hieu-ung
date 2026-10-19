@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { midiBridge } from '@/util/melorix-midi-bridge'
 import { midiNoteName } from '@/util/midi-edit'
 const emit=defineEmits<{(e:'close'):void}>()
+defineProps<{playing:boolean}>()
 const supported=midiBridge.supported
 const busy=ref(false)
 const options=ref(midiBridge.outputs)
@@ -11,6 +12,7 @@ const granted=ref(midiBridge.granted)
 const connected=ref(midiBridge.connected)
 const status=ref(midiBridge.status)
 const playback=ref(midiBridge.playbackEnabled)
+const externalOnly=ref(midiBridge.externalOnly)
 const testNote=ref(60)
 const testChannel=ref(1)
 const heardKontakt=ref(false)
@@ -26,11 +28,13 @@ function refresh(){
  connected.value=midiBridge.connected
  status.value=midiBridge.status
  playback.value=midiBridge.playbackEnabled
+ externalOnly.value=midiBridge.externalOnly
 }
 async function grant(){busy.value=true;try{await midiBridge.requestAccess()}finally{busy.value=false;refresh()}}
 function choosePort(e:Event){heardKontakt.value=false;midiBridge.selectPort((e.target as HTMLSelectElement).value)}
 function test(){heardKontakt.value=false;midiBridge.test(testNote.value,testChannel.value-1)}
 function setPlayback(e:Event){midiBridge.setPlayback((e.target as HTMLInputElement).checked)}
+function setExternalOnly(e:Event){midiBridge.setExternalOnly((e.target as HTMLInputElement).checked)}
 function disconnect(){heardKontakt.value=false;midiBridge.disconnect()}
 onMounted(()=>{unsubscribe=midiBridge.subscribe(refresh);refresh()})
 onUnmounted(()=>{unsubscribe?.()})
@@ -85,7 +89,11 @@ onUnmounted(()=>{unsubscribe?.()})
             <input type="checkbox" :checked="playback" :disabled="!connected" @change="setPlayback">
             Gửi MIDI qua cổng đã chọn khi phát bài (Play)
           </label>
-          <p>Trong Giai đoạn 2, thử <strong>một nhạc cụ trước</strong>. Sau khi Kontakt nhận tín hiệu, bạn có thể mở Piano Roll và gửi MIDI từ track có đúng kênh. Stop/Pause sẽ tắt nốt đang phát; âm thanh Piano nội bộ MELORIX vẫn còn bật.</p>
+          <label class="mx-midi-bridge-checkbox">
+            <input type="checkbox" :checked="externalOnly" :disabled="!connected || playing" @change="setExternalOnly">
+            Chỉ nghe Kontakt 8 khi dùng Piano Roll hoặc Play (tắt âm thanh nhạc cụ Web Audio trong MELORIX)
+          </label>
+          <p>Để nghe đúng tiếng Erhu/Drum Mix, bật tùy chọn này <strong>trước khi nhấn Play</strong>. Nếu bài đang chạy, bấm Stop trước khi đổi chế độ. Track Piano Roll phải gửi trên đúng kênh MIDI mà Kontakt nhận; bản xuất MP4 chưa thu tiếng Kontakt.</p>
           <p class="mx-midi-bridge-status" role="status" aria-live="polite">{{ status }}</p>
           <label class="mx-kontakt-confirm">
             <input type="checkbox" :checked="heardKontakt" :disabled="!connected" @change="confirmHeard">

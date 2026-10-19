@@ -870,7 +870,8 @@ function routedNote(ctx:AudioContext,midi:number,velocity:number,when:number,dur
 
 function scheduleAll() {
   const ctx = audioCtx.value
-  if (!piano || !ctx) return
+  const onlyKontakt = midiBridge.externalOnly
+  if (!onlyKontakt && (!piano || !ctx)) return
   // Anchor every scheduled message to the same high-resolution clock value.
   const midiClockMs = performance.now()
   const targetTime = currentTime.value / speed.value
@@ -878,10 +879,12 @@ function scheduleAll() {
     const n = notes.value[i]
     if (n.time < targetTime - 0.02) { lastScheduledIdx = i + 1; continue }
     const delay = (n.time - targetTime) * speed.value
-    const t = ctx.currentTime + Math.max(0.003, delay)
     const preset=trackPreset(n.trackId)
-    if(preset==='piano')piano.start({note:n.name,velocity:n.velocity*127,time:t})
-    else routedNote(ctx,n.midi,n.velocity*127,t,n.duration*speed.value,preset,synthScheduledVoices)
+    if (!onlyKontakt && ctx && piano) {
+      const t = ctx.currentTime + Math.max(0.003, delay)
+      if(preset==='piano')piano.start({note:n.name,velocity:n.velocity*127,time:t})
+      else routedNote(ctx,n.midi,n.velocity*127,t,n.duration*speed.value,preset,synthScheduledVoices)
+    }
     const part=midiParts.value.find(p=>p.id===n.trackId)
     if(part?.enabled&&!exporting.value)midiBridge.schedule(n.midi,n.velocity*127,
       trackMidiChannel(part.channel),Math.max(0,delay),Math.max(.05,n.duration*speed.value),midiClockMs)
@@ -894,8 +897,10 @@ async function play() {
   if (playState.value === 'playing') return
   pianoLoading = true
   try {
-    await initPiano()
-    await audioCtx.value?.resume()
+    if(!midiBridge.externalOnly){
+      await initPiano()
+      await audioCtx.value?.resume()
+    }
     lastScheduledIdx = 0; lastFrameTime = performance.now()
     scheduleAll()
     playState.value = 'playing'
@@ -933,6 +938,7 @@ async function startPianoAudition(midi: number) {
  stopChordAudition()
  stopPianoAudition()
  midiBridge.auditionStart([midi],trackMidiChannel(midiParts.value.find(p=>p.id===pianoRollTrackId.value)?.channel??1))
+ if(midiBridge.externalOnly)return
  const request = auditionRequest
  try {
   const loading = initPiano()
@@ -966,6 +972,7 @@ async function startChordAudition(pitches:number[]){
  const request=chordRequest
  midiBridge.auditionStart(pitches,trackMidiChannel(midiParts.value.find(p=>p.id===pianoRollTrackId.value)?.channel??1))
  chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
+ if(midiBridge.externalOnly)return
  try {
   const loading=initPiano()
   const earlyResume=audioCtx.value?.resume()
@@ -2077,7 +2084,7 @@ watch(() => currentTime.value, (t) => {
       </aside>
     </div> <!-- workspace -->
 
-    <MelorixMidiConnector v-if="showMidiConnector" @close="showMidiConnector = false" />
+    <MelorixMidiConnector v-if="showMidiConnector" :playing="playState === 'playing'" @close="showMidiConnector = false" />
     <!-- Central instrument control panel: no forms inside the narrow sidebar -->
     <Teleport to="body">
       <div v-if="isControlPanelOpen" class="mx-editor-overlay" @click.self="closeControlPanel">
