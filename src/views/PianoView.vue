@@ -788,6 +788,7 @@ function updateNoteRange() {
   noteRange.value = { min: Math.max(21, min - 12), max: Math.min(108, max + 12) }
 }
 function processMidi(midi: Midi) {
+  playRequest++
   // A soundtrack belongs to the current MIDI timeline; never reuse on a new song.
   if(kontaktAudioBuffer.value){
     setKontaktAudio(null,'')
@@ -852,6 +853,7 @@ function beginPianoRollResize(e: PointerEvent) {
   window.addEventListener('pointerup',stop)
 }
 function resetAfterTrackChange() {
+  playRequest++
   // Stop pending MIDI as well as Web Audio when switching track mixes.
   midiBridge.stopAll()
   stopSynthVoices(synthScheduledVoices)
@@ -987,19 +989,23 @@ function scheduleAll() {
 }
 
 // ---- 播放控制 ----
+let playRequest=0
 async function play() {
   if (!notes.value.length || pianoLoading) return
   if (playState.value === 'playing') return
   pianoLoading = true
+  const request=++playRequest
   try {
     if(!midiBridge.externalOnly){
       await initPiano()
       await audioCtx.value?.resume()
     }
+    if(request!==playRequest)return
     lastScheduledIdx = 0; lastFrameTime = performance.now()
     scheduleAll()
     playState.value = 'playing'
   } catch(error){
+    if(request!==playRequest)return
     console.error('MELORIX playback failed:',error)
     midiBridge.stopAll()
     playState.value='idle'
@@ -1017,11 +1023,12 @@ function resetPiano() {
   pianoLoaded.value = false; initPianoPromise = null
 }
 
-function pause() { midiBridge.stopAll(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
+function pause() { playRequest++; midiBridge.stopAll(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
 function stop() {
+  playRequest++
   playState.value = 'idle'; currentTime.value = 0
   lastScheduledIdx = 0; pianoLoading = false
-  resetPiano(); if(!midiBridge.externalOnly)void initPiano()
+  resetPiano(); if(!midiBridge.externalOnly)void initPiano().catch(e=>console.warn('Piano preload:',e))
 }
 function togglePlay() { playState.value === 'playing' ? pause() : play() }
 
