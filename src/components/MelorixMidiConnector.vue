@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { midiBridge } from '@/util/melorix-midi-bridge'
+import { midiNoteName } from '@/util/midi-edit'
 const emit=defineEmits<{(e:'close'):void}>()
 const supported=midiBridge.supported
 const busy=ref(false)
@@ -55,7 +56,7 @@ onUnmounted(()=>{unsubscribe?.()})
           <div class="mx-midi-bridge-test">
             <label>Nốt thử
               <select v-model.number="testNote" :disabled="!connected">
-                <option v-for="n in 49" :key="n" :value="n+35">{{ n+35 }}</option>
+                <option v-for="n in 49" :key="n" :value="n+35">{{ midiNoteName(n+35) }} ({{ n+35 }})</option>
               </select>
             </label>
             <label>Kênh MIDI
