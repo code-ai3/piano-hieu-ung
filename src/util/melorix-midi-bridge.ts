@@ -37,6 +37,7 @@ export const midiBridge={
   const browser=navigator as unknown as {requestMIDIAccess?:(o:{sysex:boolean})=>Promise<MidiAccessPort>}
   if(!browser.requestMIDIAccess){status='Web MIDI không hỗ trợ trong trình duyệt này. Hãy dùng Chrome/Edge Windows.';publish();return}
   try{
+   if(access)access.onstatechange=null
    access=await browser.requestMIDIAccess({sysex:false})
    access.onstatechange=refreshPorts
    status=midiBridge.outputs.length?'Đã cấp quyền MIDI. Hãy chọn cổng đầu ra.'
@@ -81,10 +82,10 @@ export const midiBridge={
   const notes=held;held=[]
   for(const item of notes)try{item.port.send(midiNoteOff(item.note,item.channel))}catch{}
  },
- schedule(note:number,velocity:number,channel:number,delaySeconds:number,durationSeconds:number){
+ schedule(note:number,velocity:number,channel:number,delaySeconds:number,durationSeconds:number,clockMs=performance.now()){
   if(!output||!playback)return
   try{
-   sendMidiNote(output,note,velocity,channel,performance.now()+Math.max(0,delaySeconds)*1000,
+   sendMidiNote(output,note,velocity,channel,clockMs+Math.max(0,delaySeconds)*1000,
     Math.max(.04,durationSeconds)*1000)
   }catch(error){
    console.warn('MIDI playback:',error)

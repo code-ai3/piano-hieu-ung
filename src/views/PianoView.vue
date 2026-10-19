@@ -715,6 +715,9 @@ function updateNoteRange() {
   noteRange.value = { min: Math.max(21, min - 12), max: Math.min(108, max + 12) }
 }
 function processMidi(midi: Midi) {
+  // Importing a different song must cancel MIDI messages already queued on the port.
+  if(playState.value==='playing')pause()
+  midiBridge.stopAll()
   pianoRollTrackId.value = null
   assignedTrackPresets.value={}
   instrumentPreviewTrackId.value=null
@@ -740,6 +743,7 @@ function updatePianoRollNotes(edited: NoteEvent[]) {
   if (id === null || exporting.value) return
   // Never modify notes on any other track. All playback and export reads allNotes.
   if (playState.value === 'playing') pause()
+  midiBridge.stopAll()
   piano?.stop()
   allNotes.value = [
     ...allNotes.value.filter(note => note.trackId !== id),
@@ -867,6 +871,8 @@ function routedNote(ctx:AudioContext,midi:number,velocity:number,when:number,dur
 function scheduleAll() {
   const ctx = audioCtx.value
   if (!piano || !ctx) return
+  // Anchor every scheduled message to the same high-resolution clock value.
+  const midiClockMs = performance.now()
   const targetTime = currentTime.value / speed.value
   for (let i = lastScheduledIdx; i < notes.value.length; i++) {
     const n = notes.value[i]
@@ -878,7 +884,7 @@ function scheduleAll() {
     else routedNote(ctx,n.midi,n.velocity*127,t,n.duration*speed.value,preset,synthScheduledVoices)
     const part=midiParts.value.find(p=>p.id===n.trackId)
     if(part?.enabled&&!exporting.value)midiBridge.schedule(n.midi,n.velocity*127,
-      trackMidiChannel(part.channel),Math.max(0,delay),Math.max(.05,n.duration*speed.value))
+      trackMidiChannel(part.channel),Math.max(0,delay),Math.max(.05,n.duration*speed.value),midiClockMs)
   }
 }
 
@@ -1576,6 +1582,7 @@ function seekFromTimeline(event: MouseEvent) {
   const rect = element.getBoundingClientRect()
   if (rect.width <= 0) return
   if (playState.value === 'playing') pause()
+  midiBridge.stopAll()
   currentTime.value = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)) * duration.value * speed.value
   lastScheduledIdx = 0
   keyState.value = {}
