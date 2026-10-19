@@ -302,6 +302,7 @@ function assignTrackPreset(id:number,selection:TrackInstrument){
  if(playState.value==='playing')pause()
  else {stopSynthVoices(synthScheduledVoices);stopPianoAudition();stopChordAudition();piano?.stop()}
  assignedTrackPresets.value={...assignedTrackPresets.value,[id]:selection}
+ if(isPublishedTrackInstrument(selection)&&midiBridge.connected&&!midiBridge.playbackEnabled)midiBridge.setPlayback(true)
  part.instrument=instrumentLabel(selection)
  lastScheduledIdx=0
  playState.value='idle'
@@ -319,7 +320,8 @@ function createInstrumentTrack(){
  const freeKontaktChannel=nextKontaktChannel(midiParts.value,kontaktTrackChannels.value)
  midiParts.value.push(p)
  kontaktTrackChannels.value={...kontaktTrackChannels.value,[p.id]:freeKontaktChannel}
- assignedTrackPresets.value={...assignedTrackPresets.value,[p.id]:newTrackPreset.value}
+ assignedTrackPresets.value={...assignedTrackPresets.value,[p.id]:selected}
+ if(isPublishedTrackInstrument(selected)&&midiBridge.connected&&!midiBridge.playbackEnabled)midiBridge.setPlayback(true)
  newTrackName.value=''
  trackComposerPreviewOpen.value=false
  instrumentPreviewTrackId.value=null
