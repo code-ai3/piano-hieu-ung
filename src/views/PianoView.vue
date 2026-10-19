@@ -24,7 +24,7 @@ import { inspectKontaktNki, inferKontaktWavRoot, kontaktImportCheck, closestKont
 import type { KontaktNkiInspection } from '@/util/melorix-kontakt-import'
 import { midiBridge } from '@/util/melorix-midi-bridge'
 import { trackMidiChannel } from '@/util/melorix-web-midi'
-import { kontaktChannel, nextKontaktChannel, validKontaktChannel } from '@/util/melorix-kontakt-routing'
+import { kontaktChannel, nextKontaktChannel, validKontaktChannel, autoKontaktChannels } from '@/util/melorix-kontakt-routing'
 import '@/assets/melorix-roll.css'
 import AppCheckbox from '@/components/AppCheckbox.vue'
 import { Output, Mp4OutputFormat, BufferTarget, StreamTarget, VideoSampleSource, VideoSample, AudioSampleSource, AudioSample } from 'mediabunny'
@@ -133,6 +133,11 @@ function setKontaktTrackChannel(id:number,channel:number){
  if(!midiParts.value.some(part=>part.id===id))return
  midiBridge.stopAll()
  kontaktTrackChannels.value={...kontaktTrackChannels.value,[id]:channel}
+}
+function autoAssignKontaktTracks(){
+ if(exporting.value||playState.value==='playing')return
+ midiBridge.stopAll()
+ kontaktTrackChannels.value=autoKontaktChannels(midiParts.value)
 }
 function setKontaktTrackName(id:number,name:string){
  if(exporting.value||playState.value==='playing'||!midiParts.value.some(part=>part.id===id))return
@@ -2124,7 +2129,7 @@ watch(() => currentTime.value, (t) => {
     <MelorixMidiConnector v-if="showMidiConnector" :playing="playState === 'playing'" @close="showMidiConnector = false" />
     <MelorixKontaktTrackRouter v-if="showKontaktRouter" :parts="midiParts" :routes="kontaktTrackChannels"
      :labels="kontaktTrackNames" :playing="playState === 'playing'"
-     @close="showKontaktRouter=false" @channel="setKontaktTrackChannel" @label="setKontaktTrackName" />
+     @close="showKontaktRouter=false" @auto="autoAssignKontaktTracks" @channel="setKontaktTrackChannel" @label="setKontaktTrackName" />
     <!-- Central instrument control panel: no forms inside the narrow sidebar -->
     <Teleport to="body">
       <div v-if="isControlPanelOpen" class="mx-editor-overlay" @click.self="closeControlPanel">
