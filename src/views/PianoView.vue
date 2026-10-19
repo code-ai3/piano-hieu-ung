@@ -1743,7 +1743,6 @@ watch(() => currentTime.value, (t) => {
           <button type="button" @click="openTrackComposer"><i class="fas fa-plus mr-2"></i> Thêm track nhạc cụ</button>
           <button type="button" @click="openPersonalInstrumentImport"><i class="fas fa-file-audio mr-2"></i> Thêm nhạc cụ của tôi (WAV)</button>
           <button type="button" @click="openKontaktImporter"><i class="fas fa-folder-open mr-2"></i> Nhập thư viện Kontakt (.nki + Samples)</button>
-          <button type="button" @click="openMidiConnectionPanel"><i class="fas fa-plug mr-2"></i> Kết nối MIDI ngoài (Kontakt 8) {{ midiConnected ? '✓' : '' }}</button>
           <button type="button" @click="openInstrumentTrackPanel()"><i class="fas fa-layer-group mr-2"></i> Chọn tiếng cho từng track</button>
           <div class="mx-menu-caption">{{ localSamples.length }} nhạc cụ cá nhân · WAV đơn hoặc Kontakt tương thích + Samples. Không chạy bộ máy Kontakt gốc.</div>
         </div></details>
@@ -2159,46 +2158,6 @@ watch(() => currentTime.value, (t) => {
               :disabled="kontaktBusy || sampleImportBusy" @click="closeControlPanel"><i class="fas fa-times"></i></button>
           </header>
           <div class="mx-editor-dialog-body">
-            <div v-if="activeEditorPanel==='midi'" class="mx-track-ui-preview mx-midi-connection-panel" aria-label="Kết nối MIDI đầu ra">
-              <p><strong>Bước 1:</strong> MELORIX gửi nốt MIDI từ trình duyệt đến cổng Windows do bạn chọn. Kontakt 8 chưa được kết nối tự động ở bước này.</p>
-              <p v-if="!midiBrowserSupported" class="mx-instrument-import-error" role="status">Web MIDI cần Chrome/Edge trên Windows. Safari iPad không hỗ trợ tính năng này.</p>
-              <div class="mx-track-form-actions">
-                <button type="button" :disabled="midiPermissionBusy || !midiBrowserSupported" @click="requestWebMidiAccess">
-                  <i class="fas fa-link"></i> {{ midiPermissionBusy ? 'Đang yêu cầu quyền…' : 'Cấp quyền / Làm mới cổng MIDI' }}
-                </button>
-              </div>
-              <label>Cổng MIDI đầu ra trên Windows
-                <select :value="midiSelectedId" :disabled="!midiAccessHandle || !midiPortOptions.length" aria-label="Chọn MIDI Output" @change="onMidiOutputChange">
-                  <option value="">— Chọn cổng MIDI —</option>
-                  <option v-for="port in midiPortOptions" :key="port.id" :value="port.id">{{ port.label }}</option>
-                </select>
-              </label>
-              <p v-if="midiAccessHandle && !midiPortOptions.length">Chưa có cổng MIDI đầu ra. Giai đoạn 2 sẽ thiết lập cổng ảo trên Windows để Kontakt 8 nhận dữ liệu.</p>
-              <div class="mx-midi-test-row">
-                <label>Nốt kiểm tra
-                  <select v-model.number="midiTestNote" aria-label="Nốt MIDI kiểm tra" :disabled="!midiConnected">
-                    <option v-for="midi in 49" :key="midi" :value="midi+35">{{ midiNoteName(midi+35) }}</option>
-                  </select>
-                </label>
-                <label>Kênh MIDI
-                  <select v-model.number="midiTestChannel" :disabled="!midiConnected" aria-label="Kênh gửi MIDI kiểm tra">
-                    <option v-for="n in 16" :key="n" :value="n">{{ n }}</option>
-                  </select>
-                </label>
-                <button type="button" :disabled="!midiConnected || exporting" @click="sendMidiTestNote"><i class="fas fa-play"></i> Thử nốt</button>
-              </div>
-              <label class="mx-midi-play-option">
-                <input v-model="midiPlayEnabled" type="checkbox" :disabled="!midiConnected || exporting">
-                Gửi MIDI ra cổng ngoài khi phát bài (Play)
-              </label>
-              <p>Phím trong Piano Roll cũng sẽ gửi MIDI khi đã chọn cổng. Bấm Stop/Pause sẽ gửi lệnh tắt tiếng để tránh nốt treo. Phát âm thanh trong MELORIX không bị thay thế.</p>
-              <p class="mx-midi-status" role="status" aria-live="polite">{{ midiStatus }}</p>
-              <div class="mx-track-form-actions">
-                <button type="button" :disabled="!midiConnected" @click="disconnectWebMidi">Ngắt MIDI</button>
-                <button type="button" @click="closeControlPanel">Đóng</button>
-              </div>
-              <p>Trang web chỉ gửi thông điệp MIDI. Giai đoạn 2 mới kiểm tra đường nhận MIDI của Kontakt 8 thật trên Windows.</p>
-            </div>
         <form v-if="kontaktOpen" class="mx-track-ui-preview mx-track-add-form mx-kontakt-form" @submit.prevent="importKontaktCompatibility">
           <div class="mx-track-ui-preview-title"><i class="fas fa-folder-open"></i> Nhập thư viện Kontakt</div>
           <label>1. Tệp nhạc cụ (.nki)
