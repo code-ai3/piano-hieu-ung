@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, onBeforeUnmount, watch } from 'vue'
-const props=defineProps<{open:boolean;playing:boolean;busy:boolean}>()
+import { midiBridge } from '@/util/melorix-midi-bridge'
+const props=defineProps<{open:boolean;playing:boolean;busy:boolean;canPlay:boolean}>()
 const emit=defineEmits<{
  (e:'close'):void
  (e:'audio-ready',audio:AudioBuffer|null,name:string):void
  (e:'record-started'):void
+ (e:'record-stopped'):void
 }>()
 const recording=ref(false)
 const processing=ref(false)
@@ -18,14 +20,20 @@ let recorder:MediaRecorder|null=null
 let data:BlobPart[]=[]
 let currentUrl=''
 let alive=true
+let captureVersion=0
 function releaseScreen(){
  screenStream?.getTracks().forEach(track=>track.stop())
  screenStream=null
 }
-function stopCapture(){
- if(recorder?.state==='recording')recorder.stop()
+function stopCapture(discard=false){
+ const wasRecording=recording.value
+ if(discard)captureVersion++
+ if(recorder?.state==='recording'){
+  try{recorder.stop()}catch(error){console.warn('Kontakt recorder stop:',error)}
+ }
  recording.value=false
  releaseScreen()
+ if(wasRecording)emit('record-stopped')
 }
 function clearAudio(){
  if(currentUrl)URL.revokeObjectURL(currentUrl)
@@ -35,7 +43,7 @@ function clearAudio(){
  audioDuration.value=0
  emit('audio-ready',null,'')
 }
-async function acceptAudio(blob:Blob,name:string){
+async function acceptAudio(blob:Blob,name:string,version=captureVersion){
  if(blob.size<100||blob.size>180*1024*1024){error.value='Tệp âm thanh trống hoặc lớn hơn 180 MB';return}
  processing.value=true
  error.value=''
@@ -44,7 +52,7 @@ async function acceptAudio(blob:Blob,name:string){
   let decoded:AudioBuffer
   try{decoded=await ctx.decodeAudioData(await blob.arrayBuffer())}
   finally{await ctx.close()}
-  if(!alive)return
+  if(!alive||version!==captureVersion)return
   if(decoded.duration<.05||decoded.duration>900)throw new Error('Audio duration invalid')
   clearAudio()
   audioName.value=name
@@ -72,6 +80,10 @@ async function chooseFile(e:Event){
 }
 async function beginCapture(){
  if(recording.value||processing.value||props.busy)return
+ if(!props.canPlay||!midiBridge.connected||!midiBridge.playbackEnabled){
+  error.value='Hãy tải MIDI, kết nối MELORIX-KONTAKT và bật Gửi MIDI khi Play trước khi thu trực tiếp.'
+  return
+ }
  error.value=''
  status.value=''
  if(!navigator.mediaDevices?.getDisplayMedia||typeof MediaRecorder==='undefined'){
@@ -86,6 +98,7 @@ async function beginCapture(){
   } as any)
   if(!alive){stream.getTracks().forEach(t=>t.stop());return}
   screenStream=stream
+  const token=++captureVersion
   const tracks=stream.getAudioTracks()
   if(!tracks.length){
    error.value='Nguồn chia sẻ không có âm thanh hệ thống. Thử chọn Toàn bộ màn hình và bật Chia sẻ âm thanh hệ thống; hoặc nhập WAV/MP3.'
@@ -96,16 +109,16 @@ async function beginCapture(){
   recorder=new MediaRecorder(new MediaStream(tracks),supported?{mimeType:supported}:{})
   data=[]
   recorder.ondataavailable=e=>{if(e.data.size>0)data.push(e.data)}
-  recorder.onerror=()=>{error.value='Gặp lỗi khi ghi âm từ hệ thống.';releaseScreen();recording.value=false}
+  recorder.onerror=()=>{error.value='Gặp lỗi khi ghi âm từ hệ thống.';stopCapture(true)}
   recorder.onstop=async()=>{
    const blob=new Blob(data,{type:recorder?.mimeType||'audio/webm'})
    data=[]
    releaseScreen()
-   if(blob.size>0&&alive)await acceptAudio(blob,'Kontakt-System-Audio.webm')
-   else if(alive)error.value='Không thu được âm thanh từ nguồn đã chọn.'
+   if(blob.size>0&&alive&&token===captureVersion)await acceptAudio(blob,'Kontakt-System-Audio.webm',token)
+   else if(alive&&token===captureVersion)error.value='Không thu được âm thanh từ nguồn đã chọn.'
   }
   stream.getVideoTracks().forEach(track=>{track.onended=()=>{if(recording.value)stopCapture()}})
-  clearAudio()
+  // Retain a previously valid soundtrack until the new recording decodes successfully.
   recorder.start(250)
   recording.value=true
   status.value='Đang ghi tiếng hệ thống. MELORIX bắt đầu phát MIDI từ đầu bài; bấm Dừng thu khi xong.'
@@ -116,8 +129,13 @@ async function beginCapture(){
   releaseScreen()
  }
 }
-watch(()=>props.open,open=>{if(!open&&recording.value)stopCapture()})
-onBeforeUnmount(()=>{alive=false;stopCapture();if(currentUrl)URL.revokeObjectURL(currentUrl)})
+watch(()=>props.open,open=>{
+ if(!open){
+  // Closing the tool must discard partial audio and cancel delayed decode callbacks.
+  stopCapture(true)
+ }
+})
+onBeforeUnmount(()=>{alive=false;stopCapture(true);if(currentUrl)URL.revokeObjectURL(currentUrl)})
 </script>
 <template>
 <Teleport to="body">
