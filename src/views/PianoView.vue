@@ -14,6 +14,7 @@ import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
 import MelorixPianoRoll from '@/components/MelorixPianoRoll.vue'
 import MelorixMidiConnector from '@/components/MelorixMidiConnector.vue'
+import MelorixKontaktTrackRouter from '@/components/MelorixKontaktTrackRouter.vue'
 import { midiNoteName } from '@/util/midi-edit'
 import { INSTRUMENT_PRESETS, instrumentPreset, isInstrumentPreset, makeInstrumentTrack, playSynthVoice } from '@/util/melorix-instruments'
 import type { InstrumentPreset, SynthVoice } from '@/util/melorix-instruments'
@@ -23,6 +24,7 @@ import { inspectKontaktNki, inferKontaktWavRoot, kontaktImportCheck, closestKont
 import type { KontaktNkiInspection } from '@/util/melorix-kontakt-import'
 import { midiBridge } from '@/util/melorix-midi-bridge'
 import { trackMidiChannel } from '@/util/melorix-web-midi'
+import { kontaktChannel, nextKontaktChannel, validKontaktChannel, autoKontaktChannels } from '@/util/melorix-kontakt-routing'
 import '@/assets/melorix-roll.css'
 import AppCheckbox from '@/components/AppCheckbox.vue'
 import { Output, Mp4OutputFormat, BufferTarget, StreamTarget, VideoSampleSource, VideoSample, AudioSampleSource, AudioSample } from 'mediabunny'
@@ -115,6 +117,32 @@ const isTrackPanelOpen = ref(typeof window !== 'undefined' && window.innerWidth 
 const isTimelineOpen = ref(false)
 // Instrument routing is per track and survives Piano Roll edits.
 const showMidiConnector=ref(false)
+const showKontaktRouter=ref(false)
+const kontaktTrackChannels=ref<Record<number,number>>({})
+const kontaktTrackNames=ref<Record<number,string>>({})
+function kontaktChannelForTrack(id:number):number {
+ const part=midiParts.value.find(part=>part.id===id)
+ return part?kontaktChannel(part,kontaktTrackChannels.value):1
+}
+function openKontaktRouter(){
+ closeControlPanel()
+ showKontaktRouter.value=true
+}
+function setKontaktTrackChannel(id:number,channel:number){
+ if(exporting.value||playState.value==='playing'||!validKontaktChannel(channel))return
+ if(!midiParts.value.some(part=>part.id===id))return
+ midiBridge.stopAll()
+ kontaktTrackChannels.value={...kontaktTrackChannels.value,[id]:channel}
+}
+function autoAssignKontaktTracks(){
+ if(exporting.value||playState.value==='playing')return
+ midiBridge.stopAll()
+ kontaktTrackChannels.value=autoKontaktChannels(midiParts.value)
+}
+function setKontaktTrackName(id:number,name:string){
+ if(exporting.value||playState.value==='playing'||!midiParts.value.some(part=>part.id===id))return
+ kontaktTrackNames.value={...kontaktTrackNames.value,[id]:name.slice(0,65)}
+}
 const trackComposerPreviewOpen = ref(false)
 const instrumentPreviewTrackId = ref<number | null>(null)
 const newTrackName=ref('')
@@ -229,6 +257,7 @@ function openMidiConnector(){
 }
 function closeControlPanel(){
  showMidiConnector.value=false
+ showKontaktRouter.value=false
  if(kontaktBusy.value||sampleImportBusy.value)return
  kontaktOpen.value=false;sampleImportOpen.value=false
  trackComposerPreviewOpen.value=false;instrumentPreviewTrackId.value=null
@@ -323,7 +352,9 @@ function createInstrumentTrack(){
  p.instrument=instrumentLabel(selected)
  if(playState.value==='playing')pause()
  else {stopSynthVoices(synthScheduledVoices);piano?.stop()}
+ const freeKontaktChannel=nextKontaktChannel(midiParts.value,kontaktTrackChannels.value)
  midiParts.value.push(p)
+ kontaktTrackChannels.value={...kontaktTrackChannels.value,[p.id]:freeKontaktChannel}
  assignedTrackPresets.value={...assignedTrackPresets.value,[p.id]:newTrackPreset.value}
  newTrackName.value=''
  trackComposerPreviewOpen.value=false
@@ -715,6 +746,9 @@ function updateNoteRange() {
   noteRange.value = { min: Math.max(21, min - 12), max: Math.min(108, max + 12) }
 }
 function processMidi(midi: Midi) {
+  kontaktTrackChannels.value={}
+  kontaktTrackNames.value={}
+  showKontaktRouter.value=false
   // Importing a different song must cancel MIDI messages already queued on the port.
   if(playState.value==='playing')pause()
   midiBridge.stopAll()
@@ -887,7 +921,7 @@ function scheduleAll() {
     }
     const part=midiParts.value.find(p=>p.id===n.trackId)
     if(part?.enabled&&!exporting.value)midiBridge.schedule(n.midi,n.velocity*127,
-      trackMidiChannel(part.channel),Math.max(0,delay),Math.max(.05,n.duration*speed.value),midiClockMs)
+      trackMidiChannel(kontaktChannelForTrack(n.trackId)),Math.max(0,delay),Math.max(.05,n.duration*speed.value),midiClockMs)
   }
 }
 
@@ -937,7 +971,7 @@ async function startPianoAudition(midi: number) {
  if(exporting.value) return
  stopChordAudition()
  stopPianoAudition()
- midiBridge.auditionStart([midi],trackMidiChannel(midiParts.value.find(p=>p.id===pianoRollTrackId.value)?.channel??1))
+ midiBridge.auditionStart([midi],trackMidiChannel(kontaktChannelForTrack(pianoRollTrackId.value??-1)))
  if(midiBridge.externalOnly)return
  const request = auditionRequest
  try {
@@ -970,7 +1004,7 @@ async function startChordAudition(pitches:number[]){
  stopChordAudition()
  stopPianoAudition()
  const request=chordRequest
- midiBridge.auditionStart(pitches,trackMidiChannel(midiParts.value.find(p=>p.id===pianoRollTrackId.value)?.channel??1))
+ midiBridge.auditionStart(pitches,trackMidiChannel(kontaktChannelForTrack(pianoRollTrackId.value??-1)))
  chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
  if(midiBridge.externalOnly)return
  try {
@@ -1497,6 +1531,12 @@ function loop() {
 let lastFrameTime = performance.now()
 
 function onKeyDown(e: KeyboardEvent) {
+  if(e.key==='Escape'&&showKontaktRouter.value){
+    showKontaktRouter.value=false
+    e.preventDefault()
+    return
+  }
+  if(showKontaktRouter.value)return
   if(e.key==='Escape'&&showMidiConnector.value){
     showMidiConnector.value=false
     e.preventDefault()
@@ -1602,7 +1642,7 @@ function downloadEditedMidi() {
   for (const part of midiParts.value) {
     const track = result.addTrack()
     track.name = part.name
-    track.channel = Math.max(0, part.channel - 1)
+    track.channel = trackMidiChannel(kontaktChannelForTrack(part.id))
     const chosen=assignedTrackPresets.value[part.id]
     if(chosen&&isInstrumentPreset(chosen))track.instrument.number=instrumentPreset(chosen).program
     // MIDI cannot embed a WAV. Personal sounds stay only inside the browser.
@@ -1683,6 +1723,7 @@ watch(() => currentTime.value, (t) => {
           <button type="button" @click="openPersonalInstrumentImport"><i class="fas fa-file-audio mr-2"></i> Thêm nhạc cụ của tôi (WAV)</button>
           <button type="button" @click="openKontaktImporter"><i class="fas fa-folder-open mr-2"></i> NKI + WAV (chế độ tương thích cũ)</button>
           <button type="button" @click="openMidiConnector"><i class="fas fa-plug mr-2"></i> Kết nối Kontakt 8 thật (Windows)</button>
+          <button type="button" @click="openKontaktRouter"><i class="fas fa-layer-group mr-2"></i> Quản lý nhiều track Kontakt</button>
           <button type="button" @click="openInstrumentTrackPanel()"><i class="fas fa-layer-group mr-2"></i> Chọn tiếng cho từng track</button>
           <div class="mx-menu-caption">{{ localSamples.length }} nhạc cụ cá nhân · Kontakt 8 thật nhận MIDI qua loopMIDI; chế độ NKI + WAV là bản tương thích cũ.</div>
         </div></details>
@@ -1743,6 +1784,7 @@ watch(() => currentTime.value, (t) => {
                 <span>{{ part.instrument || 'MIDI' }}</span>
                 <i class="fas fa-chevron-down" aria-hidden="true"></i>
               </button>
+              <button type="button" class="mx-kontakt-route-trigger" :disabled="exporting" @click="openKontaktRouter">Ch {{ kontaktChannelForTrack(part.id) }}</button>
               <span>{{ part.noteCount }} nốt</span>
               <input type="color" :value="part.color" :disabled="exporting" :aria-label="'Màu ' + part.name" @input="onPartColorInput(part.id, $event)">
             </div>
@@ -2085,6 +2127,9 @@ watch(() => currentTime.value, (t) => {
     </div> <!-- workspace -->
 
     <MelorixMidiConnector v-if="showMidiConnector" :playing="playState === 'playing'" @close="showMidiConnector = false" />
+    <MelorixKontaktTrackRouter v-if="showKontaktRouter" :parts="midiParts" :routes="kontaktTrackChannels"
+     :labels="kontaktTrackNames" :playing="playState === 'playing'"
+     @close="showKontaktRouter=false" @auto="autoAssignKontaktTracks" @channel="setKontaktTrackChannel" @label="setKontaktTrackName" />
     <!-- Central instrument control panel: no forms inside the narrow sidebar -->
     <Teleport to="body">
       <div v-if="isControlPanelOpen" class="mx-editor-overlay" @click.self="closeControlPanel">
