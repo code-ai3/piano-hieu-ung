@@ -80,7 +80,7 @@ async function chooseFile(e:Event){
 }
 async function beginCapture(){
  if(recording.value||processing.value||props.busy)return
- if(!props.canPlay||!midiBridge.connected||!midiBridge.playbackEnabled){
+ if(!props.canPlay||!midiBridge.connected||!midiBridge.playbackEnabled||!midiBridge.externalOnly){
   error.value='Hãy tải MIDI, kết nối MELORIX-KONTAKT và bật Gửi MIDI khi Play trước khi thu trực tiếp.'
   return
  }
