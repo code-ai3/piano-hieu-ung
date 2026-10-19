@@ -1012,32 +1012,36 @@ const midiPlaybackPlan=computed(()=>mergeOverlappingMidiNotes(notes.value.map(n=
  start:n.time,
  duration:n.duration,
 }))))
+// Schedule Web Audio in short windows, never thousands of voices all at once.
+// This also lets soundfont samples that finish downloading replace the fallback.
+const AUDIO_LOOKAHEAD_SECONDS=.35
+function scheduleUpcomingAudio() {
+ const ctx=audioCtx.value
+ if(!ctx||midiBridge.externalOnly||ctx.state!=='running')return
+ const targetTime=currentTime.value/speed.value
+ for(let i=lastScheduledIdx;i<notes.value.length;i++){
+  const n=notes.value[i]
+  const delay=(n.time-targetTime)*speed.value
+  if(delay>AUDIO_LOOKAHEAD_SECONDS)break
+  lastScheduledIdx=i+1
+  // When resuming/starting mid-song do not retrigger older notes.
+  if(delay<-.035)continue
+  playTrackVoice(ctx,n.trackId,n.midi,n.velocity*127,
+    ctx.currentTime+Math.max(.005,delay),n.duration*speed.value,synthScheduledVoices)
+ }
+}
 function scheduleAll() {
-  const ctx = audioCtx.value
-  const onlyKontakt = midiBridge.externalOnly
-  if (!onlyKontakt && !ctx) return
-  // Anchor every scheduled message to the same high-resolution clock value.
-  const midiClockMs = performance.now()
-  const targetTime = currentTime.value / speed.value
-  for (let i = lastScheduledIdx; i < notes.value.length; i++) {
-    const n = notes.value[i]
-    if (n.time < targetTime - 0.02) { lastScheduledIdx = i + 1; continue }
-    const delay = (n.time - targetTime) * speed.value
-    if (!onlyKontakt && ctx) {
-      const t=ctx.currentTime+Math.max(.003,delay)
-      playTrackVoice(ctx,n.trackId,n.midi,n.velocity*127,t,n.duration*speed.value,synthScheduledVoices)
-    }
-  }
-  // Merge overlapping notes sharing a MIDI pitch/channel so their Note Off
-  // messages cannot prematurely silence one another.
-  if(!exporting.value){
-   for(const event of midiPlaybackPlan.value){
-    if(event.start<targetTime-0.02)continue
-    midiBridge.schedule(event.note,event.velocity,event.channel,
-     Math.max(0,(event.start-targetTime)*speed.value),
-     Math.max(.05,event.duration*speed.value),midiClockMs)
-   }
-  }
+ scheduleUpcomingAudio()
+ // Web MIDI is scheduled separately once at Play/seek/repeat; do not resend each animation frame.
+ if(exporting.value)return
+ const midiClockMs=performance.now()
+ const targetTime=currentTime.value/speed.value
+ for(const event of midiPlaybackPlan.value){
+  if(event.start<targetTime-.02)continue
+  midiBridge.schedule(event.note,event.velocity,event.channel,
+   Math.max(0,(event.start-targetTime)*speed.value),
+   Math.max(.05,event.duration*speed.value),midiClockMs)
+ }
 }
 
 // ---- 播放控制 ----
@@ -1647,6 +1651,7 @@ function fmtTime(s: number) {
 function loop() {
   if (playState.value === 'playing') {
     currentTime.value += (performance.now() - lastFrameTime) / 1000
+    scheduleUpcomingAudio()
     if (currentTime.value >= duration.value) {
       if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; midiBridge.stopAll(); stopSynthVoices(synthScheduledVoices); piano?.stop(); scheduleAll() }
       else { nextTrack() }
