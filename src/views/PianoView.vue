@@ -20,8 +20,6 @@ import { createLocalSampleSpec, validLocalWavFile, samplePitchRate } from '@/uti
 import type { LocalInstrumentId, LocalSampleSpec } from '@/util/melorix-local-wav'
 import { inspectKontaktNki, inferKontaktWavRoot, kontaktImportCheck, closestKontaktSample } from '@/util/melorix-kontakt-import'
 import type { KontaktNkiInspection } from '@/util/melorix-kontakt-import'
-import { midiNoteOn, midiNoteOff, trackMidiChannel, midiChannel, sendMidiNote, panicMidi, availableMidiOutputs } from '@/util/melorix-web-midi'
-import type { MidiAccessPort, MidiOutputPort } from '@/util/melorix-web-midi'
 import '@/assets/melorix-roll.css'
 import AppCheckbox from '@/components/AppCheckbox.vue'
 import { Output, Mp4OutputFormat, BufferTarget, StreamTarget, VideoSampleSource, VideoSample, AudioSampleSource, AudioSample } from 'mediabunny'
@@ -208,123 +206,7 @@ const sampleImportBusy=ref(false)
 let nextLocalSample=1
 // Central instrument editor: one dialog, four existing workflows.
 const instrumentEditorPreset=ref<TrackInstrument>('piano')
-const midiConnectOpen=ref(false)
-const midiPermissionBusy=ref(false)
-const midiPortOptions=ref<{id:string;label:string}[]>([])
-const midiSelectedId=ref('')
-const midiConnected=ref(false)
-const midiPlayEnabled=ref(false)
-const midiTestChannel=ref(1)
-const midiTestNote=ref(60)
-const midiStatus=ref('Chưa kết nối MIDI ngoài.')
-let midiAccessHandle:MidiAccessPort|null=null
-const midiPermissionGranted=ref(false)
-let selectedMidiOutput:MidiOutputPort|null=null
-let heldMidiKey:{port:MidiOutputPort;note:number;channel:number}|null=null
-let heldMidiChord:{port:MidiOutputPort;note:number;channel:number}[]=[]
-const midiBrowserSupported=typeof navigator!=='undefined'&&typeof (navigator as Navigator&{
- requestMIDIAccess?:(options?:{sysex?:boolean})=>Promise<MidiAccessPort>
-}).requestMIDIAccess==='function'
-function stopExternalMidi(){
- const out=selectedMidiOutput
- if(!out)return
- try{panicMidi(out)}catch(error){console.warn('MIDI panic failed:',error)}
- heldMidiKey=null
- heldMidiChord=[]
-}
-function refreshMidiPorts(){
- if(!midiAccessHandle)return
- midiPortOptions.value=availableMidiOutputs(midiAccessHandle)
- if(selectedMidiOutput&&!midiPortOptions.value.some(p=>p.id===selectedMidiOutput?.id)){
-  stopExternalMidi()
-  selectedMidiOutput=null
-  midiSelectedId.value=''
-  midiConnected.value=false
-  midiPlayEnabled.value=false
-  midiStatus.value='Cổng MIDI đã ngắt. Hãy chọn cổng khác.'
- }
-}
-async function requestWebMidiAccess(){
- if(midiPermissionBusy.value)return
- if(!window.isSecureContext){midiStatus.value='Cần trang HTTPS để dùng Web MIDI.';return}
- const browser=navigator as Navigator&{
-  requestMIDIAccess?:(options?:{sysex?:boolean})=>Promise<MidiAccessPort>
- }
- if(!browser.requestMIDIAccess){
-  midiPermissionGranted.value=false
-  midiStatus.value='Trình duyệt không hỗ trợ Web MIDI. Hãy mở trên Chrome hoặc Edge của Windows.';return
- }
- midiPermissionBusy.value=true
- try{
-  midiAccessHandle=await browser.requestMIDIAccess({sysex:false})
-  midiPermissionGranted.value=true
-  midiAccessHandle.onstatechange=()=>refreshMidiPorts()
-  refreshMidiPorts()
-  midiStatus.value=midiPortOptions.value.length
-   ?'Đã cấp quyền MIDI. Chọn cổng đầu ra bên dưới.'
-   :'Đã cấp quyền nhưng chưa có cổng MIDI đầu ra. Cần tạo cổng ảo trên Windows ở giai đoạn 2.'
- }catch(error){
-  midiPermissionGranted.value=false
-  console.warn('MIDI permission error:',error)
-  midiStatus.value='Không được cấp quyền MIDI. Kiểm tra quyền trang web và thử lại.'
- }finally{midiPermissionBusy.value=false}
-}
-function onMidiOutputChange(e:Event){
- const id=(e.target as HTMLSelectElement).value
- stopExternalMidi()
- selectedMidiOutput=null
- midiConnected.value=false
- midiPlayEnabled.value=false
- midiSelectedId.value=''
- if(!id){midiStatus.value='Đã ngắt kết nối MIDI.';return}
- const selected=midiAccessHandle?.outputs.get(id)
- if(!selected||selected.state==='disconnected'){
-  midiStatus.value='Không tìm thấy cổng MIDI. Hãy làm mới danh sách.';refreshMidiPorts();return
- }
- selectedMidiOutput=selected
- midiSelectedId.value=id
- midiConnected.value=true
- midiStatus.value='Đã chọn cổng '+(selected.name||'MIDI')+'. Bấm Thử nốt để kiểm tra tín hiệu.'
-}
-function disconnectWebMidi(){
- stopExternalMidi()
- selectedMidiOutput=null
- midiSelectedId.value=''
- midiConnected.value=false
- midiPlayEnabled.value=false
- midiStatus.value='Đã ngắt kết nối MIDI ngoài.'
-}
-function releaseMidiKey(){
- const held=heldMidiKey
- heldMidiKey=null
- if(held)try{held.port.send(midiNoteOff(held.note,held.channel))}catch(error){console.warn('MIDI key release failed:',error)}
-}
-function releaseMidiChord(){
- const notes=heldMidiChord
- heldMidiChord=[]
- for(const item of notes)try{item.port.send(midiNoteOff(item.note,item.channel))}catch(error){console.warn('MIDI chord release failed:',error)}
-}
-function midiTrackChannel(id:number|null):number{
- const part=midiParts.value.find(p=>p.id===id)
- return trackMidiChannel(part?.channel??1)
-}
-function sendMidiTestNote(){
- const port=selectedMidiOutput
- if(!port||exporting.value)return
- try{
-  sendMidiNote(port,midiTestNote.value,105,midiChannel(midiTestChannel.value-1),performance.now()+15,400)
-  midiStatus.value='Đã gửi nốt '+midiNoteName(midiTestNote.value)+' trên kênh MIDI '+midiTestChannel.value+'. Hãy kiểm tra cổng nhận.'
- }catch(error){
-  console.warn('MIDI send error:',error)
-  midiStatus.value='Không gửi được MIDI đến cổng đã chọn.'
- }
-}
-function openMidiConnectionPanel(){
- closeControlPanel()
- midiConnectOpen.value=true
-}
-const activeEditorPanel=computed<'track'|'wav'|'kontakt'|'instrument'|'midi'|null>(()=>{
- if(midiConnectOpen.value)return 'midi'
+const activeEditorPanel=computed<'track'|'wav'|'kontakt'|'instrument'|null>(()=>{
  if(kontaktOpen.value)return 'kontakt'
  if(sampleImportOpen.value)return 'wav'
  if(trackComposerPreviewOpen.value)return 'track'
@@ -334,13 +216,12 @@ const activeEditorPanel=computed<'track'|'wav'|'kontakt'|'instrument'|'midi'|nul
 const isControlPanelOpen=computed(()=>activeEditorPanel.value!==null)
 const controlPanelTitle=computed(()=>({
  track:'Thêm track nhạc cụ',wav:'Thêm nhạc cụ của tôi',
- kontakt:'Nhập thư viện Kontakt',instrument:'Chọn nhạc cụ cho track',
- midi:'Kết nối MIDI ngoài (Kontakt 8)'
+ kontakt:'Nhập thư viện Kontakt',instrument:'Chọn nhạc cụ cho track'
 }[activeEditorPanel.value??'track']))
 const instrumentPanelRef=ref<HTMLElement|null>(null)
 function closeControlPanel(){
  if(kontaktBusy.value||sampleImportBusy.value)return
- midiConnectOpen.value=false;kontaktOpen.value=false;sampleImportOpen.value=false
+ kontaktOpen.value=false;sampleImportOpen.value=false
  trackComposerPreviewOpen.value=false;instrumentPreviewTrackId.value=null
 }
 function changeInstrumentTarget(e:Event){
@@ -353,7 +234,6 @@ function applyInstrumentSelection(){
  const id=instrumentPreviewTrackId.value
  if(id!==null)assignTrackPreset(id,instrumentEditorPreset.value)
 }
-watch(midiPlayEnabled,(enabled)=>{if(!enabled)stopExternalMidi()})
 watch(isControlPanelOpen,(open)=>{
  if(open)void nextTick(()=>instrumentPanelRef.value?.focus({preventScroll:true}))
 })
@@ -878,8 +758,7 @@ function beginPianoRollResize(e: PointerEvent) {
   window.addEventListener('pointerup',stop)
 }
 function resetAfterTrackChange() {
-  // Stop pending Web MIDI messages before changing track mix.
-  stopExternalMidi()
+  // Audio is scheduled ahead of time; stop that schedule before changing a track mix.
   stopSynthVoices(synthScheduledVoices)
   piano?.stop()
   playState.value = 'idle'
@@ -987,17 +866,6 @@ function scheduleAll() {
     const preset=trackPreset(n.trackId)
     if(preset==='piano')piano.start({note:n.name,velocity:n.velocity*127,time:t})
     else routedNote(ctx,n.midi,n.velocity*127,t,n.duration*speed.value,preset,synthScheduledVoices)
-    if(midiPlayEnabled.value&&selectedMidiOutput&&!exporting.value){
-      try{
-        const part=midiParts.value.find(p=>p.id===n.trackId)
-        if(part?.enabled)sendMidiNote(selectedMidiOutput,n.midi,n.velocity*127,trackMidiChannel(part.channel),
-          performance.now()+Math.max(0,delay)*1000,Math.max(50,n.duration*speed.value*1000))
-      }catch(error){
-        console.warn('External MIDI song output failed:',error)
-        midiStatus.value='Không gửi được MIDI khi Play. Kiểm tra cổng MIDI.'
-        midiPlayEnabled.value=false
-      }
-    }
   }
 }
 
@@ -1016,7 +884,6 @@ async function play() {
 }
 
 function resetPiano() {
-  stopExternalMidi()
   stopPianoAudition()
   stopChordAudition()
   stopSynthVoices(synthScheduledVoices)
@@ -1025,7 +892,7 @@ function resetPiano() {
   pianoLoaded.value = false; initPianoPromise = null
 }
 
-function pause() { stopExternalMidi(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
+function pause() { stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
 function stop() {
   playState.value = 'idle'; currentTime.value = 0
   lastScheduledIdx = 0; pianoLoading = false
@@ -1036,7 +903,6 @@ function togglePlay() { playState.value === 'playing' ? pause() : play() }
 const AUDITION_STOP_ID = 'melorix-editor-key'
 let auditionRequest = 0
 function stopPianoAudition() {
- releaseMidiKey()
  auditionRequest++
  stopSynthVoices(synthKeyVoices)
  piano?.stop(AUDITION_STOP_ID)
@@ -1045,14 +911,6 @@ async function startPianoAudition(midi: number) {
  if(exporting.value) return
  stopChordAudition()
  stopPianoAudition()
- const port=selectedMidiOutput
- if(port){
-  const channel=midiTrackChannel(pianoRollTrackId.value)
-  try{
-   port.send(midiNoteOn(midi,95,channel))
-   heldMidiKey={port,note:midi,channel}
-  }catch(error){midiStatus.value='Gửi nốt MIDI thất bại. Kiểm tra cổng đầu ra.'}
- }
  const request = auditionRequest
  try {
   const loading = initPiano()
@@ -1074,7 +932,6 @@ let chordRequest=0
 let chordStopTimer:ReturnType<typeof setTimeout>|null=null
 function stopChordAudition(){
  chordRequest++
- releaseMidiChord()
  stopSynthVoices(synthChordVoices)
  if(chordStopTimer!==null){clearTimeout(chordStopTimer);chordStopTimer=null}
  piano?.stop(CHORD_STOP_ID)
@@ -1084,17 +941,6 @@ async function startChordAudition(pitches:number[]){
  stopChordAudition()
  stopPianoAudition()
  const request=chordRequest
- const port=selectedMidiOutput
- if(port){
-  const channel=midiTrackChannel(pianoRollTrackId.value)
-  try{
-   for(const pitch of pitches){
-    port.send(midiNoteOn(pitch,95,channel))
-    heldMidiChord.push({port,note:pitch,channel})
-   }
-   chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
-  }catch(error){midiStatus.value='Gửi hợp âm MIDI thất bại.';releaseMidiChord()}
- }
  try {
   const loading=initPiano()
   const earlyResume=audioCtx.value?.resume()
@@ -1108,7 +954,7 @@ async function startChordAudition(pitches:number[]){
    if(preset==='piano')piano.start({note:midiNoteName(pitch),velocity:95,stopId:CHORD_STOP_ID})
    else if(audioCtx.value)routedNote(audioCtx.value,pitch,95,audioCtx.value.currentTime+.003,1.2,preset,synthChordVoices)
   }
-  if(chordStopTimer===null)chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
+  chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
  }catch(error){console.error('Chord audition failed:',error)}
 }
 
@@ -1608,7 +1454,7 @@ function loop() {
   if (playState.value === 'playing') {
     currentTime.value += (performance.now() - lastFrameTime) / 1000
     if (currentTime.value >= duration.value) {
-      if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; stopExternalMidi(); stopSynthVoices(synthScheduledVoices); piano?.stop(); scheduleAll() }
+      if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; stopSynthVoices(synthScheduledVoices); piano?.stop(); scheduleAll() }
       else { nextTrack() }
     }
   }
@@ -1659,8 +1505,6 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  stopExternalMidi()
-  if(midiAccessHandle)midiAccessHandle.onstatechange=null
   document.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('pointerdown', onDocumentPointerDown)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
@@ -1798,7 +1642,6 @@ watch(() => currentTime.value, (t) => {
           <button type="button" @click="openTrackComposer"><i class="fas fa-plus mr-2"></i> Thêm track nhạc cụ</button>
           <button type="button" @click="openPersonalInstrumentImport"><i class="fas fa-file-audio mr-2"></i> Thêm nhạc cụ của tôi (WAV)</button>
           <button type="button" @click="openKontaktImporter"><i class="fas fa-folder-open mr-2"></i> Nhập thư viện Kontakt (.nki + Samples)</button>
-          <button type="button" @click="openMidiConnectionPanel"><i class="fas fa-plug mr-2"></i> Kết nối MIDI ngoài (Kontakt 8) {{ midiConnected ? '✓' : '' }}</button>
           <button type="button" @click="openInstrumentTrackPanel()"><i class="fas fa-layer-group mr-2"></i> Chọn tiếng cho từng track</button>
           <div class="mx-menu-caption">{{ localSamples.length }} nhạc cụ cá nhân · WAV đơn hoặc Kontakt tương thích + Samples. Không chạy bộ máy Kontakt gốc.</div>
         </div></details>
@@ -2214,46 +2057,6 @@ watch(() => currentTime.value, (t) => {
               :disabled="kontaktBusy || sampleImportBusy" @click="closeControlPanel"><i class="fas fa-times"></i></button>
           </header>
           <div class="mx-editor-dialog-body">
-            <div v-if="activeEditorPanel==='midi'" class="mx-track-ui-preview mx-midi-connection-panel" aria-label="Kết nối MIDI đầu ra">
-              <p><strong>Bước 1:</strong> MELORIX gửi nốt MIDI từ trình duyệt đến cổng Windows do bạn chọn. Kontakt 8 chưa được kết nối tự động ở bước này.</p>
-              <p v-if="!midiBrowserSupported" class="mx-instrument-import-error" role="status">Web MIDI cần Chrome/Edge trên Windows. Safari iPad không hỗ trợ tính năng này.</p>
-              <div class="mx-track-form-actions">
-                <button type="button" :disabled="midiPermissionBusy || !midiBrowserSupported" @click="requestWebMidiAccess">
-                  <i class="fas fa-link"></i> {{ midiPermissionBusy ? 'Đang yêu cầu quyền…' : 'Cấp quyền / Làm mới cổng MIDI' }}
-                </button>
-              </div>
-              <label>Cổng MIDI đầu ra trên Windows
-                <select :value="midiSelectedId" :disabled="!midiPermissionGranted || !midiPortOptions.length" aria-label="Chọn MIDI Output" @change="onMidiOutputChange">
-                  <option value="">— Chọn cổng MIDI —</option>
-                  <option v-for="port in midiPortOptions" :key="port.id" :value="port.id">{{ port.label }}</option>
-                </select>
-              </label>
-              <p v-if="midiPermissionGranted && !midiPortOptions.length">Chưa có cổng MIDI đầu ra. Giai đoạn 2 sẽ thiết lập cổng ảo trên Windows để Kontakt 8 nhận dữ liệu.</p>
-              <div class="mx-midi-test-row">
-                <label>Nốt kiểm tra
-                  <select v-model.number="midiTestNote" aria-label="Nốt MIDI kiểm tra" :disabled="!midiConnected">
-                    <option v-for="midi in 49" :key="midi" :value="midi+35">{{ midiNoteName(midi+35) }}</option>
-                  </select>
-                </label>
-                <label>Kênh MIDI
-                  <select v-model.number="midiTestChannel" :disabled="!midiConnected" aria-label="Kênh gửi MIDI kiểm tra">
-                    <option v-for="n in 16" :key="n" :value="n">{{ n }}</option>
-                  </select>
-                </label>
-                <button type="button" :disabled="!midiConnected || exporting" @click="sendMidiTestNote"><i class="fas fa-play"></i> Thử nốt</button>
-              </div>
-              <label class="mx-midi-play-option">
-                <input v-model="midiPlayEnabled" type="checkbox" :disabled="!midiConnected || exporting">
-                Gửi MIDI ra cổng ngoài khi phát bài (Play)
-              </label>
-              <p>Phím trong Piano Roll cũng sẽ gửi MIDI khi đã chọn cổng. Bấm Stop/Pause sẽ gửi lệnh tắt tiếng để tránh nốt treo. Phát âm thanh trong MELORIX không bị thay thế.</p>
-              <p class="mx-midi-status" role="status" aria-live="polite">{{ midiStatus }}</p>
-              <div class="mx-track-form-actions">
-                <button type="button" :disabled="!midiConnected" @click="disconnectWebMidi">Ngắt MIDI</button>
-                <button type="button" @click="closeControlPanel">Đóng</button>
-              </div>
-              <p>Trang web chỉ gửi thông điệp MIDI. Giai đoạn 2 mới kiểm tra đường nhận MIDI của Kontakt 8 thật trên Windows.</p>
-            </div>
         <form v-if="kontaktOpen" class="mx-track-ui-preview mx-track-add-form mx-kontakt-form" @submit.prevent="importKontaktCompatibility">
           <div class="mx-track-ui-preview-title"><i class="fas fa-folder-open"></i> Nhập thư viện Kontakt</div>
           <label>1. Tệp nhạc cụ (.nki)
