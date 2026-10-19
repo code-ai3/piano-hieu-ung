@@ -15,3 +15,23 @@ export function nextKontaktChannel(tracks:readonly KontaktMidiTrack[],routes:Rea
  for(let n=1;n<=16;n++)if(!used.has(n))return n
  return 1
 }
+
+export function autoKontaktChannels(tracks:readonly (KontaktMidiTrack&{name:string})[]):Record<number,number> {
+ const result:Record<number,number>={}
+ const used=new Set<number>()
+ for(const track of tracks){
+  if(/drum|percussion|trống|bộ gõ|drum mix/i.test(track.name)&&!used.has(10)){
+   result[track.id]=10
+   used.add(10)
+  }
+ }
+ for(const track of tracks){
+  if(result[track.id])continue
+  let next=1
+  while(next<=16&&(used.has(next)||next===10))next++
+  if(next>16)next=used.has(10)?1:10
+  result[track.id]=next
+  used.add(next)
+ }
+ return result
+}
