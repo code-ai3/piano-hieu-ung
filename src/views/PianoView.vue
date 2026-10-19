@@ -25,6 +25,7 @@ import { midiNoteName } from '@/util/midi-edit'
 import { INSTRUMENT_PRESETS, instrumentPreset, isInstrumentPreset, makeInstrumentTrack, playSynthVoice } from '@/util/melorix-instruments'
 import type { InstrumentPreset, SynthVoice } from '@/util/melorix-instruments'
 import { createLocalSampleSpec, validLocalWavFile, samplePitchRate } from '@/util/melorix-local-wav'
+import { ErhuWebSampler } from '@/util/melorix-erhu-web-sampler'
 import type { LocalInstrumentId, LocalSampleSpec } from '@/util/melorix-local-wav'
 import { midiBridge } from '@/util/melorix-midi-bridge'
 import { trackMidiChannel } from '@/util/melorix-web-midi'
@@ -171,10 +172,36 @@ const newTrackPreset=ref<TrackInstrument>('piano')
 const assignedTrackPresets=ref<Record<number,TrackInstrument>>({})
 const localSamples=ref<LocalSampleSpec[]>([])
 const localSampleBuffers=new Map<LocalInstrumentId,AudioBuffer>()
+
+const erhuWebSampler=new ErhuWebSampler()
+const erhuWebReady=ref(false)
+const erhuWebMessage=ref('')
+function selectErhuFolder(){
+ const picker=document.createElement('input')
+ picker.type='file';picker.multiple=true;picker.accept='.wav'
+ picker.setAttribute('webkitdirectory','')
+ picker.style.display='none'
+ document.body.appendChild(picker)
+ picker.addEventListener('change',async()=>{
+  try{
+   if(!picker.files)throw Error('Không có thư mục WAV')
+   erhuWebMessage.value='Đang lưu bộ WAV Erhu vào trình duyệt…'
+   await erhuWebSampler.install(picker.files)
+   erhuWebReady.value=erhuWebSampler.ready
+   erhuWebMessage.value='Đã cài 7 WAV Erhu; chọn Erhu Hmoob Nplog trong Thêm track để nghe.'
+  }catch(error){
+   console.warn('Erhu setup failed:',error)
+   erhuWebMessage.value=error instanceof Error?error.message:'Không nạp được thư viện Erhu.'
+  }finally{picker.remove()}
+ })
+ picker.addEventListener('cancel',()=>picker.remove())
+ picker.click()
+}
+
 // A library NKI is a persistent catalog choice, not a browser-side WAV.
 const allInstruments=computed(()=>[
  ...INSTRUMENT_PRESETS.map(p=>({id:p.id,label:p.label})),
- ...publishedInstruments.value.filter(p=>p.format==='nki').map(p=>({id:'library:'+p.id,label:p.label+' (Kontakt)'})),
+ ...publishedInstruments.value.filter(p=>p.format==='nki').map(p=>({id:'library:'+p.id,label:p.label+(p.id==='erhu-hmoob-nplog'&&erhuWebReady.value?' (WAV trên web)':' (Kontakt)')})),
  ...localSamples.value.map(p=>({id:p.id,label:p.label+' (WAV riêng)'}))
 ])
 function isPublishedTrackInstrument(value:TrackInstrument):value is CatalogInstrumentId {
@@ -884,7 +911,15 @@ function stopSynthVoices(set:Set<SynthVoice>){
 function routedNote(ctx:AudioContext,midi:number,velocity:number,when:number,duration:number,
  preset:TrackInstrument,set:Set<SynthVoice>){
  let voice:SynthVoice
- if(isPublishedTrackInstrument(preset))return // Kontakt handles audio; never fake NKI sound.
+ if(isPublishedTrackInstrument(preset)){
+   if(preset!=='library:erhu-hmoob-nplog'||!erhuWebSampler.ready)return
+   let samplerVoice:SynthVoice|null=null
+   samplerVoice=erhuWebSampler.play(ctx,midi,velocity,when,duration,()=>{
+    if(samplerVoice)set.delete(samplerVoice)
+   })
+   if(samplerVoice)set.add(samplerVoice)
+   return
+  }
  if(isInstrumentPreset(preset))voice=playSynthVoice(ctx,midi,velocity,when,duration,preset)
  else{
   const one=localSamples.value.find(s=>s.id===preset)
@@ -958,7 +993,8 @@ async function play() {
   const request=++playRequest
   try {
     if(!midiBridge.externalOnly){
-      await initPiano()
+       await erhuWebSampler.init()
+       await initPiano()
       await audioCtx.value?.resume()
     }
     if(request!==playRequest)return
@@ -1006,7 +1042,7 @@ async function startPianoAudition(midi: number) {
  stopChordAudition()
  stopPianoAudition()
  midiBridge.auditionStart([midi],trackMidiChannel(kontaktChannelForTrack(pianoRollTrackId.value??-1)))
- if(midiBridge.externalOnly||isPublishedTrackInstrument(trackPreset(pianoRollTrackId.value??-1)))return
+ if(midiBridge.externalOnly||(isPublishedTrackInstrument(trackPreset(pianoRollTrackId.value??-1))&&!erhuWebSampler.ready))return
  const request = auditionRequest
  try {
   const loading = initPiano()
@@ -1040,7 +1076,7 @@ async function startChordAudition(pitches:number[]){
  const request=chordRequest
  midiBridge.auditionStart(pitches,trackMidiChannel(kontaktChannelForTrack(pianoRollTrackId.value??-1)))
  chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
- if(midiBridge.externalOnly||isPublishedTrackInstrument(trackPreset(pianoRollTrackId.value??-1)))return
+ if(midiBridge.externalOnly||(isPublishedTrackInstrument(trackPreset(pianoRollTrackId.value??-1))&&!erhuWebSampler.ready))return
  try {
   const loading=initPiano()
   const earlyResume=audioCtx.value?.resume()
@@ -1609,6 +1645,7 @@ function onKeyDown(e: KeyboardEvent) {
 // ---- 生命周期 ----
 
 onMounted(() => {
+  void erhuWebSampler.init().then(()=>{erhuWebReady.value=erhuWebSampler.ready})
   void refreshPublishedInstruments()
   initPiano()
   rafId = requestAnimationFrame(loop)
@@ -1771,7 +1808,9 @@ watch(() => currentTime.value, (t) => {
         </div></details>
         <details name="melorix-main-menu"><summary>Công cụ</summary><div class="mx-menu-pop">
           <div class="mx-menu-caption">Tùy chọn nâng cao</div>
-          <button type="button" @click="openPersonalInstrumentImport">Nhập mẫu WAV riêng</button>
+          <button type="button" @click="selectErhuFolder">Cài tiếng Erhu WAV cho web (một lần)</button>
+           <div v-if="erhuWebMessage" role="status" class="mx-menu-caption">{{ erhuWebMessage }}</div>
+           <button type="button" @click="openPersonalInstrumentImport">Nhập mẫu WAV riêng</button>
           <button type="button" @click="openMidiConnector">Kết nối MIDI / Kontakt 8</button>
           <button type="button" @click="openKontaktRouter">Thiết lập kênh Kontakt</button>
           <button type="button" @click="openKontaktAudioCapture">Thu / nhập âm thanh Kontakt (MP4)</button>
@@ -2245,7 +2284,8 @@ watch(() => currentTime.value, (t) => {
             <button type="button" @click="trackComposerPreviewOpen = false">Hủy</button>
           </div>
           <p v-if="catalogLoadError" role="status">{{ catalogLoadError }}</p>
-          <p v-if="isPublishedTrackInstrument(newTrackPreset)">Track đã gắn nhạc cụ Kontakt. Để nghe tiếng NKI thật, Kontakt 8 cần đang nhận MIDI và có Samples của nhạc cụ.</p>
+          <p v-if="newTrackPreset==='library:erhu-hmoob-nplog' && erhuWebReady">Đã cài 7 mẫu WAV Erhu thật trên trình duyệt. Cách chơi có thể khác Kontakt NKI.</p>
+           <p v-else-if="isPublishedTrackInstrument(newTrackPreset)">NKI không tự phát trên web. Cần Kontakt hoặc mẫu WAV tương ứng.</p>
         </form>
 
             <form v-if="activeEditorPanel==='instrument' && instrumentPreviewTrackId!==null" class="mx-track-ui-preview mx-track-add-form mx-instrument-select-form" @submit.prevent="applyInstrumentSelection">
