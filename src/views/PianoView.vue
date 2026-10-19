@@ -17,7 +17,7 @@ import MelorixMidiConnector from '@/components/MelorixMidiConnector.vue'
 import MelorixKontaktTrackRouter from '@/components/MelorixKontaktTrackRouter.vue'
 import MelorixKontaktAudioCapture from '@/components/MelorixKontaktAudioCapture.vue'
 import MelorixPublishedLibrary from '@/components/MelorixPublishedLibrary.vue'
-import {publishedInstrumentUrl} from '@/util/melorix-published-library'
+import {loadPublishedLibrary} from '@/util/melorix-published-library'
 import type {PublishedInstrument} from '@/util/melorix-published-library'
 import { alignKontaktAudio } from '@/util/melorix-kontakt-audio'
 import { mergeOverlappingMidiNotes } from '@/util/melorix-midi-overlap'
@@ -123,7 +123,16 @@ const isTimelineOpen = ref(false)
 const showMidiConnector=ref(false)
 const showKontaktRouter=ref(false)
 const showPublishedLibrary=ref(false)
-const publishedBusy=ref(false)
+const publishedInstruments=ref<PublishedInstrument[]>([])
+const catalogLoadError=ref('')
+async function refreshPublishedInstruments(){
+ try{
+  publishedInstruments.value=await loadPublishedLibrary()
+  catalogLoadError.value=''
+ }catch{
+  catalogLoadError.value='Không tải được danh sách nhạc cụ chung. Hãy thử mở lại trang.'
+ }
+}
 function openPublishedLibrary(){
  closeControlPanel()
  showPublishedLibrary.value=true
@@ -156,59 +165,31 @@ function setKontaktTrackName(id:number,name:string){
 const trackComposerPreviewOpen = ref(false)
 const instrumentPreviewTrackId = ref<number | null>(null)
 const newTrackName=ref('')
-type TrackInstrument=InstrumentPreset|LocalInstrumentId
+type CatalogInstrumentId=`library:${string}`
+type TrackInstrument=InstrumentPreset|LocalInstrumentId|CatalogInstrumentId
 const newTrackPreset=ref<TrackInstrument>('piano')
 const assignedTrackPresets=ref<Record<number,TrackInstrument>>({})
 const localSamples=ref<LocalSampleSpec[]>([])
 const localSampleBuffers=new Map<LocalInstrumentId,AudioBuffer>()
-// Asset URLs are part of the published MELORIX release, not temporary user uploads.
-const publishedWavCache=new Map<string,LocalInstrumentId>()
-const publishedWavIds=new Set<LocalInstrumentId>()
-async function choosePublishedInstrument(item:PublishedInstrument){
- if(item.format==='nki'){
-  showPublishedLibrary.value=false
-  openMidiConnector()
-  return
- }
- if(exporting.value||publishedBusy.value)return
- publishedBusy.value=true
- try{
-  let id=publishedWavCache.get(item.id)
-  if(!id){
-   const response=await fetch(publishedInstrumentUrl(item),{cache:'force-cache'})
-   if(!response.ok)throw new Error('Published sample missing: '+response.status)
-   const bytes=await response.arrayBuffer()
-   if(bytes.byteLength<44||bytes.byteLength>25*1024*1024)throw new Error('Invalid published WAV asset size')
-   const decoder=new OfflineAudioContext(1,1,44100)
-   const audio=await decoder.decodeAudioData(bytes)
-   if(!audio.length||audio.duration<.02)throw new Error('Empty published sample')
-   const spec=createLocalSampleSpec(nextLocalSample++,item.label+'.wav',item.rootMidi!)
-   id=spec.id
-   localSampleBuffers.set(id,audio)
-   publishedWavCache.set(item.id,id)
-   publishedWavIds.add(id)
-   localSamples.value=[...localSamples.value,{...spec,label:item.label}]
-  }
-  newTrackPreset.value=id
-  newTrackName.value=item.label
-  showPublishedLibrary.value=false
-  openTrackComposer()
- }catch(error){
-  console.error('Published instrument loading failed:',error)
-  uploadError.value='Không tải được mẫu WAV đã phát hành. Kiểm tra kết nối hoặc thử lại.'
- }finally{publishedBusy.value=false}
-}
-
+// A library NKI is a persistent catalog choice, not a browser-side WAV.
 const allInstruments=computed(()=>[
  ...INSTRUMENT_PRESETS.map(p=>({id:p.id,label:p.label})),
- ...localSamples.value.map(p=>({id:p.id,label:p.label+(publishedWavIds.has(p.id)?' (Thư viện chung)':' (Cá nhân)')}))
+ ...publishedInstruments.value.filter(p=>p.format==='nki').map(p=>({id:'library:'+p.id,label:p.label+' (Kontakt)'})),
+ ...localSamples.value.map(p=>({id:p.id,label:p.label+' (WAV riêng)'}))
 ])
+function isPublishedTrackInstrument(value:TrackInstrument):value is CatalogInstrumentId {
+ return value.startsWith('library:')
+}
 function trackPreset(id:number):TrackInstrument {return assignedTrackPresets.value[id]??'piano'}
 function availableInstrument(value:string):value is TrackInstrument{
- return isInstrumentPreset(value)||localSamples.value.some(p=>p.id===value)
+ return isInstrumentPreset(value)
+  ||localSamples.value.some(p=>p.id===value)
+  ||publishedInstruments.value.some(p=>p.format==='nki'&&'library:'+p.id===value)
 }
 function instrumentLabel(value:TrackInstrument):string {
- return isInstrumentPreset(value)?instrumentPreset(value).label:(localSamples.value.find(p=>p.id===value)?.label??'Mẫu WAV')
+ if(isInstrumentPreset(value))return instrumentPreset(value).label
+ if(isPublishedTrackInstrument(value))return publishedInstruments.value.find(p=>'library:'+p.id===value)?.label??'Nhạc cụ Kontakt'
+ return localSamples.value.find(p=>p.id===value)?.label??'Mẫu WAV'
 }
 const sampleImportOpen=ref(false)
 const sampleImportFile=ref<File|null>(null)
@@ -329,6 +310,7 @@ function assignTrackPreset(id:number,selection:TrackInstrument){
 function createInstrumentTrack(){
  if(exporting.value)return
  const selected=newTrackPreset.value
+ if(!availableInstrument(selected))return
  const builtIn=isInstrumentPreset(selected)?selected:'piano'
  const p=makeInstrumentTrack(midiParts.value,builtIn,newTrackName.value,TRACK_COLORS[midiParts.value.length%TRACK_COLORS.length])
  p.instrument=instrumentLabel(selected)
@@ -900,6 +882,7 @@ function stopSynthVoices(set:Set<SynthVoice>){
 function routedNote(ctx:AudioContext,midi:number,velocity:number,when:number,duration:number,
  preset:TrackInstrument,set:Set<SynthVoice>){
  let voice:SynthVoice
+ if(isPublishedTrackInstrument(preset))return // Kontakt handles audio; never fake NKI sound.
  if(isInstrumentPreset(preset))voice=playSynthVoice(ctx,midi,velocity,when,duration,preset)
  else{
   const one=localSamples.value.find(s=>s.id===preset)
@@ -1021,7 +1004,7 @@ async function startPianoAudition(midi: number) {
  stopChordAudition()
  stopPianoAudition()
  midiBridge.auditionStart([midi],trackMidiChannel(kontaktChannelForTrack(pianoRollTrackId.value??-1)))
- if(midiBridge.externalOnly)return
+ if(midiBridge.externalOnly||isPublishedTrackInstrument(trackPreset(pianoRollTrackId.value??-1)))return
  const request = auditionRequest
  try {
   const loading = initPiano()
@@ -1055,7 +1038,7 @@ async function startChordAudition(pitches:number[]){
  const request=chordRequest
  midiBridge.auditionStart(pitches,trackMidiChannel(kontaktChannelForTrack(pianoRollTrackId.value??-1)))
  chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
- if(midiBridge.externalOnly)return
+ if(midiBridge.externalOnly||isPublishedTrackInstrument(trackPreset(pianoRollTrackId.value??-1)))return
  try {
   const loading=initPiano()
   const earlyResume=audioCtx.value?.resume()
@@ -1624,6 +1607,7 @@ function onKeyDown(e: KeyboardEvent) {
 // ---- 生命周期 ----
 
 onMounted(() => {
+  void refreshPublishedInstruments()
   initPiano()
   rafId = requestAnimationFrame(loop)
   // 预加载默认背景
@@ -1780,16 +1764,17 @@ watch(() => currentTime.value, (t) => {
           <div class="mx-menu-caption">{{ midiParts.length }} track · {{ enabledPartCount }} đang bật</div>
         </div></details>
         <details name="melorix-main-menu"><summary>Nhạc cụ</summary><div class="mx-menu-pop" aria-label="Menu nhạc cụ">
-          <button type="button" @click="openTrackComposer"><i class="fas fa-plus mr-2"></i> Thêm track nhạc cụ</button>
-          <button type="button" @click="openPublishedLibrary"><i class="fas fa-book-open mr-2"></i> Thư viện nhạc cụ chung (đi kèm MELORIX)</button>
-          <button type="button" @click="openPersonalInstrumentImport"><i class="fas fa-file-audio mr-2"></i> Mẫu WAV riêng (không phải Kontakt)</button>
-          <button type="button" @click="openMidiConnector"><i class="fas fa-plug mr-2"></i> Dùng nhạc cụ .nki với Kontakt 8 thật</button>
-          <button type="button" @click="openKontaktRouter"><i class="fas fa-layer-group mr-2"></i> Quản lý nhiều track Kontakt</button>
-          <button type="button" @click="openKontaktAudioCapture"><i class="fas fa-microphone mr-2"></i> Thu / nhập âm thanh Kontakt (MP4)</button>
-          <button type="button" @click="openInstrumentTrackPanel()"><i class="fas fa-layer-group mr-2"></i> Chọn tiếng cho từng track</button>
-          <div class="mx-menu-caption">{{ localSamples.length }} mẫu WAV riêng · Đối với .nki: mở trực tiếp trong Kontakt 8 rồi điều khiển qua MIDI. Không cần chọn WAV trong MELORIX.</div>
+          <button type="button" @click="openTrackComposer"><i class="fas fa-plus mr-2"></i> Thêm track</button>
+          <button type="button" @click="openPublishedLibrary"><i class="fas fa-book-open mr-2"></i> Xem thư viện nhạc cụ</button>
         </div></details>
         <details name="melorix-main-menu"><summary>Công cụ</summary><div class="mx-menu-pop">
+          <div class="mx-menu-caption">Tùy chọn nâng cao</div>
+          <button type="button" @click="openPersonalInstrumentImport">Nhập mẫu WAV riêng</button>
+          <button type="button" @click="openMidiConnector">Kết nối MIDI / Kontakt 8</button>
+          <button type="button" @click="openKontaktRouter">Thiết lập kênh Kontakt</button>
+          <button type="button" @click="openKontaktAudioCapture">Thu / nhập âm thanh Kontakt (MP4)</button>
+          <button type="button" @click="openInstrumentTrackPanel()">Đổi tiếng của track</button>
+
           <button type="button" @click="showBgSettings = true">Hiệu ứng nốt rơi</button>
           <button type="button" @click="showPianoSettings = true">Bàn phím Piano</button>
           <button type="button" @click="toggleInspectorPanel">{{ isInspectorOpen ? 'Ẩn' : 'Mở' }} bảng chỉnh trực tiếp</button>
@@ -2202,7 +2187,7 @@ watch(() => currentTime.value, (t) => {
     </div> <!-- workspace -->
 
     <MelorixMidiConnector v-if="showMidiConnector" :playing="playState === 'playing'" @close="showMidiConnector = false" />
-    <MelorixPublishedLibrary v-if="showPublishedLibrary" :busy="publishedBusy" @close="showPublishedLibrary=false" @choose="choosePublishedInstrument" />
+    <MelorixPublishedLibrary v-if="showPublishedLibrary" @close="showPublishedLibrary=false" />
     <MelorixKontaktAudioCapture :key="captureSession" :open="showKontaktAudioCapture"
      :playing="playState === 'playing'" :busy="exporting" :can-play="notes.length > 0"
      @close="showKontaktAudioCapture=false" @audio-ready="setKontaktAudio"
@@ -2257,7 +2242,8 @@ watch(() => currentTime.value, (t) => {
             <button type="submit" :disabled="exporting"><i class="fas fa-plus"></i> Tạo và mở Piano Roll</button>
             <button type="button" @click="trackComposerPreviewOpen = false">Hủy</button>
           </div>
-          <p>Chọn tiếng có sẵn, WAV cá nhân hoặc Kontakt tương thích (cần WAV đi kèm).</p>
+          <p v-if="catalogLoadError" role="status">{{ catalogLoadError }}</p>
+          <p v-if="isPublishedTrackInstrument(newTrackPreset)">Track đã gắn nhạc cụ Kontakt. Để nghe tiếng NKI thật, Kontakt 8 cần đang nhận MIDI và có Samples của nhạc cụ.</p>
         </form>
 
             <form v-if="activeEditorPanel==='instrument' && instrumentPreviewTrackId!==null" class="mx-track-ui-preview mx-track-add-form mx-instrument-select-form" @submit.prevent="applyInstrumentSelection">
@@ -2276,7 +2262,7 @@ watch(() => currentTime.value, (t) => {
                 <button type="submit" :disabled="exporting">Áp dụng nhạc cụ</button>
                 <button type="button" @click="closeControlPanel">Hủy</button>
               </div>
-              <p>Thêm mẫu WAV hay thư viện .nki + Samples từ menu Nhạc cụ.</p>
+              <p v-if="isPublishedTrackInstrument(instrumentEditorPreset)">Track dùng nhạc cụ Kontakt đã chọn. Trình duyệt không tự chạy file NKI.</p>
             </form>
           </div>
         </section>
