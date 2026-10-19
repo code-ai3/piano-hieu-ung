@@ -218,6 +218,7 @@ const midiTestChannel=ref(1)
 const midiTestNote=ref(60)
 const midiStatus=ref('Chưa kết nối MIDI ngoài.')
 let midiAccessHandle:MidiAccessPort|null=null
+const midiPermissionGranted=ref(false)
 let selectedMidiOutput:MidiOutputPort|null=null
 let heldMidiKey:{port:MidiOutputPort;note:number;channel:number}|null=null
 let heldMidiChord:{port:MidiOutputPort;note:number;channel:number}[]=[]
@@ -250,17 +251,20 @@ async function requestWebMidiAccess(){
   requestMIDIAccess?:(options?:{sysex?:boolean})=>Promise<MidiAccessPort>
  }
  if(!browser.requestMIDIAccess){
+  midiPermissionGranted.value=false
   midiStatus.value='Trình duyệt không hỗ trợ Web MIDI. Hãy mở trên Chrome hoặc Edge của Windows.';return
  }
  midiPermissionBusy.value=true
  try{
   midiAccessHandle=await browser.requestMIDIAccess({sysex:false})
+  midiPermissionGranted.value=true
   midiAccessHandle.onstatechange=()=>refreshMidiPorts()
   refreshMidiPorts()
   midiStatus.value=midiPortOptions.value.length
    ?'Đã cấp quyền MIDI. Chọn cổng đầu ra bên dưới.'
    :'Đã cấp quyền nhưng chưa có cổng MIDI đầu ra. Cần tạo cổng ảo trên Windows ở giai đoạn 2.'
  }catch(error){
+  midiPermissionGranted.value=false
   console.warn('MIDI permission error:',error)
   midiStatus.value='Không được cấp quyền MIDI. Kiểm tra quyền trang web và thử lại.'
  }finally{midiPermissionBusy.value=false}
@@ -2219,12 +2223,12 @@ watch(() => currentTime.value, (t) => {
                 </button>
               </div>
               <label>Cổng MIDI đầu ra trên Windows
-                <select :value="midiSelectedId" :disabled="!midiAccessHandle || !midiPortOptions.length" aria-label="Chọn MIDI Output" @change="onMidiOutputChange">
+                <select :value="midiSelectedId" :disabled="!midiPermissionGranted || !midiPortOptions.length" aria-label="Chọn MIDI Output" @change="onMidiOutputChange">
                   <option value="">— Chọn cổng MIDI —</option>
                   <option v-for="port in midiPortOptions" :key="port.id" :value="port.id">{{ port.label }}</option>
                 </select>
               </label>
-              <p v-if="midiAccessHandle && !midiPortOptions.length">Chưa có cổng MIDI đầu ra. Giai đoạn 2 sẽ thiết lập cổng ảo trên Windows để Kontakt 8 nhận dữ liệu.</p>
+              <p v-if="midiPermissionGranted && !midiPortOptions.length">Chưa có cổng MIDI đầu ra. Giai đoạn 2 sẽ thiết lập cổng ảo trên Windows để Kontakt 8 nhận dữ liệu.</p>
               <div class="mx-midi-test-row">
                 <label>Nốt kiểm tra
                   <select v-model.number="midiTestNote" aria-label="Nốt MIDI kiểm tra" :disabled="!midiConnected">
