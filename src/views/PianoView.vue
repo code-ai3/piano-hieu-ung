@@ -131,9 +131,8 @@ const kontaktBusy=ref(false)
 const kontaktError=ref('')
 const kontaktReady=computed(()=>kontaktInspection.value?.supportedContainer===true&&kontaktImportCheck(kontaktRootMappings.value,kontaktWavFiles.value.length).ok)
 function openKontaktImporter(){
- isTrackPanelOpen.value=true
- if(window.innerWidth<=1000)isInspectorOpen.value=false
- sampleImportOpen.value=false;trackComposerPreviewOpen.value=false;kontaktOpen.value=true
+ closeControlPanel()
+ kontaktOpen.value=true
 }
 async function onKontaktNkiChoose(e:Event){
  const file=(e.target as HTMLInputElement).files?.[0]??null
@@ -205,11 +204,42 @@ const sampleImportName=ref('')
 const sampleImportError=ref('')
 const sampleImportBusy=ref(false)
 let nextLocalSample=1
+// Central instrument editor: one dialog, four existing workflows.
+const instrumentEditorPreset=ref<TrackInstrument>('piano')
+const activeEditorPanel=computed<'track'|'wav'|'kontakt'|'instrument'|null>(()=>{
+ if(kontaktOpen.value)return 'kontakt'
+ if(sampleImportOpen.value)return 'wav'
+ if(trackComposerPreviewOpen.value)return 'track'
+ if(instrumentPreviewTrackId.value!==null)return 'instrument'
+ return null
+})
+const isControlPanelOpen=computed(()=>activeEditorPanel.value!==null)
+const controlPanelTitle=computed(()=>({
+ track:'Thêm track nhạc cụ',wav:'Thêm nhạc cụ của tôi',
+ kontakt:'Nhập thư viện Kontakt',instrument:'Chọn nhạc cụ cho track'
+}[activeEditorPanel.value??'track']))
+const instrumentPanelRef=ref<HTMLElement|null>(null)
+function closeControlPanel(){
+ if(kontaktBusy.value||sampleImportBusy.value)return
+ kontaktOpen.value=false;sampleImportOpen.value=false
+ trackComposerPreviewOpen.value=false;instrumentPreviewTrackId.value=null
+}
+function changeInstrumentTarget(e:Event){
+ const id=Number((e.target as HTMLSelectElement).value)
+ if(!midiParts.value.some(p=>p.id===id))return
+ instrumentPreviewTrackId.value=id
+ instrumentEditorPreset.value=trackPreset(id)
+}
+function applyInstrumentSelection(){
+ const id=instrumentPreviewTrackId.value
+ if(id!==null)assignTrackPreset(id,instrumentEditorPreset.value)
+}
+watch(isControlPanelOpen,(open)=>{
+ if(open)void nextTick(()=>instrumentPanelRef.value?.focus({preventScroll:true}))
+})
 function openPersonalInstrumentImport(){
- isTrackPanelOpen.value=true
- if(window.innerWidth<=1000)isInspectorOpen.value=false
+ closeControlPanel()
  sampleImportOpen.value=true
- trackComposerPreviewOpen.value=false
 }
 function onPersonalWavChoose(e:Event){
  const input=e.target as HTMLInputElement
@@ -245,23 +275,26 @@ async function importPersonalWav(){
  }finally{sampleImportBusy.value=false}
 }
 function openTrackComposer(){
- isTrackPanelOpen.value=true
- if(window.innerWidth<=1000)isInspectorOpen.value=false
+ closeControlPanel()
  trackComposerPreviewOpen.value=true
 }
-function openInstrumentTrackPanel(){
- isTrackPanelOpen.value=true
- if(window.innerWidth<=1000)isInspectorOpen.value=false
+function openInstrumentTrackPanel(id?:number){
+ closeControlPanel()
+ const chosen=id??midiParts.value[0]?.id
+ if(chosen===undefined)return
+ instrumentPreviewTrackId.value=chosen
+ instrumentEditorPreset.value=trackPreset(chosen)
 }
 function toggleInstrumentPreview(id:number){
- instrumentPreviewTrackId.value=instrumentPreviewTrackId.value===id?null:id
+ if(activeEditorPanel.value==='instrument'&&instrumentPreviewTrackId.value===id)closeControlPanel()
+ else openInstrumentTrackPanel(id)
 }
 function toggleTrackComposerPreview(){
- trackComposerPreviewOpen.value=!trackComposerPreviewOpen.value
+ if(activeEditorPanel.value==='track')closeControlPanel()
+ else openTrackComposer()
 }
-function assignTrackPreset(id:number,e:Event){
+function assignTrackPreset(id:number,selection:TrackInstrument){
  if(exporting.value)return
- const selection=(e.target as HTMLSelectElement).value
  if(!availableInstrument(selection))return
  const part=midiParts.value.find(p=>p.id===id)
  if(!part)return
@@ -271,7 +304,7 @@ function assignTrackPreset(id:number,e:Event){
  part.instrument=instrumentLabel(selection)
  lastScheduledIdx=0
  playState.value='idle'
- instrumentPreviewTrackId.value=null
+ closeControlPanel()
 }
 function createInstrumentTrack(){
  if(exporting.value)return
@@ -1432,6 +1465,12 @@ function loop() {
 let lastFrameTime = performance.now()
 
 function onKeyDown(e: KeyboardEvent) {
+  if(e.key==='Escape'&&isControlPanelOpen.value){
+   closeControlPanel()
+   e.preventDefault()
+   return
+  }
+  if(isControlPanelOpen.value)return
   if (e.key === 'Escape') {
     const menuWasOpen = Array.from(menuBarRef.value?.querySelectorAll<HTMLDetailsElement>('details') ?? [])
       .some(menu => menu.open)
