@@ -26,6 +26,7 @@ import { INSTRUMENT_PRESETS, instrumentPreset, isInstrumentPreset, makeInstrumen
 import type { InstrumentPreset, SynthVoice } from '@/util/melorix-instruments'
 import { createLocalSampleSpec, validLocalWavFile, samplePitchRate } from '@/util/melorix-local-wav'
 import { ErhuWebSampler } from '@/util/melorix-erhu-web-sampler'
+import {GmWebAudio,gmVoiceForTrack} from '@/util/melorix-gm-audio'
 import type { LocalInstrumentId, LocalSampleSpec } from '@/util/melorix-local-wav'
 import { midiBridge } from '@/util/melorix-midi-bridge'
 import { trackMidiChannel } from '@/util/melorix-web-midi'
@@ -170,6 +171,61 @@ type CatalogInstrumentId=`library:${string}`
 type TrackInstrument=InstrumentPreset|LocalInstrumentId|CatalogInstrumentId
 const newTrackPreset=ref<TrackInstrument>('piano')
 const assignedTrackPresets=ref<Record<number,TrackInstrument>>({})
+const importedMidiPrograms=ref<Record<number,number>>({})
+let gmEngine:GmWebAudio|null=null
+const gmAudioNotice=ref('')
+function gmVoiceForId(trackId:number){
+ const part=midiParts.value.find(p=>p.id===trackId)
+ const choice=assignedTrackPresets.value[trackId]
+ return gmVoiceForTrack({
+  program:importedMidiPrograms.value[trackId],
+  channel:part?.channel,
+  name:part?.name,
+  instrument:part?.instrument,
+  libraryId:choice?.startsWith('library:')?choice.slice(8):undefined
+ })
+}
+function getGmEngine(ctx:AudioContext):GmWebAudio{
+ if(!gmEngine)gmEngine=new GmWebAudio(ctx)
+ return gmEngine
+}
+function playGmVoice(ctx:AudioContext,trackId:number,midi:number,velocity:number,when:number,duration:number,voices:Set<SynthVoice>){
+ const engine=getGmEngine(ctx)
+ const voice=engine.play(gmVoiceForId(trackId),midi,velocity,when,duration)
+ voices.add(voice)
+}
+async function prepareAudioContext():Promise<AudioContext>{
+ const ctx=audioCtx.value??new AudioContext()
+ audioCtx.value=ctx
+ await ctx.resume()
+ return ctx
+}
+function preloadGmForEnabledTracks(){
+ const ctx=audioCtx.value
+ if(!ctx)return
+ const engine=getGmEngine(ctx)
+ for(const part of midiParts.value){
+  if(!part.enabled)continue
+  const choice=assignedTrackPresets.value[part.id]
+  if(choice===undefined || choice.startsWith('library:'))engine.preload(gmVoiceForId(part.id))
+ }
+}
+function playTrackVoice(ctx:AudioContext,trackId:number,midi:number,velocity:number,when:number,duration:number,voices:Set<SynthVoice>,stopId?:string){
+ const preset=trackPreset(trackId)
+ const chosen=assignedTrackPresets.value[trackId]
+ if(chosen===undefined || (isPublishedTrackInstrument(preset) && !(preset==='library:erhu-hmoob-nplog' && erhuWebSampler.ready))){
+  playGmVoice(ctx,trackId,midi,velocity,when,duration,voices)
+  return
+ }
+ if(preset==='piano' && piano && pianoLoaded.value){
+  piano.start({note:midiNoteName(midi),velocity,time:when,duration,stopId})
+ }else if(preset==='piano'){
+  playGmVoice(ctx,trackId,midi,velocity,when,duration,voices)
+ }else{
+  routedNote(ctx,midi,velocity,when,duration,preset,voices)
+ }
+}
+
 const localSamples=ref<LocalSampleSpec[]>([])
 const localSampleBuffers=new Map<LocalInstrumentId,AudioBuffer>()
 
@@ -728,7 +784,7 @@ async function initPiano() {
   if (initPianoPromise) { await initPianoPromise; return }
   if (piano) return
   initPianoPromise = (async () => {
-    const ctx = new AudioContext()
+    const ctx = audioCtx.value??new AudioContext()
     // 自定义 storage：修复文件名中 # 被浏览器当 hash 截断的问题
     const safeStorage = { fetch: (url: string) => fetch(url.replace('#', '%23')) }
     piano = SplendidGrandPiano(ctx, {
@@ -791,6 +847,8 @@ function processMidi(midi: Midi) {
   midiBridge.stopAll()
   pianoRollTrackId.value = null
   assignedTrackPresets.value={}
+  importedMidiPrograms.value=Object.fromEntries(midi.tracks.map((track,index)=>[index,
+   typeof track.instrument?.number==='number'?track.instrument.number:0]))
   instrumentPreviewTrackId.value=null
   trackComposerPreviewOpen.value=false
   midiTempo.value = midi.header.tempos[0]?.bpm || 120
