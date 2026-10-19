@@ -17,6 +17,7 @@ import MelorixMidiConnector from '@/components/MelorixMidiConnector.vue'
 import MelorixKontaktTrackRouter from '@/components/MelorixKontaktTrackRouter.vue'
 import MelorixKontaktAudioCapture from '@/components/MelorixKontaktAudioCapture.vue'
 import { alignKontaktAudio } from '@/util/melorix-kontakt-audio'
+import { mergeOverlappingMidiNotes } from '@/util/melorix-midi-overlap'
 import { midiNoteName } from '@/util/midi-edit'
 import { INSTRUMENT_PRESETS, instrumentPreset, isInstrumentPreset, makeInstrumentTrack, playSynthVoice } from '@/util/melorix-instruments'
 import type { InstrumentPreset, SynthVoice } from '@/util/melorix-instruments'
@@ -507,12 +508,16 @@ function setKontaktAudio(audio:AudioBuffer|null,name:string){
  kontaktAudioOffset.value=0
 }
 function startKontaktAudioPlayback(){
- if(exporting.value || !notes.value.length){
-  uploadError.value='Cần có track MIDI để tự phát trong khi thu âm Kontakt.'
+ if(exporting.value||!notes.value.length||!midiBridge.connected||
+    !midiBridge.playbackEnabled||!midiBridge.externalOnly){
+  uploadError.value='Hãy kết nối MELORIX-KONTAKT và bật Chỉ nghe Kontakt trước khi thu trực tiếp.'
   return
  }
  stop()
  void play()
+}
+function stopKontaktAudioPlayback(){
+ if(playState.value==='playing')pause()
 }
 const showExport = ref(false)
 const exporting = ref(false)
@@ -563,6 +568,9 @@ async function exportVideo() {
     // Web MIDI carries no audio; captured/imported audio is decoded separately.
     let audioBuf: AudioBuffer
     if(useKontaktAudio.value&&kontaktAudioBuffer.value){
+      if(!Number.isFinite(kontaktAudioOffset.value)||Math.abs(kontaktAudioOffset.value)>300){
+        throw new Error('Kontakt audio sync offset must be between -300 and 300 seconds')
+      }
       audioBuf=alignKontaktAudio(kontaktAudioBuffer.value,exportSeconds,kontaktAudioOffset.value)
     }else{
       const result = await renderOffline(async (ctx) => {
@@ -780,6 +788,7 @@ function updateNoteRange() {
   noteRange.value = { min: Math.max(21, min - 12), max: Math.min(108, max + 12) }
 }
 function processMidi(midi: Midi) {
+  playRequest++
   // A soundtrack belongs to the current MIDI timeline; never reuse on a new song.
   if(kontaktAudioBuffer.value){
     setKontaktAudio(null,'')
@@ -844,6 +853,7 @@ function beginPianoRollResize(e: PointerEvent) {
   window.addEventListener('pointerup',stop)
 }
 function resetAfterTrackChange() {
+  playRequest++
   // Stop pending MIDI as well as Web Audio when switching track mixes.
   midiBridge.stopAll()
   stopSynthVoices(synthScheduledVoices)
@@ -941,6 +951,13 @@ function routedNote(ctx:AudioContext,midi:number,velocity:number,when:number,dur
  if(set.size>2400){for(const stale of Array.from(set).slice(0,set.size-2200))set.delete(stale)}
 }
 
+const midiPlaybackPlan=computed(()=>mergeOverlappingMidiNotes(notes.value.map(n=>({
+ note:n.midi,
+ velocity:n.velocity*127,
+ channel:trackMidiChannel(kontaktChannelForTrack(n.trackId)),
+ start:n.time,
+ duration:n.duration,
+}))))
 function scheduleAll() {
   const ctx = audioCtx.value
   const onlyKontakt = midiBridge.externalOnly
@@ -958,25 +975,41 @@ function scheduleAll() {
       if(preset==='piano')piano.start({note:n.name,velocity:n.velocity*127,time:t})
       else routedNote(ctx,n.midi,n.velocity*127,t,n.duration*speed.value,preset,synthScheduledVoices)
     }
-    const part=midiParts.value.find(p=>p.id===n.trackId)
-    if(part?.enabled&&!exporting.value)midiBridge.schedule(n.midi,n.velocity*127,
-      trackMidiChannel(kontaktChannelForTrack(n.trackId)),Math.max(0,delay),Math.max(.05,n.duration*speed.value),midiClockMs)
+  }
+  // Merge overlapping notes sharing a MIDI pitch/channel so their Note Off
+  // messages cannot prematurely silence one another.
+  if(!exporting.value){
+   for(const event of midiPlaybackPlan.value){
+    if(event.start<targetTime-0.02)continue
+    midiBridge.schedule(event.note,event.velocity,event.channel,
+     Math.max(0,(event.start-targetTime)*speed.value),
+     Math.max(.05,event.duration*speed.value),midiClockMs)
+   }
   }
 }
 
 // ---- 播放控制 ----
+let playRequest=0
 async function play() {
   if (!notes.value.length || pianoLoading) return
   if (playState.value === 'playing') return
   pianoLoading = true
+  const request=++playRequest
   try {
     if(!midiBridge.externalOnly){
       await initPiano()
       await audioCtx.value?.resume()
     }
+    if(request!==playRequest)return
     lastScheduledIdx = 0; lastFrameTime = performance.now()
     scheduleAll()
     playState.value = 'playing'
+  } catch(error){
+    if(request!==playRequest)return
+    console.error('MELORIX playback failed:',error)
+    midiBridge.stopAll()
+    playState.value='idle'
+    uploadError.value='Không thể bắt đầu phát nhạc. Hãy kiểm tra âm thanh và cổng MIDI.'
   } finally { pianoLoading = false }
 }
 
@@ -990,11 +1023,12 @@ function resetPiano() {
   pianoLoaded.value = false; initPianoPromise = null
 }
 
-function pause() { midiBridge.stopAll(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
+function pause() { playRequest++; midiBridge.stopAll(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
 function stop() {
+  playRequest++
   playState.value = 'idle'; currentTime.value = 0
   lastScheduledIdx = 0; pianoLoading = false
-  resetPiano(); initPiano()
+  resetPiano(); if(!midiBridge.externalOnly)void initPiano().catch(e=>console.warn('Piano preload:',e))
 }
 function togglePlay() { playState.value === 'playing' ? pause() : play() }
 
@@ -2187,8 +2221,9 @@ watch(() => currentTime.value, (t) => {
 
     <MelorixMidiConnector v-if="showMidiConnector" :playing="playState === 'playing'" @close="showMidiConnector = false" />
     <MelorixKontaktAudioCapture :key="captureSession" :open="showKontaktAudioCapture"
-     :playing="playState === 'playing'" :busy="exporting" @close="showKontaktAudioCapture=false"
-     @audio-ready="setKontaktAudio" @record-started="startKontaktAudioPlayback" />
+     :playing="playState === 'playing'" :busy="exporting" :can-play="notes.length > 0"
+     @close="showKontaktAudioCapture=false" @audio-ready="setKontaktAudio"
+     @record-started="startKontaktAudioPlayback" @record-stopped="stopKontaktAudioPlayback" />
     <MelorixKontaktTrackRouter v-if="showKontaktRouter" :parts="midiParts" :routes="kontaktTrackChannels"
      :labels="kontaktTrackNames" :playing="playState === 'playing'"
      @close="showKontaktRouter=false" @auto="autoAssignKontaktTracks" @channel="setKontaktTrackChannel" @label="setKontaktTrackName" />
