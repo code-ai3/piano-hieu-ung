@@ -290,6 +290,20 @@ function disconnectWebMidi(){
  midiPlayEnabled.value=false
  midiStatus.value='Đã ngắt kết nối MIDI ngoài.'
 }
+function releaseMidiKey(){
+ const held=heldMidiKey
+ heldMidiKey=null
+ if(held)try{held.port.send(midiNoteOff(held.note,held.channel))}catch(error){console.warn('MIDI key release failed:',error)}
+}
+function releaseMidiChord(){
+ const notes=heldMidiChord
+ heldMidiChord=[]
+ for(const item of notes)try{item.port.send(midiNoteOff(item.note,item.channel))}catch(error){console.warn('MIDI chord release failed:',error)}
+}
+function midiTrackChannel(id:number|null):number{
+ const part=midiParts.value.find(p=>p.id===id)
+ return trackMidiChannel(part?.channel??1)
+}
 function sendMidiTestNote(){
  const port=selectedMidiOutput
  if(!port||exporting.value)return
@@ -335,6 +349,7 @@ function applyInstrumentSelection(){
  const id=instrumentPreviewTrackId.value
  if(id!==null)assignTrackPreset(id,instrumentEditorPreset.value)
 }
+watch(midiPlayEnabled,(enabled)=>{if(!enabled)stopExternalMidi()})
 watch(isControlPanelOpen,(open)=>{
  if(open)void nextTick(()=>instrumentPanelRef.value?.focus({preventScroll:true}))
 })
@@ -859,7 +874,8 @@ function beginPianoRollResize(e: PointerEvent) {
   window.addEventListener('pointerup',stop)
 }
 function resetAfterTrackChange() {
-  // Audio is scheduled ahead of time; stop that schedule before changing a track mix.
+  // Stop pending Web MIDI messages before changing track mix.
+  stopExternalMidi()
   stopSynthVoices(synthScheduledVoices)
   piano?.stop()
   playState.value = 'idle'
@@ -967,6 +983,17 @@ function scheduleAll() {
     const preset=trackPreset(n.trackId)
     if(preset==='piano')piano.start({note:n.name,velocity:n.velocity*127,time:t})
     else routedNote(ctx,n.midi,n.velocity*127,t,n.duration*speed.value,preset,synthScheduledVoices)
+    if(midiPlayEnabled.value&&selectedMidiOutput&&!exporting.value){
+      try{
+        const part=midiParts.value.find(p=>p.id===n.trackId)
+        if(part?.enabled)sendMidiNote(selectedMidiOutput,n.midi,n.velocity*127,trackMidiChannel(part.channel),
+          performance.now()+Math.max(0,delay)*1000,Math.max(50,n.duration*speed.value*1000))
+      }catch(error){
+        console.warn('External MIDI song output failed:',error)
+        midiStatus.value='Không gửi được MIDI khi Play. Kiểm tra cổng MIDI.'
+        midiPlayEnabled.value=false
+      }
+    }
   }
 }
 
@@ -985,6 +1012,7 @@ async function play() {
 }
 
 function resetPiano() {
+  stopExternalMidi()
   stopPianoAudition()
   stopChordAudition()
   stopSynthVoices(synthScheduledVoices)
@@ -993,7 +1021,7 @@ function resetPiano() {
   pianoLoaded.value = false; initPianoPromise = null
 }
 
-function pause() { stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
+function pause() { stopExternalMidi(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
 function stop() {
   playState.value = 'idle'; currentTime.value = 0
   lastScheduledIdx = 0; pianoLoading = false
@@ -1004,6 +1032,7 @@ function togglePlay() { playState.value === 'playing' ? pause() : play() }
 const AUDITION_STOP_ID = 'melorix-editor-key'
 let auditionRequest = 0
 function stopPianoAudition() {
+ releaseMidiKey()
  auditionRequest++
  stopSynthVoices(synthKeyVoices)
  piano?.stop(AUDITION_STOP_ID)
@@ -1012,6 +1041,14 @@ async function startPianoAudition(midi: number) {
  if(exporting.value) return
  stopChordAudition()
  stopPianoAudition()
+ const port=selectedMidiOutput
+ if(port){
+  const channel=midiTrackChannel(pianoRollTrackId.value)
+  try{
+   port.send(midiNoteOn(midi,95,channel))
+   heldMidiKey={port,note:midi,channel}
+  }catch(error){midiStatus.value='Gửi nốt MIDI thất bại. Kiểm tra cổng đầu ra.'}
+ }
  const request = auditionRequest
  try {
   const loading = initPiano()
@@ -1033,6 +1070,7 @@ let chordRequest=0
 let chordStopTimer:ReturnType<typeof setTimeout>|null=null
 function stopChordAudition(){
  chordRequest++
+ releaseMidiChord()
  stopSynthVoices(synthChordVoices)
  if(chordStopTimer!==null){clearTimeout(chordStopTimer);chordStopTimer=null}
  piano?.stop(CHORD_STOP_ID)
@@ -1042,6 +1080,17 @@ async function startChordAudition(pitches:number[]){
  stopChordAudition()
  stopPianoAudition()
  const request=chordRequest
+ const port=selectedMidiOutput
+ if(port){
+  const channel=midiTrackChannel(pianoRollTrackId.value)
+  try{
+   for(const pitch of pitches){
+    port.send(midiNoteOn(pitch,95,channel))
+    heldMidiChord.push({port,note:pitch,channel})
+   }
+   chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
+  }catch(error){midiStatus.value='Gửi hợp âm MIDI thất bại.';releaseMidiChord()}
+ }
  try {
   const loading=initPiano()
   const earlyResume=audioCtx.value?.resume()
@@ -1055,7 +1104,7 @@ async function startChordAudition(pitches:number[]){
    if(preset==='piano')piano.start({note:midiNoteName(pitch),velocity:95,stopId:CHORD_STOP_ID})
    else if(audioCtx.value)routedNote(audioCtx.value,pitch,95,audioCtx.value.currentTime+.003,1.2,preset,synthChordVoices)
   }
-  chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
+  if(chordStopTimer===null)chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
  }catch(error){console.error('Chord audition failed:',error)}
 }
 
@@ -1555,7 +1604,7 @@ function loop() {
   if (playState.value === 'playing') {
     currentTime.value += (performance.now() - lastFrameTime) / 1000
     if (currentTime.value >= duration.value) {
-      if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; stopSynthVoices(synthScheduledVoices); piano?.stop(); scheduleAll() }
+      if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; stopExternalMidi(); stopSynthVoices(synthScheduledVoices); piano?.stop(); scheduleAll() }
       else { nextTrack() }
     }
   }
@@ -1606,6 +1655,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  stopExternalMidi()
+  if(midiAccessHandle)midiAccessHandle.onstatechange=null
   document.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('pointerdown', onDocumentPointerDown)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
