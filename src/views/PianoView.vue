@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, shallowRef, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Midi } from '@tonejs/midi'
 import { extractMidiParts, filterMidiParts, TRACK_COLORS } from '@/util/midi-tracks'
 import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
@@ -15,6 +15,8 @@ import Modal from '@/components/Model.vue'
 import MelorixPianoRoll from '@/components/MelorixPianoRoll.vue'
 import MelorixMidiConnector from '@/components/MelorixMidiConnector.vue'
 import MelorixKontaktTrackRouter from '@/components/MelorixKontaktTrackRouter.vue'
+import MelorixKontaktAudioCapture from '@/components/MelorixKontaktAudioCapture.vue'
+import { alignKontaktAudio } from '@/util/melorix-kontakt-audio'
 import { midiNoteName } from '@/util/midi-edit'
 import { INSTRUMENT_PRESETS, instrumentPreset, isInstrumentPreset, makeInstrumentTrack, playSynthVoice } from '@/util/melorix-instruments'
 import type { InstrumentPreset, SynthVoice } from '@/util/melorix-instruments'
@@ -258,6 +260,7 @@ function openMidiConnector(){
 function closeControlPanel(){
  showMidiConnector.value=false
  showKontaktRouter.value=false
+ showKontaktAudioCapture.value=false
  if(kontaktBusy.value||sampleImportBusy.value)return
  kontaktOpen.value=false;sampleImportOpen.value=false
  trackComposerPreviewOpen.value=false;instrumentPreviewTrackId.value=null
@@ -486,6 +489,31 @@ const pianoOpacity = ref(70)
 const dividerSize = ref(1)
 const showOtherSettings = ref(false)
 const hideControlsInFullscreen = ref(false)
+const showKontaktAudioCapture=ref(false)
+const kontaktAudioBuffer=shallowRef<AudioBuffer|null>(null)
+const kontaktAudioName=ref('')
+const useKontaktAudio=ref(false)
+const kontaktAudioOffset=ref(0)
+const captureSession=ref(0)
+function openKontaktAudioCapture(){
+ closeControlPanel()
+ showExport.value=false
+ showKontaktAudioCapture.value=true
+}
+function setKontaktAudio(audio:AudioBuffer|null,name:string){
+ kontaktAudioBuffer.value=audio
+ kontaktAudioName.value=audio?name:''
+ useKontaktAudio.value=!!audio
+ kontaktAudioOffset.value=0
+}
+function startKontaktAudioPlayback(){
+ if(exporting.value || !notes.value.length){
+  uploadError.value='Cần có track MIDI để tự phát trong khi thu âm Kontakt.'
+  return
+ }
+ stop()
+ void play()
+}
 const showExport = ref(false)
 const exporting = ref(false)
 
@@ -531,20 +559,26 @@ async function exportVideo() {
       }
     }
 
-    // 音频：smplr renderOffline（fetch 拦截后走本地采样）
-    const result = await renderOffline(async (ctx) => {
-      const safeStorage = { fetch: (url: string) => fetch(url.replace('#', '%23')) }
-      const offPiano = SplendidGrandPiano(ctx, {
-        volume: 100, baseUrl: '/samples/sfzinstruments-splendid-grand-piano/samples',
-        storage: safeStorage as any,
-        scheduler: { schedule(e: any, cb: any) { cb(e); return () => {} }, stop() {} },
-      } as any)
-      await offPiano.load
-      for (const n of notes.value) {
-        offPiano.start({ note: n.name, velocity: n.velocity * 127, time: n.time })
-      }
-    }, { duration: exportSeconds })
-    const audioBuf = result.audioBuffer
+    // The real Kontakt soundtrack replaces the internal piano only if selected.
+    // Web MIDI carries no audio; captured/imported audio is decoded separately.
+    let audioBuf: AudioBuffer
+    if(useKontaktAudio.value&&kontaktAudioBuffer.value){
+      audioBuf=alignKontaktAudio(kontaktAudioBuffer.value,exportSeconds,kontaktAudioOffset.value)
+    }else{
+      const result = await renderOffline(async (ctx) => {
+        const safeStorage = { fetch: (url: string) => fetch(url.replace('#', '%23')) }
+        const offPiano = SplendidGrandPiano(ctx, {
+          volume: 100, baseUrl: '/samples/sfzinstruments-splendid-grand-piano/samples',
+          storage: safeStorage as any,
+          scheduler: { schedule(e: any, cb: any) { cb(e); return () => {} }, stop() {} },
+        } as any)
+        await offPiano.load
+        for (const n of notes.value) {
+          offPiano.start({ note: n.name, velocity: n.velocity * 127, time: n.time })
+        }
+      }, { duration: exportSeconds })
+      audioBuf=result.audioBuffer
+    }
 
     // mediabunny output：流式写盘用 StreamTarget，否则用 BufferTarget
     const target: any = fileWriter
@@ -746,6 +780,11 @@ function updateNoteRange() {
   noteRange.value = { min: Math.max(21, min - 12), max: Math.min(108, max + 12) }
 }
 function processMidi(midi: Midi) {
+  // A soundtrack belongs to the current MIDI timeline; never reuse on a new song.
+  if(kontaktAudioBuffer.value){
+    setKontaktAudio(null,'')
+    captureSession.value++
+  }
   kontaktTrackChannels.value={}
   kontaktTrackNames.value={}
   showKontaktRouter.value=false
@@ -1531,6 +1570,12 @@ function loop() {
 let lastFrameTime = performance.now()
 
 function onKeyDown(e: KeyboardEvent) {
+  if(e.key==='Escape'&&showKontaktAudioCapture.value){
+    showKontaktAudioCapture.value=false
+    e.preventDefault()
+    return
+  }
+  if(showKontaktAudioCapture.value)return
   if(e.key==='Escape'&&showKontaktRouter.value){
     showKontaktRouter.value=false
     e.preventDefault()
@@ -1724,6 +1769,7 @@ watch(() => currentTime.value, (t) => {
           <button type="button" @click="openKontaktImporter"><i class="fas fa-folder-open mr-2"></i> NKI + WAV (chế độ tương thích cũ)</button>
           <button type="button" @click="openMidiConnector"><i class="fas fa-plug mr-2"></i> Kết nối Kontakt 8 thật (Windows)</button>
           <button type="button" @click="openKontaktRouter"><i class="fas fa-layer-group mr-2"></i> Quản lý nhiều track Kontakt</button>
+          <button type="button" @click="openKontaktAudioCapture"><i class="fas fa-microphone mr-2"></i> Thu / nhập âm thanh Kontakt (MP4)</button>
           <button type="button" @click="openInstrumentTrackPanel()"><i class="fas fa-layer-group mr-2"></i> Chọn tiếng cho từng track</button>
           <div class="mx-menu-caption">{{ localSamples.length }} nhạc cụ cá nhân · Kontakt 8 thật nhận MIDI qua loopMIDI; chế độ NKI + WAV là bản tương thích cũ.</div>
         </div></details>
@@ -1999,6 +2045,19 @@ watch(() => currentTime.value, (t) => {
             </select>
             <span class="text-xs opacity-65">{{ t('piano.exportDurationHint', { seconds: Math.ceil(selectedExportSeconds) }) }}</span>
           </label>
+          <div class="mx-kontakt-export-options">
+            <label v-if="kontaktAudioBuffer" class="mx-kontakt-export-select">
+              <input type="checkbox" v-model="useKontaktAudio">
+              <span>Dùng âm thanh Kontakt thật: <strong>{{ kontaktAudioName }}</strong> (thay tiếng piano mặc định)</span>
+            </label>
+            <label v-if="kontaktAudioBuffer && useKontaktAudio" class="mx-kontakt-export-offset">
+              Độ lệch tiếng so với video (giây)
+              <input v-model.number="kontaktAudioOffset" type="number" step="0.1" min="-300" max="300" aria-label="Độ lệch âm thanh Kontakt (giây)">
+              <small>+ làm tiếng bắt đầu trễ; − cắt đoạn đầu âm thanh thu. Thường để 0 nếu đã thu từ lúc MELORIX phát bài.</small>
+            </label>
+            <p v-if="!kontaktAudioBuffer">Chưa có bản thu Kontakt. MP4 hiện sẽ dùng piano mặc định.</p>
+            <button type="button" @click="openKontaktAudioCapture">{{ kontaktAudioBuffer ? 'Thay / nghe lại bản thu Kontakt' : 'Thu hoặc nhập âm thanh Kontakt' }}</button>
+          </div>
           <p class="text-xs text-black/60 dark:text-white/60 m-0">{{ t('piano.exportHint') }}</p>
           <Btn @click="exportVideo" type="primary">
             <i class="fas fa-download"></i>
@@ -2127,6 +2186,9 @@ watch(() => currentTime.value, (t) => {
     </div> <!-- workspace -->
 
     <MelorixMidiConnector v-if="showMidiConnector" :playing="playState === 'playing'" @close="showMidiConnector = false" />
+    <MelorixKontaktAudioCapture :key="captureSession" :open="showKontaktAudioCapture"
+     :playing="playState === 'playing'" :busy="exporting" @close="showKontaktAudioCapture=false"
+     @audio-ready="setKontaktAudio" @record-started="startKontaktAudioPlayback" />
     <MelorixKontaktTrackRouter v-if="showKontaktRouter" :parts="midiParts" :routes="kontaktTrackChannels"
      :labels="kontaktTrackNames" :playing="playState === 'playing'"
      @close="showKontaktRouter=false" @auto="autoAssignKontaktTracks" @channel="setKontaktTrackChannel" @label="setKontaktTrackName" />

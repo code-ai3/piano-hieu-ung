@@ -499,3 +499,29 @@ html, body, #app { width:100%; height:100%; min-height:0; overflow:hidden; overs
 .mx-kontakt-router-tools select{background:#101b29;color:#e9f3ff;border:1px solid #637689;border-radius:5px;padding:7px;min-height:36px}
 .mx-kontakt-router-tools button{background:#744a30;color:#fce3c1;border:1px solid #aa7955;border-radius:6px;padding:8px 12px;cursor:pointer}
 .mx-kontakt-router-tools button:disabled{opacity:.5;cursor:not-allowed}
+
+
+/* Giai đoạn 4: thu âm Kontakt và soundtrack cho MP4 */
+.mx-kontakt-capture-dialog{width:min(750px,100%);max-height:min(88dvh,920px)}
+.mx-kontakt-capture-body{display:flex;flex-direction:column;gap:12px;font-size:13px;line-height:1.6}
+.mx-kontakt-capture-body p{margin:0}
+.mx-kontakt-capture-actions{display:flex;flex-wrap:wrap;gap:10px}
+.mx-kontakt-capture-actions button,.mx-kontakt-capture-body>.mx-track-form-actions button{border-radius:7px;padding:10px 14px;background:#375d74;border:1px solid #7cb8d3;color:#effbff;cursor:pointer}
+.mx-kontakt-capture-actions button.mx-kontakt-stop{background:#754532;border-color:#e6ab78}
+.mx-kontakt-capture-actions button:disabled{opacity:.5;cursor:not-allowed}
+.mx-kontakt-capture-note{font-size:12px;background:rgba(221,166,86,.10);border-left:3px solid #e0a857;padding:8px 10px;border-radius:4px}
+.mx-kontakt-capture-upload{display:flex;flex-direction:column;gap:6px}
+.mx-kontakt-capture-upload input{min-width:0;max-width:100%;font-size:12px}
+.mx-kontakt-capture-status{color:#74ddc2}
+.mx-kontakt-audio-preview{display:flex;flex-direction:column;gap:9px;border:1px solid #617b86;border-radius:9px;padding:12px}
+.mx-kontakt-audio-preview audio{width:100%}
+.mx-kontakt-audio-preview a{text-decoration:underline;color:#64c5f0}
+.mx-kontakt-audio-preview button{align-self:start;border:1px solid #9a8d7d;border-radius:5px;padding:7px 10px}
+.mx-kontakt-export-options{display:flex;flex-direction:column;gap:10px;border:1px solid rgba(120,130,145,.45);border-radius:10px;padding:12px;font-size:12px}
+.mx-kontakt-export-select{display:flex;align-items:center;gap:8px}
+.mx-kontakt-export-select input{width:16px;height:16px;flex-shrink:0}
+.mx-kontakt-export-offset{display:flex;flex-direction:column;gap:5px}
+.mx-kontakt-export-offset input{padding:7px;max-width:140px;border:1px solid #7c8795;border-radius:6px;background:transparent;color:inherit}
+.mx-kontakt-export-offset small{font-size:11px;opacity:.8}
+.mx-kontakt-export-options>p{margin:0;opacity:.75}
+.mx-kontakt-export-options>button{padding:9px 12px;border-radius:8px;border:1px solid #7e94ae;text-align:left}
