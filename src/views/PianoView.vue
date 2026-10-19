@@ -767,7 +767,8 @@ function beginPianoRollResize(e: PointerEvent) {
   window.addEventListener('pointerup',stop)
 }
 function resetAfterTrackChange() {
-  // Audio is scheduled ahead of time; stop that schedule before changing a track mix.
+  // Stop pending MIDI as well as Web Audio when switching track mixes.
+  midiBridge.stopAll()
   stopSynthVoices(synthScheduledVoices)
   piano?.stop()
   playState.value = 'idle'
@@ -875,6 +876,9 @@ function scheduleAll() {
     const preset=trackPreset(n.trackId)
     if(preset==='piano')piano.start({note:n.name,velocity:n.velocity*127,time:t})
     else routedNote(ctx,n.midi,n.velocity*127,t,n.duration*speed.value,preset,synthScheduledVoices)
+    const part=midiParts.value.find(p=>p.id===n.trackId)
+    if(part?.enabled&&!exporting.value)midiBridge.schedule(n.midi,n.velocity*127,
+      trackMidiChannel(part.channel),Math.max(0,delay),Math.max(.05,n.duration*speed.value))
   }
 }
 
@@ -893,6 +897,7 @@ async function play() {
 }
 
 function resetPiano() {
+  midiBridge.stopAll()
   stopPianoAudition()
   stopChordAudition()
   stopSynthVoices(synthScheduledVoices)
@@ -901,7 +906,7 @@ function resetPiano() {
   pianoLoaded.value = false; initPianoPromise = null
 }
 
-function pause() { stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
+function pause() { midiBridge.stopAll(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
 function stop() {
   playState.value = 'idle'; currentTime.value = 0
   lastScheduledIdx = 0; pianoLoading = false
@@ -912,6 +917,7 @@ function togglePlay() { playState.value === 'playing' ? pause() : play() }
 const AUDITION_STOP_ID = 'melorix-editor-key'
 let auditionRequest = 0
 function stopPianoAudition() {
+ midiBridge.auditionStop()
  auditionRequest++
  stopSynthVoices(synthKeyVoices)
  piano?.stop(AUDITION_STOP_ID)
@@ -920,6 +926,7 @@ async function startPianoAudition(midi: number) {
  if(exporting.value) return
  stopChordAudition()
  stopPianoAudition()
+ midiBridge.auditionStart([midi],trackMidiChannel(midiParts.value.find(p=>p.id===pianoRollTrackId.value)?.channel??1))
  const request = auditionRequest
  try {
   const loading = initPiano()
@@ -941,6 +948,7 @@ let chordRequest=0
 let chordStopTimer:ReturnType<typeof setTimeout>|null=null
 function stopChordAudition(){
  chordRequest++
+ midiBridge.auditionStop()
  stopSynthVoices(synthChordVoices)
  if(chordStopTimer!==null){clearTimeout(chordStopTimer);chordStopTimer=null}
  piano?.stop(CHORD_STOP_ID)
@@ -950,6 +958,8 @@ async function startChordAudition(pitches:number[]){
  stopChordAudition()
  stopPianoAudition()
  const request=chordRequest
+ midiBridge.auditionStart(pitches,trackMidiChannel(midiParts.value.find(p=>p.id===pianoRollTrackId.value)?.channel??1))
+ chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
  try {
   const loading=initPiano()
   const earlyResume=audioCtx.value?.resume()
@@ -963,7 +973,7 @@ async function startChordAudition(pitches:number[]){
    if(preset==='piano')piano.start({note:midiNoteName(pitch),velocity:95,stopId:CHORD_STOP_ID})
    else if(audioCtx.value)routedNote(audioCtx.value,pitch,95,audioCtx.value.currentTime+.003,1.2,preset,synthChordVoices)
   }
-  chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
+  if(chordStopTimer===null)chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
  }catch(error){console.error('Chord audition failed:',error)}
 }
 
@@ -1463,7 +1473,7 @@ function loop() {
   if (playState.value === 'playing') {
     currentTime.value += (performance.now() - lastFrameTime) / 1000
     if (currentTime.value >= duration.value) {
-      if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; stopSynthVoices(synthScheduledVoices); piano?.stop(); scheduleAll() }
+      if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; midiBridge.stopAll(); stopSynthVoices(synthScheduledVoices); piano?.stop(); scheduleAll() }
       else { nextTrack() }
     }
   }
@@ -1520,6 +1530,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  midiBridge.cleanup()
   document.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('pointerdown', onDocumentPointerDown)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
