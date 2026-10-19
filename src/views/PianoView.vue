@@ -1015,7 +1015,7 @@ const midiPlaybackPlan=computed(()=>mergeOverlappingMidiNotes(notes.value.map(n=
 function scheduleAll() {
   const ctx = audioCtx.value
   const onlyKontakt = midiBridge.externalOnly
-  if (!onlyKontakt && (!piano || !ctx)) return
+  if (!onlyKontakt && !ctx) return
   // Anchor every scheduled message to the same high-resolution clock value.
   const midiClockMs = performance.now()
   const targetTime = currentTime.value / speed.value
@@ -1023,11 +1023,9 @@ function scheduleAll() {
     const n = notes.value[i]
     if (n.time < targetTime - 0.02) { lastScheduledIdx = i + 1; continue }
     const delay = (n.time - targetTime) * speed.value
-    const preset=trackPreset(n.trackId)
-    if (!onlyKontakt && ctx && piano) {
-      const t = ctx.currentTime + Math.max(0.003, delay)
-      if(preset==='piano')piano.start({note:n.name,velocity:n.velocity*127,time:t})
-      else routedNote(ctx,n.midi,n.velocity*127,t,n.duration*speed.value,preset,synthScheduledVoices)
+    if (!onlyKontakt && ctx) {
+      const t=ctx.currentTime+Math.max(.003,delay)
+      playTrackVoice(ctx,n.trackId,n.midi,n.velocity*127,t,n.duration*speed.value,synthScheduledVoices)
     }
   }
   // Merge overlapping notes sharing a MIDI pitch/channel so their Note Off
@@ -1051,9 +1049,11 @@ async function play() {
   const request=++playRequest
   try {
     if(!midiBridge.externalOnly){
-       await erhuWebSampler.init()
-       await initPiano()
-      await audioCtx.value?.resume()
+      const ctx=await prepareAudioContext()
+      preloadGmForEnabledTracks()
+      void erhuWebSampler.init()
+      if(!piano)void initPiano().catch(e=>console.warn('Grand piano preload:',e))
+      if(ctx.state!=='running')throw Error('AudioContext not running')
     }
     if(request!==playRequest)return
     lastScheduledIdx = 0; lastFrameTime = performance.now()
@@ -1073,6 +1073,7 @@ function resetPiano() {
   stopPianoAudition()
   stopChordAudition()
   stopSynthVoices(synthScheduledVoices)
+  gmEngine?.stop();gmEngine=null
   piano?.stop(); piano = null
   audioCtx.value?.close(); audioCtx.value = null
   pianoLoaded.value = false; initPianoPromise = null
