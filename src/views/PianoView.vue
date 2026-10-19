@@ -1674,10 +1674,10 @@ watch(() => currentTime.value, (t) => {
         <details name="melorix-main-menu"><summary>Nhạc cụ</summary><div class="mx-menu-pop" aria-label="Menu nhạc cụ">
           <button type="button" @click="openTrackComposer"><i class="fas fa-plus mr-2"></i> Thêm track nhạc cụ</button>
           <button type="button" @click="openPersonalInstrumentImport"><i class="fas fa-file-audio mr-2"></i> Thêm nhạc cụ của tôi (WAV)</button>
-          <button type="button" @click="openKontaktImporter"><i class="fas fa-folder-open mr-2"></i> Nhập thư viện Kontakt (.nki + Samples)</button>
-          <button type="button" @click="openMidiConnector"><i class="fas fa-plug mr-2"></i> Kết nối MIDI ngoài (Kontakt 8)</button>
+          <button type="button" @click="openKontaktImporter"><i class="fas fa-folder-open mr-2"></i> NKI + WAV (chế độ tương thích cũ)</button>
+          <button type="button" @click="openMidiConnector"><i class="fas fa-plug mr-2"></i> Kết nối Kontakt 8 thật (Windows)</button>
           <button type="button" @click="openInstrumentTrackPanel()"><i class="fas fa-layer-group mr-2"></i> Chọn tiếng cho từng track</button>
-          <div class="mx-menu-caption">{{ localSamples.length }} nhạc cụ cá nhân · WAV đơn hoặc Kontakt tương thích + Samples. Không chạy bộ máy Kontakt gốc.</div>
+          <div class="mx-menu-caption">{{ localSamples.length }} nhạc cụ cá nhân · Kontakt 8 thật nhận MIDI qua loopMIDI; chế độ NKI + WAV là bản tương thích cũ.</div>
         </div></details>
         <details name="melorix-main-menu"><summary>Công cụ</summary><div class="mx-menu-pop">
           <button type="button" @click="showBgSettings = true">Hiệu ứng nốt rơi</button>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { midiBridge } from '@/util/melorix-midi-bridge'
 import { midiNoteName } from '@/util/midi-edit'
 const emit=defineEmits<{(e:'close'):void}>()
@@ -13,6 +13,11 @@ const status=ref(midiBridge.status)
 const playback=ref(midiBridge.playbackEnabled)
 const testNote=ref(60)
 const testChannel=ref(1)
+const heardKontakt=ref(false)
+const chosenPortLabel=computed(()=>options.value.find(port=>port.id===selected.value)?.label??'')
+const mayBePhysicalOutput=computed(()=>connected.value && !/loopmidi|melorix[ -]?kontakt/i.test(chosenPortLabel.value))
+const setupReady=computed(()=>connected.value && heardKontakt.value)
+function confirmHeard(e:Event){heardKontakt.value=(e.target as HTMLInputElement).checked}
 let unsubscribe:(()=>void)|null=null
 function refresh(){
  options.value=midiBridge.outputs
@@ -23,10 +28,10 @@ function refresh(){
  playback.value=midiBridge.playbackEnabled
 }
 async function grant(){busy.value=true;try{await midiBridge.requestAccess()}finally{busy.value=false;refresh()}}
-function choosePort(e:Event){midiBridge.selectPort((e.target as HTMLSelectElement).value)}
-function test(){midiBridge.test(testNote.value,testChannel.value-1)}
+function choosePort(e:Event){heardKontakt.value=false;midiBridge.selectPort((e.target as HTMLSelectElement).value)}
+function test(){heardKontakt.value=false;midiBridge.test(testNote.value,testChannel.value-1)}
 function setPlayback(e:Event){midiBridge.setPlayback((e.target as HTMLInputElement).checked)}
-function disconnect(){midiBridge.disconnect()}
+function disconnect(){heardKontakt.value=false;midiBridge.disconnect()}
 onMounted(()=>{unsubscribe=midiBridge.subscribe(refresh);refresh()})
 onUnmounted(()=>{unsubscribe?.()})
 </script>
@@ -41,7 +46,16 @@ onUnmounted(()=>{unsubscribe?.()})
           <button type="button" class="mx-editor-dialog-close" aria-label="Đóng" @click="emit('close')"><i class="fas fa-times"></i></button>
         </header>
         <div class="mx-editor-dialog-body mx-midi-bridge-body">
-          <p><strong>Giai đoạn 1:</strong> Gửi nốt MIDI từ MELORIX qua một cổng MIDI mà bạn chọn trên Windows. Chưa điều khiển Kontakt 8 tự động.</p>
+          <div class="mx-kontakt-setup-guide" aria-label="Hướng dẫn nối Kontakt 8 thật">
+            <p class="mx-kontakt-setup-head"><i class="fas fa-plug" aria-hidden="true"></i> Kết nối Kontakt 8 trên Windows</p>
+            <ol>
+              <li><strong>Tạo cổng MIDI ảo:</strong> cài <a href="https://www.tobias-erichsen.de/software/loopmidi.html" target="_blank" rel="noopener noreferrer">loopMIDI từ trang tác giả <i class="fas fa-external-link-alt" aria-hidden="true"></i></a>, mở ứng dụng và nhấn dấu <strong>+</strong> để tạo cổng tên <code>MELORIX-KONTAKT</code>. Giữ loopMIDI đang chạy (có thể thu nhỏ xuống khay hệ thống).</li>
+              <li><strong>Chọn cổng trên MELORIX:</strong> bấm <strong>Cấp quyền / Làm mới MIDI</strong> bên dưới, sau đó chọn <code>MELORIX-KONTAKT</code>, không chọn DUO-CAPTURE EX. Nếu chưa thấy cổng, hãy thử mở lại Chrome/Edge.</li>
+              <li><strong>Kích hoạt MIDI trong Kontakt 8:</strong> mở <strong>Kontakt 8 (Standalone)</strong> → <strong>File → Options → MIDI → Inputs</strong> → tìm <code>MELORIX-KONTAKT</code> và đổi <strong>Off → Port A</strong>. Nếu chưa hiện, đóng/mở lại Kontakt. Nạp một nhạc cụ đang có như <strong>Erhu Hmoob Nplog</strong>, đặt <strong>MIDI Ch: [A] 1</strong> (hoặc Omni để kiểm tra bước đầu).</li>
+              <li><strong>Nghe âm thanh thật:</strong> đặt <strong>Kênh MIDI 1</strong> và bấm <strong>Thử nốt</strong>. Kontakt phát âm thanh qua thiết bị âm thanh do Kontakt chọn (ví dụ DUO-CAPTURE EX), không phải qua trình duyệt.</li>
+            </ol>
+            <p class="mx-kontakt-setup-note">Cách này dùng Kontakt 8 thật: mọi mẫu WAV, nhóm trống, key mapping và xử lý NKI vẫn do Kontakt đảm nhận. MELORIX không tự cài driver hoặc mở file NKI trên máy.</p>
+          </div>
           <p v-if="!supported" class="mx-instrument-import-error">Chỉ dùng được trên Chrome hoặc Edge Windows có Web MIDI; Safari iPad không hỗ trợ.</p>
           <button class="mx-midi-button" type="button" :disabled="busy || !supported" @click="grant">
             {{ busy ? 'Đang cấp quyền…' : 'Cấp quyền / Làm mới MIDI' }}
@@ -52,7 +66,8 @@ onUnmounted(()=>{unsubscribe?.()})
               <option v-for="port in options" :key="port.id" :value="port.id">{{ port.label }}</option>
             </select>
           </label>
-          <p v-if="granted && !options.length">Chưa có MIDI Output. Chúng ta sẽ cấu hình cổng MIDI ảo và Kontakt 8 trong Giai đoạn 2.</p>
+          <p v-if="granted && !options.length">Chưa thấy MIDI Output. Hãy tạo <code>MELORIX-KONTAKT</code> trong loopMIDI, giữ ứng dụng chạy rồi bấm Làm mới.</p>
+          <p v-if="mayBePhysicalOutput" class="mx-kontakt-port-warning" role="status"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Cổng hiện chọn: <strong>{{ chosenPortLabel }}</strong>. Đây chưa được nhận diện là cổng loopMIDI. Nếu chọn DUO-CAPTURE EX, MIDI sẽ ra cổng vật lý và không tự đi vào Kontakt cùng máy. Hãy chọn cổng ảo vừa tạo.</p>
           <div class="mx-midi-bridge-test">
             <label>Nốt thử
               <select v-model.number="testNote" :disabled="!connected">
@@ -70,8 +85,14 @@ onUnmounted(()=>{unsubscribe?.()})
             <input type="checkbox" :checked="playback" :disabled="!connected" @change="setPlayback">
             Gửi MIDI qua cổng đã chọn khi phát bài (Play)
           </label>
-          <p>Piano Roll cũng gửi MIDI khi bấm phím. Stop/Pause sẽ tắt nốt đang phát. Âm thanh trong MELORIX vẫn giữ nguyên.</p>
+          <p>Trong Giai đoạn 2, thử <strong>một nhạc cụ trước</strong>. Sau khi Kontakt nhận tín hiệu, bạn có thể mở Piano Roll và gửi MIDI từ track có đúng kênh. Stop/Pause sẽ tắt nốt đang phát; âm thanh Piano nội bộ MELORIX vẫn còn bật.</p>
           <p class="mx-midi-bridge-status" role="status" aria-live="polite">{{ status }}</p>
+          <label class="mx-kontakt-confirm">
+            <input type="checkbox" :checked="heardKontakt" :disabled="!connected" @change="confirmHeard">
+            <span>Tôi đã nghe thấy tiếng nhạc cụ phát <strong>trong Kontakt 8</strong> sau khi bấm Thử nốt.</span>
+          </label>
+          <p v-if="setupReady" class="mx-kontakt-confirmed" role="status">Bạn đã xác nhận nghe được Kontakt 8. MELORIX không thể tự kiểm chứng âm thanh hoặc tự mở NKI từ trình duyệt.</p>
+          <p v-else class="mx-kontakt-not-yet">Chưa xác nhận âm thanh từ Kontakt 8. Thông báo “Đã gửi Note On/Off” chỉ có nghĩa trình duyệt đã gửi MIDI đến cổng được chọn.</p>
           <div class="mx-track-form-actions">
             <button type="button" :disabled="!connected" @click="disconnect">Ngắt MIDI</button>
             <button type="button" @click="emit('close')">Đóng</button>
