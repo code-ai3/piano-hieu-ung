@@ -13,6 +13,7 @@ import { SplendidGrandPiano, renderOffline } from 'smplr'
 import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
 import MelorixPianoRoll from '@/components/MelorixPianoRoll.vue'
+import MelorixMidiConnector from '@/components/MelorixMidiConnector.vue'
 import { midiNoteName } from '@/util/midi-edit'
 import { INSTRUMENT_PRESETS, instrumentPreset, isInstrumentPreset, makeInstrumentTrack, playSynthVoice } from '@/util/melorix-instruments'
 import type { InstrumentPreset, SynthVoice } from '@/util/melorix-instruments'
@@ -20,6 +21,8 @@ import { createLocalSampleSpec, validLocalWavFile, samplePitchRate } from '@/uti
 import type { LocalInstrumentId, LocalSampleSpec } from '@/util/melorix-local-wav'
 import { inspectKontaktNki, inferKontaktWavRoot, kontaktImportCheck, closestKontaktSample } from '@/util/melorix-kontakt-import'
 import type { KontaktNkiInspection } from '@/util/melorix-kontakt-import'
+import { midiBridge } from '@/util/melorix-midi-bridge'
+import { trackMidiChannel } from '@/util/melorix-web-midi'
 import '@/assets/melorix-roll.css'
 import AppCheckbox from '@/components/AppCheckbox.vue'
 import { Output, Mp4OutputFormat, BufferTarget, StreamTarget, VideoSampleSource, VideoSample, AudioSampleSource, AudioSample } from 'mediabunny'
@@ -111,6 +114,7 @@ const isInspectorOpen = ref(typeof window !== 'undefined' && window.innerWidth >
 const isTrackPanelOpen = ref(typeof window !== 'undefined' && window.innerWidth > 1000)
 const isTimelineOpen = ref(false)
 // Instrument routing is per track and survives Piano Roll edits.
+const showMidiConnector=ref(false)
 const trackComposerPreviewOpen = ref(false)
 const instrumentPreviewTrackId = ref<number | null>(null)
 const newTrackName=ref('')
@@ -219,7 +223,12 @@ const controlPanelTitle=computed(()=>({
  kontakt:'Nhập thư viện Kontakt',instrument:'Chọn nhạc cụ cho track'
 }[activeEditorPanel.value??'track']))
 const instrumentPanelRef=ref<HTMLElement|null>(null)
+function openMidiConnector(){
+ closeControlPanel()
+ showMidiConnector.value=true
+}
 function closeControlPanel(){
+ showMidiConnector.value=false
  if(kontaktBusy.value||sampleImportBusy.value)return
  kontaktOpen.value=false;sampleImportOpen.value=false
  trackComposerPreviewOpen.value=false;instrumentPreviewTrackId.value=null
@@ -706,6 +715,9 @@ function updateNoteRange() {
   noteRange.value = { min: Math.max(21, min - 12), max: Math.min(108, max + 12) }
 }
 function processMidi(midi: Midi) {
+  // Importing a different song must cancel MIDI messages already queued on the port.
+  if(playState.value==='playing')pause()
+  midiBridge.stopAll()
   pianoRollTrackId.value = null
   assignedTrackPresets.value={}
   instrumentPreviewTrackId.value=null
@@ -731,6 +743,7 @@ function updatePianoRollNotes(edited: NoteEvent[]) {
   if (id === null || exporting.value) return
   // Never modify notes on any other track. All playback and export reads allNotes.
   if (playState.value === 'playing') pause()
+  midiBridge.stopAll()
   piano?.stop()
   allNotes.value = [
     ...allNotes.value.filter(note => note.trackId !== id),
@@ -758,7 +771,8 @@ function beginPianoRollResize(e: PointerEvent) {
   window.addEventListener('pointerup',stop)
 }
 function resetAfterTrackChange() {
-  // Audio is scheduled ahead of time; stop that schedule before changing a track mix.
+  // Stop pending MIDI as well as Web Audio when switching track mixes.
+  midiBridge.stopAll()
   stopSynthVoices(synthScheduledVoices)
   piano?.stop()
   playState.value = 'idle'
@@ -857,6 +871,8 @@ function routedNote(ctx:AudioContext,midi:number,velocity:number,when:number,dur
 function scheduleAll() {
   const ctx = audioCtx.value
   if (!piano || !ctx) return
+  // Anchor every scheduled message to the same high-resolution clock value.
+  const midiClockMs = performance.now()
   const targetTime = currentTime.value / speed.value
   for (let i = lastScheduledIdx; i < notes.value.length; i++) {
     const n = notes.value[i]
@@ -866,6 +882,9 @@ function scheduleAll() {
     const preset=trackPreset(n.trackId)
     if(preset==='piano')piano.start({note:n.name,velocity:n.velocity*127,time:t})
     else routedNote(ctx,n.midi,n.velocity*127,t,n.duration*speed.value,preset,synthScheduledVoices)
+    const part=midiParts.value.find(p=>p.id===n.trackId)
+    if(part?.enabled&&!exporting.value)midiBridge.schedule(n.midi,n.velocity*127,
+      trackMidiChannel(part.channel),Math.max(0,delay),Math.max(.05,n.duration*speed.value),midiClockMs)
   }
 }
 
@@ -884,6 +903,7 @@ async function play() {
 }
 
 function resetPiano() {
+  midiBridge.stopAll()
   stopPianoAudition()
   stopChordAudition()
   stopSynthVoices(synthScheduledVoices)
@@ -892,7 +912,7 @@ function resetPiano() {
   pianoLoaded.value = false; initPianoPromise = null
 }
 
-function pause() { stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
+function pause() { midiBridge.stopAll(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
 function stop() {
   playState.value = 'idle'; currentTime.value = 0
   lastScheduledIdx = 0; pianoLoading = false
@@ -903,6 +923,7 @@ function togglePlay() { playState.value === 'playing' ? pause() : play() }
 const AUDITION_STOP_ID = 'melorix-editor-key'
 let auditionRequest = 0
 function stopPianoAudition() {
+ midiBridge.auditionStop()
  auditionRequest++
  stopSynthVoices(synthKeyVoices)
  piano?.stop(AUDITION_STOP_ID)
@@ -911,6 +932,7 @@ async function startPianoAudition(midi: number) {
  if(exporting.value) return
  stopChordAudition()
  stopPianoAudition()
+ midiBridge.auditionStart([midi],trackMidiChannel(midiParts.value.find(p=>p.id===pianoRollTrackId.value)?.channel??1))
  const request = auditionRequest
  try {
   const loading = initPiano()
@@ -932,6 +954,7 @@ let chordRequest=0
 let chordStopTimer:ReturnType<typeof setTimeout>|null=null
 function stopChordAudition(){
  chordRequest++
+ midiBridge.auditionStop()
  stopSynthVoices(synthChordVoices)
  if(chordStopTimer!==null){clearTimeout(chordStopTimer);chordStopTimer=null}
  piano?.stop(CHORD_STOP_ID)
@@ -941,6 +964,8 @@ async function startChordAudition(pitches:number[]){
  stopChordAudition()
  stopPianoAudition()
  const request=chordRequest
+ midiBridge.auditionStart(pitches,trackMidiChannel(midiParts.value.find(p=>p.id===pianoRollTrackId.value)?.channel??1))
+ chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
  try {
   const loading=initPiano()
   const earlyResume=audioCtx.value?.resume()
@@ -954,7 +979,7 @@ async function startChordAudition(pitches:number[]){
    if(preset==='piano')piano.start({note:midiNoteName(pitch),velocity:95,stopId:CHORD_STOP_ID})
    else if(audioCtx.value)routedNote(audioCtx.value,pitch,95,audioCtx.value.currentTime+.003,1.2,preset,synthChordVoices)
   }
-  chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
+  if(chordStopTimer===null)chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
  }catch(error){console.error('Chord audition failed:',error)}
 }
 
@@ -1454,7 +1479,7 @@ function loop() {
   if (playState.value === 'playing') {
     currentTime.value += (performance.now() - lastFrameTime) / 1000
     if (currentTime.value >= duration.value) {
-      if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; stopSynthVoices(synthScheduledVoices); piano?.stop(); scheduleAll() }
+      if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; midiBridge.stopAll(); stopSynthVoices(synthScheduledVoices); piano?.stop(); scheduleAll() }
       else { nextTrack() }
     }
   }
@@ -1465,6 +1490,12 @@ function loop() {
 let lastFrameTime = performance.now()
 
 function onKeyDown(e: KeyboardEvent) {
+  if(e.key==='Escape'&&showMidiConnector.value){
+    showMidiConnector.value=false
+    e.preventDefault()
+    return
+  }
+  if(showMidiConnector.value)return
   if(e.key==='Escape'&&isControlPanelOpen.value){
    closeControlPanel()
    e.preventDefault()
@@ -1505,6 +1536,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  midiBridge.cleanup()
   document.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('pointerdown', onDocumentPointerDown)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
@@ -1550,6 +1582,7 @@ function seekFromTimeline(event: MouseEvent) {
   const rect = element.getBoundingClientRect()
   if (rect.width <= 0) return
   if (playState.value === 'playing') pause()
+  midiBridge.stopAll()
   currentTime.value = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)) * duration.value * speed.value
   lastScheduledIdx = 0
   keyState.value = {}
@@ -1642,6 +1675,7 @@ watch(() => currentTime.value, (t) => {
           <button type="button" @click="openTrackComposer"><i class="fas fa-plus mr-2"></i> Thêm track nhạc cụ</button>
           <button type="button" @click="openPersonalInstrumentImport"><i class="fas fa-file-audio mr-2"></i> Thêm nhạc cụ của tôi (WAV)</button>
           <button type="button" @click="openKontaktImporter"><i class="fas fa-folder-open mr-2"></i> Nhập thư viện Kontakt (.nki + Samples)</button>
+          <button type="button" @click="openMidiConnector"><i class="fas fa-plug mr-2"></i> Kết nối MIDI ngoài (Kontakt 8)</button>
           <button type="button" @click="openInstrumentTrackPanel()"><i class="fas fa-layer-group mr-2"></i> Chọn tiếng cho từng track</button>
           <div class="mx-menu-caption">{{ localSamples.length }} nhạc cụ cá nhân · WAV đơn hoặc Kontakt tương thích + Samples. Không chạy bộ máy Kontakt gốc.</div>
         </div></details>
@@ -2043,6 +2077,7 @@ watch(() => currentTime.value, (t) => {
       </aside>
     </div> <!-- workspace -->
 
+    <MelorixMidiConnector v-if="showMidiConnector" @close="showMidiConnector = false" />
     <!-- Central instrument control panel: no forms inside the narrow sidebar -->
     <Teleport to="body">
       <div v-if="isControlPanelOpen" class="mx-editor-overlay" @click.self="closeControlPanel">

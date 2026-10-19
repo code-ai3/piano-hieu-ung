@@ -426,3 +426,39 @@ html, body, #app { width:100%; height:100%; min-height:0; overflow:hidden; overs
  .mx-editor-dialog-header h2{font-size:16px}
  .mx-editor-dialog-body{padding:10px 14px 16px}
 }
+
+/* MIDI output: centered connector shared by MELORIX and local Windows MIDI devices. */
+.mx-midi-bridge-body{font-size:12px;line-height:1.6;color:#c8d6e6}
+.mx-midi-bridge-body p{margin:0 0 13px;line-height:1.65}
+.mx-midi-bridge-body label:not(.mx-midi-bridge-checkbox){
+ display:flex;flex-direction:column;gap:6px;margin:14px 0;color:#d7e2ef;font-weight:600;
+}
+.mx-midi-bridge-body select{
+ width:100%;min-height:40px;min-width:0;padding:9px 11px;
+ background:#161f2c;color:#e7edf7;border:1px solid #617287;border-radius:6px;font-size:12px;
+}
+.mx-midi-bridge-body button{
+ padding:8px 13px;min-height:38px;color:#e5edf7;
+ background:#344150;border:1px solid #627086;border-radius:6px;cursor:pointer;
+}
+.mx-midi-bridge-body button:hover:not(:disabled){background:#465468}
+.mx-midi-bridge-body button:disabled{opacity:.48;cursor:not-allowed}
+.mx-midi-bridge-body .mx-midi-button{background:#825235;border-color:#b67a4b;color:#fff4e5}
+.mx-midi-bridge-test{display:grid;grid-template-columns:1fr 1fr auto;align-items:end;gap:10px}
+.mx-midi-bridge-test label{min-width:0}
+.mx-midi-bridge-test .mx-midi-button{margin-bottom:14px;white-space:nowrap}
+.mx-midi-bridge-checkbox{
+ display:flex;flex-direction:row;align-items:center;gap:8px;
+ background:#1a2c3b;border:1px solid #3e5366;border-radius:7px;
+ padding:10px;margin:10px 0 15px;font-weight:600;color:#e0eaf6;
+}
+.mx-midi-bridge-checkbox input{flex:none;width:17px;height:17px;accent-color:#e3a46c}
+.mx-midi-bridge-status{
+ background:#17353c;border:1px solid #3e6b70;border-radius:6px;
+ padding:10px 12px;color:#b2e3d4;font-weight:500;
+}
+.mx-midi-bridge-body .mx-track-form-actions{margin-top:12px}
+@media(max-width:580px){
+ .mx-midi-bridge-test{grid-template-columns:1fr 1fr}
+ .mx-midi-bridge-test .mx-midi-button{grid-column:1/-1;margin:0}
+}
