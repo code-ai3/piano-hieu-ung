@@ -1677,74 +1677,10 @@ watch(() => currentTime.value, (t) => {
         <div class="mx-inspector-top mx-track-sidebar-title">
           <i class="fas fa-layer-group"></i><span>Track MIDI</span>
           <span class="mx-track-side-count">{{ enabledPartCount }}/{{ midiParts.length }}</span>
-          <button type="button" class="mx-track-add-btn" :aria-expanded="trackComposerPreviewOpen" aria-label="Tạo track nhạc cụ mới" title="Thêm track nhạc cụ" :disabled="exporting" @click="toggleTrackComposerPreview"><i class="fas fa-plus"></i></button>
+          <button type="button" class="mx-track-add-btn" :aria-expanded="activeEditorPanel === 'track'" aria-label="Tạo track nhạc cụ mới" title="Thêm track nhạc cụ" :disabled="exporting" @click="toggleTrackComposerPreview"><i class="fas fa-plus"></i></button>
           <button type="button" class="mx-side-close" aria-label="Ẩn danh sách track" title="Ẩn track" @click="isTrackPanelOpen = false"><i class="fas fa-times"></i></button>
         </div>
 
-        <form v-if="kontaktOpen" class="mx-track-ui-preview mx-track-add-form mx-kontakt-form" @submit.prevent="importKontaktCompatibility">
-          <div class="mx-track-ui-preview-title"><i class="fas fa-folder-open"></i> Nhập thư viện Kontakt</div>
-          <label>1. Tệp nhạc cụ (.nki)
-            <input type="file" accept=".nki,application/octet-stream" :disabled="kontaktBusy" aria-label="Chọn file Kontakt NKI" @change="onKontaktNkiChoose">
-          </label>
-          <p v-if="kontaktInspection" :class="{ 'mx-kontakt-good': kontaktInspection.supportedContainer }">
-            {{ kontaktInspection.name }} · {{ kontaktInspection.format }}. {{ kontaktInspection.note }}
-          </p>
-          <label>2. Chọn tất cả các mẫu WAV của nhạc cụ
-            <input type="file" accept=".wav,audio/wav" multiple :disabled="kontaktBusy" aria-label="Chọn các file WAV trong thư mục Samples" @change="onKontaktWavsChoose">
-          </label>
-          <p>Trên iPad, vào ứng dụng Tệp và chọn nhiều WAV trong thư mục Samples; không tải file lên máy chủ.</p>
-          <p v-if="kontaktWavFiles.length">{{ kontaktWavFiles.length }} WAV · {{ kontaktRootMappings.filter(m=>m!==null).length }} đã biết nốt gốc.</p>
-          <div v-if="kontaktWavFiles.length" class="mx-kontakt-mappings">
-            <label v-for="(sample,index) in kontaktWavFiles" :key="index">
-              <span :title="sample.name">{{ sample.name }}</span>
-              <select v-model.number="kontaktRootMappings[index]" :disabled="kontaktBusy" :aria-label="'Nốt gốc ' + sample.name">
-                <option :value="null">Chọn nốt</option>
-                <option v-for="n in 88" :key="n" :value="n+20">{{ midiNoteName(n+20) }}</option>
-              </select>
-            </label>
-          </div>
-          <p class="mx-kontakt-notice">Đây là chế độ tương thích phát WAV, không tái tạo hiệu ứng, key-switch, script hay ánh xạ phím gốc từ Kontakt. Erhu Hmoob Nplog tự nhận diện 7 nốt; các mẫu khác có thể cần chọn nốt gốc thủ công.</p>
-          <p v-if="kontaktError" role="alert" class="mx-instrument-import-error">{{ kontaktError }}</p>
-          <div class="mx-track-form-actions">
-            <button type="submit" :disabled="exporting || kontaktBusy || !kontaktReady">{{ kontaktBusy ? 'Đang đọc WAV…' : 'Nhập nhạc cụ' }}</button>
-            <button type="button" @click="kontaktOpen=false">Hủy</button>
-          </div>
-        </form>
-        <form v-if="sampleImportOpen" class="mx-track-ui-preview mx-track-add-form" @submit.prevent="importPersonalWav">
-          <div class="mx-track-ui-preview-title"><i class="fas fa-file-audio"></i> Thêm nhạc cụ của tôi</div>
-          <label>Tệp âm thanh (.wav)
-            <input type="file" accept=".wav,audio/wav,audio/x-wav" aria-label="Chọn mẫu WAV của bạn" :disabled="sampleImportBusy || exporting" @change="onPersonalWavChoose">
-          </label>
-          <label>Tên nhạc cụ
-            <input v-model="sampleImportName" type="text" maxlength="45" placeholder="Tên nhạc cụ của bạn">
-          </label>
-          <label>Cao độ gốc của WAV
-            <select v-model.number="sampleImportRoot" aria-label="Cao độ gốc của WAV">
-              <option v-for="m in [48,55,57,60,62,64,65,67,69,71,72,74,76,77,79,81,84]" :key="m" :value="m">{{ midiNoteName(m) }}</option>
-            </select>
-          </label>
-          <p>Chọn nốt gốc đúng với mẫu thu âm. MELORIX thay đổi cao độ để phát các phím MIDI khác.</p>
-          <p v-if="sampleImportError" role="alert" class="mx-instrument-import-error">{{ sampleImportError }}</p>
-          <div class="mx-track-form-actions">
-            <button type="submit" :disabled="sampleImportBusy || exporting">{{ sampleImportBusy ? 'Đang nạp…' : 'Thêm vào thư viện' }}</button>
-            <button type="button" @click="sampleImportOpen=false">Hủy</button>
-          </div>
-          <p>Mẫu chỉ nằm trong RAM của trình duyệt, cần nạp lại sau khi tải lại trang. .nki/.vst3 chưa hỗ trợ.</p>
-        </form>
-        <form v-if="trackComposerPreviewOpen" class="mx-track-ui-preview mx-track-add-form" @submit.prevent="createInstrumentTrack">
-          <div class="mx-track-ui-preview-title"><i class="fas fa-plus-circle"></i> Tạo track nhạc cụ</div>
-          <label>Tên track<input v-model="newTrackName" type="text" maxlength="60" placeholder="Nhạc cụ mới" aria-label="Tên track mới"></label>
-          <label>Chọn nhạc cụ
-            <select v-model="newTrackPreset" aria-label="Chọn âm sắc cho track mới">
-              <option v-for="item in allInstruments" :key="item.id" :value="item.id">{{ item.label }}</option>
-            </select>
-          </label>
-          <div class="mx-track-form-actions">
-            <button type="submit" :disabled="exporting"><i class="fas fa-plus"></i> Tạo và mở Piano Roll</button>
-            <button type="button" @click="trackComposerPreviewOpen = false">Hủy</button>
-          </div>
-          <p>Chọn tiếng có sẵn, WAV cá nhân hoặc Kontakt tương thích (cần WAV đi kèm).</p>
-        </form>
         <div class="mx-track-sidebar-actions">
           <button type="button" :disabled="exporting || !midiParts.length" @click="setAllParts(true)">Bật tất cả</button>
           <button type="button" :disabled="exporting || !midiParts.length" @click="setAllParts(false)">Tắt tất cả</button>
@@ -1762,20 +1698,12 @@ watch(() => currentTime.value, (t) => {
               <button type="button" class="mx-track-mini" :aria-pressed="part.enabled && enabledPartCount === 1" :disabled="exporting" @click="soloPart(part.id)" title="Solo">S</button>
             </div>
             <div class="mx-track-side-sub">
-              <button type="button" class="mx-track-instrument-trigger" :aria-expanded="instrumentPreviewTrackId === part.id" :aria-label="'Chọn nhạc cụ cho ' + part.name" :title="'Thay âm sắc cho ' + part.name" :disabled="exporting" @click="toggleInstrumentPreview(part.id)">
+              <button type="button" class="mx-track-instrument-trigger" :aria-expanded="activeEditorPanel === 'instrument' && instrumentPreviewTrackId === part.id" :aria-label="'Chọn nhạc cụ cho ' + part.name" :title="'Thay âm sắc cho ' + part.name" :disabled="exporting" @click="toggleInstrumentPreview(part.id)">
                 <span>{{ part.instrument || 'MIDI' }}</span>
                 <i class="fas fa-chevron-down" aria-hidden="true"></i>
               </button>
               <span>{{ part.noteCount }} nốt</span>
               <input type="color" :value="part.color" :disabled="exporting" :aria-label="'Màu ' + part.name" @input="onPartColorInput(part.id, $event)">
-            </div>
-            <div v-if="instrumentPreviewTrackId === part.id" class="mx-track-instrument-preview">
-              <label><i class="fas fa-music"></i> Âm sắc của {{ part.name }}
-                <select :value="trackPreset(part.id)" :disabled="exporting" :aria-label="'Âm sắc track ' + part.name" @change="assignTrackPreset(part.id,$event)">
-                  <option v-for="item in allInstruments" :key="item.id" :value="item.id">{{ item.label }}</option>
-                </select>
-              </label>
-              <p>Đổi tiếng ngay khi chọn. Thêm WAV hoặc NKI + Samples từ menu Nhạc cụ.</p>
             </div>
             <div class="mx-track-side-minimap mx-editable-track" :aria-label="'Nhấp đúp để chỉnh từng nốt trong ' + part.name" :title="'Nhấp đúp để chỉnh Piano Roll: ' + part.name" role="button" tabindex="0" @dblclick.stop="openPianoRoll(part.id)" @keydown.enter="openPianoRoll(part.id)">
               <span v-for="(bar,idx) in part.bars" :key="idx" class="mx-track-side-mini-note" :style="{ left: bar.left + '%', width: bar.width + '%', backgroundColor: part.color }"></span>
@@ -2114,6 +2042,109 @@ watch(() => currentTime.value, (t) => {
         </section>
       </aside>
     </div> <!-- workspace -->
+
+    <!-- Central instrument control panel: no forms inside the narrow sidebar -->
+    <Teleport to="body">
+      <div v-if="isControlPanelOpen" class="mx-editor-overlay" @click.self="closeControlPanel">
+        <section ref="instrumentPanelRef" class="mx-editor-dialog" role="dialog" aria-modal="true"
+          aria-labelledby="mx-instrument-dialog-title" tabindex="-1">
+          <header class="mx-editor-dialog-header">
+            <div>
+              <span class="mx-editor-dialog-eyebrow">MELORIX · Bảng điều khiển chỉnh sửa</span>
+              <h2 id="mx-instrument-dialog-title">{{ controlPanelTitle }}</h2>
+            </div>
+            <button type="button" class="mx-editor-dialog-close" title="Đóng bảng điều khiển" aria-label="Đóng bảng điều khiển"
+              :disabled="kontaktBusy || sampleImportBusy" @click="closeControlPanel"><i class="fas fa-times"></i></button>
+          </header>
+          <div class="mx-editor-dialog-body">
+        <form v-if="kontaktOpen" class="mx-track-ui-preview mx-track-add-form mx-kontakt-form" @submit.prevent="importKontaktCompatibility">
+          <div class="mx-track-ui-preview-title"><i class="fas fa-folder-open"></i> Nhập thư viện Kontakt</div>
+          <label>1. Tệp nhạc cụ (.nki)
+            <input type="file" accept=".nki,application/octet-stream" :disabled="kontaktBusy" aria-label="Chọn file Kontakt NKI" @change="onKontaktNkiChoose">
+          </label>
+          <p v-if="kontaktInspection" :class="{ 'mx-kontakt-good': kontaktInspection.supportedContainer }">
+            {{ kontaktInspection.name }} · {{ kontaktInspection.format }}. {{ kontaktInspection.note }}
+          </p>
+          <label>2. Chọn tất cả các mẫu WAV của nhạc cụ
+            <input type="file" accept=".wav,audio/wav" multiple :disabled="kontaktBusy" aria-label="Chọn các file WAV trong thư mục Samples" @change="onKontaktWavsChoose">
+          </label>
+          <p>Trên iPad, vào ứng dụng Tệp và chọn nhiều WAV trong thư mục Samples; không tải file lên máy chủ.</p>
+          <p v-if="kontaktWavFiles.length">{{ kontaktWavFiles.length }} WAV · {{ kontaktRootMappings.filter(m=>m!==null).length }} đã biết nốt gốc.</p>
+          <div v-if="kontaktWavFiles.length" class="mx-kontakt-mappings">
+            <label v-for="(sample,index) in kontaktWavFiles" :key="index">
+              <span :title="sample.name">{{ sample.name }}</span>
+              <select v-model.number="kontaktRootMappings[index]" :disabled="kontaktBusy" :aria-label="'Nốt gốc ' + sample.name">
+                <option :value="null">Chọn nốt</option>
+                <option v-for="n in 88" :key="n" :value="n+20">{{ midiNoteName(n+20) }}</option>
+              </select>
+            </label>
+          </div>
+          <p class="mx-kontakt-notice">Đây là chế độ tương thích phát WAV, không tái tạo hiệu ứng, key-switch, script hay ánh xạ phím gốc từ Kontakt. Erhu Hmoob Nplog tự nhận diện 7 nốt; các mẫu khác có thể cần chọn nốt gốc thủ công.</p>
+          <p v-if="kontaktError" role="alert" class="mx-instrument-import-error">{{ kontaktError }}</p>
+          <div class="mx-track-form-actions">
+            <button type="submit" :disabled="exporting || kontaktBusy || !kontaktReady">{{ kontaktBusy ? 'Đang đọc WAV…' : 'Nhập nhạc cụ' }}</button>
+            <button type="button" @click="kontaktOpen=false">Hủy</button>
+          </div>
+        </form>
+        <form v-if="sampleImportOpen" class="mx-track-ui-preview mx-track-add-form" @submit.prevent="importPersonalWav">
+          <div class="mx-track-ui-preview-title"><i class="fas fa-file-audio"></i> Thêm nhạc cụ của tôi</div>
+          <label>Tệp âm thanh (.wav)
+            <input type="file" accept=".wav,audio/wav,audio/x-wav" aria-label="Chọn mẫu WAV của bạn" :disabled="sampleImportBusy || exporting" @change="onPersonalWavChoose">
+          </label>
+          <label>Tên nhạc cụ
+            <input v-model="sampleImportName" type="text" maxlength="45" placeholder="Tên nhạc cụ của bạn">
+          </label>
+          <label>Cao độ gốc của WAV
+            <select v-model.number="sampleImportRoot" aria-label="Cao độ gốc của WAV">
+              <option v-for="m in [48,55,57,60,62,64,65,67,69,71,72,74,76,77,79,81,84]" :key="m" :value="m">{{ midiNoteName(m) }}</option>
+            </select>
+          </label>
+          <p>Chọn nốt gốc đúng với mẫu thu âm. MELORIX thay đổi cao độ để phát các phím MIDI khác.</p>
+          <p v-if="sampleImportError" role="alert" class="mx-instrument-import-error">{{ sampleImportError }}</p>
+          <div class="mx-track-form-actions">
+            <button type="submit" :disabled="sampleImportBusy || exporting">{{ sampleImportBusy ? 'Đang nạp…' : 'Thêm vào thư viện' }}</button>
+            <button type="button" @click="sampleImportOpen=false">Hủy</button>
+          </div>
+          <p>Mẫu chỉ nằm trong RAM của trình duyệt, cần nạp lại sau khi tải lại trang. .nki/.vst3 chưa hỗ trợ.</p>
+        </form>
+        <form v-if="trackComposerPreviewOpen" class="mx-track-ui-preview mx-track-add-form" @submit.prevent="createInstrumentTrack">
+          <div class="mx-track-ui-preview-title"><i class="fas fa-plus-circle"></i> Tạo track nhạc cụ</div>
+          <label>Tên track<input v-model="newTrackName" type="text" maxlength="60" placeholder="Nhạc cụ mới" aria-label="Tên track mới"></label>
+          <label>Chọn nhạc cụ
+            <select v-model="newTrackPreset" aria-label="Chọn âm sắc cho track mới">
+              <option v-for="item in allInstruments" :key="item.id" :value="item.id">{{ item.label }}</option>
+            </select>
+          </label>
+          <div class="mx-track-form-actions">
+            <button type="submit" :disabled="exporting"><i class="fas fa-plus"></i> Tạo và mở Piano Roll</button>
+            <button type="button" @click="trackComposerPreviewOpen = false">Hủy</button>
+          </div>
+          <p>Chọn tiếng có sẵn, WAV cá nhân hoặc Kontakt tương thích (cần WAV đi kèm).</p>
+        </form>
+
+            <form v-if="activeEditorPanel==='instrument' && instrumentPreviewTrackId!==null" class="mx-track-ui-preview mx-track-add-form mx-instrument-select-form" @submit.prevent="applyInstrumentSelection">
+              <label>Chọn track MIDI
+                <select :value="instrumentPreviewTrackId" :disabled="exporting" aria-label="Chọn track cần sửa" @change="changeInstrumentTarget">
+                  <option v-for="part in midiParts" :key="part.id" :value="part.id">{{ part.name }} — {{ part.instrument }}</option>
+                </select>
+              </label>
+              <label>Chọn tiếng nhạc cụ
+                <select v-model="instrumentEditorPreset" :disabled="exporting" aria-label="Nhạc cụ cho track hiện tại">
+                  <option v-for="item in allInstruments" :key="item.id" :value="item.id">{{ item.label }}</option>
+                </select>
+              </label>
+              <p>Chỉ đổi tiếng của track đã chọn, không thay đổi các nốt MIDI hoặc track khác.</p>
+              <div class="mx-track-form-actions">
+                <button type="submit" :disabled="exporting">Áp dụng nhạc cụ</button>
+                <button type="button" @click="closeControlPanel">Hủy</button>
+              </div>
+              <p>Thêm mẫu WAV hay thư viện .nki + Samples từ menu Nhạc cụ.</p>
+            </form>
+          </div>
+        </section>
+      </div>
+    </Teleport>
+
     <!-- 隐藏视频元素用于背景渲染 -->
     <video v-if="bgMedia?.type === 'video'" ref="bgMediaEl" :src="bgMedia.url" loop muted autoplay playsinline style="position:fixed;top:-9999px;left:-9999px;pointer-events:none"></video>
   </div>
