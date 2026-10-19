@@ -13,6 +13,7 @@ import { SplendidGrandPiano, renderOffline } from 'smplr'
 import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
 import MelorixPianoRoll from '@/components/MelorixPianoRoll.vue'
+import MelorixMidiConnector from '@/components/MelorixMidiConnector.vue'
 import { midiNoteName } from '@/util/midi-edit'
 import { INSTRUMENT_PRESETS, instrumentPreset, isInstrumentPreset, makeInstrumentTrack, playSynthVoice } from '@/util/melorix-instruments'
 import type { InstrumentPreset, SynthVoice } from '@/util/melorix-instruments'
@@ -20,6 +21,8 @@ import { createLocalSampleSpec, validLocalWavFile, samplePitchRate } from '@/uti
 import type { LocalInstrumentId, LocalSampleSpec } from '@/util/melorix-local-wav'
 import { inspectKontaktNki, inferKontaktWavRoot, kontaktImportCheck, closestKontaktSample } from '@/util/melorix-kontakt-import'
 import type { KontaktNkiInspection } from '@/util/melorix-kontakt-import'
+import { midiBridge } from '@/util/melorix-midi-bridge'
+import { trackMidiChannel } from '@/util/melorix-web-midi'
 import '@/assets/melorix-roll.css'
 import AppCheckbox from '@/components/AppCheckbox.vue'
 import { Output, Mp4OutputFormat, BufferTarget, StreamTarget, VideoSampleSource, VideoSample, AudioSampleSource, AudioSample } from 'mediabunny'
@@ -111,6 +114,7 @@ const isInspectorOpen = ref(typeof window !== 'undefined' && window.innerWidth >
 const isTrackPanelOpen = ref(typeof window !== 'undefined' && window.innerWidth > 1000)
 const isTimelineOpen = ref(false)
 // Instrument routing is per track and survives Piano Roll edits.
+const showMidiConnector=ref(false)
 const trackComposerPreviewOpen = ref(false)
 const instrumentPreviewTrackId = ref<number | null>(null)
 const newTrackName=ref('')
@@ -219,7 +223,12 @@ const controlPanelTitle=computed(()=>({
  kontakt:'Nhập thư viện Kontakt',instrument:'Chọn nhạc cụ cho track'
 }[activeEditorPanel.value??'track']))
 const instrumentPanelRef=ref<HTMLElement|null>(null)
+function openMidiConnector(){
+ closeControlPanel()
+ showMidiConnector.value=true
+}
 function closeControlPanel(){
+ showMidiConnector.value=false
  if(kontaktBusy.value||sampleImportBusy.value)return
  kontaktOpen.value=false;sampleImportOpen.value=false
  trackComposerPreviewOpen.value=false;instrumentPreviewTrackId.value=null
@@ -1465,6 +1474,12 @@ function loop() {
 let lastFrameTime = performance.now()
 
 function onKeyDown(e: KeyboardEvent) {
+  if(e.key==='Escape'&&showMidiConnector.value){
+    showMidiConnector.value=false
+    e.preventDefault()
+    return
+  }
+  if(showMidiConnector.value)return
   if(e.key==='Escape'&&isControlPanelOpen.value){
    closeControlPanel()
    e.preventDefault()
@@ -1642,6 +1657,7 @@ watch(() => currentTime.value, (t) => {
           <button type="button" @click="openTrackComposer"><i class="fas fa-plus mr-2"></i> Thêm track nhạc cụ</button>
           <button type="button" @click="openPersonalInstrumentImport"><i class="fas fa-file-audio mr-2"></i> Thêm nhạc cụ của tôi (WAV)</button>
           <button type="button" @click="openKontaktImporter"><i class="fas fa-folder-open mr-2"></i> Nhập thư viện Kontakt (.nki + Samples)</button>
+          <button type="button" @click="openMidiConnector"><i class="fas fa-plug mr-2"></i> Kết nối MIDI ngoài (Kontakt 8)</button>
           <button type="button" @click="openInstrumentTrackPanel()"><i class="fas fa-layer-group mr-2"></i> Chọn tiếng cho từng track</button>
           <div class="mx-menu-caption">{{ localSamples.length }} nhạc cụ cá nhân · WAV đơn hoặc Kontakt tương thích + Samples. Không chạy bộ máy Kontakt gốc.</div>
         </div></details>
@@ -2043,6 +2059,7 @@ watch(() => currentTime.value, (t) => {
       </aside>
     </div> <!-- workspace -->
 
+    <MelorixMidiConnector v-if="showMidiConnector" @close="showMidiConnector = false" />
     <!-- Central instrument control panel: no forms inside the narrow sidebar -->
     <Teleport to="body">
       <div v-if="isControlPanelOpen" class="mx-editor-overlay" @click.self="closeControlPanel">
