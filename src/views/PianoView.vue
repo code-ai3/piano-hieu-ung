@@ -2187,7 +2187,7 @@ watch(() => currentTime.value, (t) => {
 
     <MelorixMidiConnector v-if="showMidiConnector" :playing="playState === 'playing'" @close="showMidiConnector = false" />
     <MelorixKontaktAudioCapture :key="captureSession" :open="showKontaktAudioCapture"
-     :playing="playState === 'playing'" :busy="exporting" @close="showKontaktAudioCapture=false"
+     :playing="playState === 'playing'" :busy="exporting" :can-play="notes.length > 0" @close="showKontaktAudioCapture=false"
      @audio-ready="setKontaktAudio" @record-started="startKontaktAudioPlayback" />
     <MelorixKontaktTrackRouter v-if="showKontaktRouter" :parts="midiParts" :routes="kontaktTrackChannels"
      :labels="kontaktTrackNames" :playing="playState === 'playing'"
