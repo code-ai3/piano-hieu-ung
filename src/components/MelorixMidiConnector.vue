@@ -51,14 +51,19 @@ onUnmounted(()=>{unsubscribe?.()})
         </header>
         <div class="mx-editor-dialog-body mx-midi-bridge-body">
           <div class="mx-kontakt-setup-guide" aria-label="Hướng dẫn nối Kontakt 8 thật">
-            <p class="mx-kontakt-setup-head"><i class="fas fa-plug" aria-hidden="true"></i> Kết nối Kontakt 8 trên Windows</p>
+            <p class="mx-kontakt-setup-head"><i class="fas fa-plug" aria-hidden="true"></i> Dùng file .nki bằng Kontakt 8 thật</p>
+            <p class="mx-kontakt-setup-note" role="note">
+              <strong>Không phải chọn thêm WAV trong MELORIX.</strong>
+              Mở file <code>.nki</code> trực tiếp trong ứng dụng <strong>Kontakt 8</strong> đang cài trên Windows, sau đó MELORIX gửi MIDI đến nhạc cụ đó qua <code>MELORIX-KONTAKT</code>.
+              Nếu một thư viện tham chiếu sample bên ngoài bị thiếu, chính Kontakt sẽ báo thiếu sample và hỏi vị trí thư viện. MELORIX không thể tự mở/chạy file NKI bên trong trình duyệt.
+            </p>
             <ol>
               <li><strong>Tạo cổng MIDI ảo:</strong> cài <a href="https://www.tobias-erichsen.de/software/loopmidi.html" target="_blank" rel="noopener noreferrer">loopMIDI từ trang tác giả <i class="fas fa-external-link-alt" aria-hidden="true"></i></a>, mở ứng dụng và nhấn dấu <strong>+</strong> để tạo cổng tên <code>MELORIX-KONTAKT</code>. Giữ loopMIDI đang chạy (có thể thu nhỏ xuống khay hệ thống).</li>
               <li><strong>Chọn cổng trên MELORIX:</strong> bấm <strong>Cấp quyền / Làm mới MIDI</strong> bên dưới, sau đó chọn <code>MELORIX-KONTAKT</code>, không chọn DUO-CAPTURE EX. Nếu chưa thấy cổng, hãy thử mở lại Chrome/Edge.</li>
-              <li><strong>Kích hoạt MIDI trong Kontakt 8:</strong> mở <strong>Kontakt 8 (Standalone)</strong> → <strong>File → Options → MIDI → Inputs</strong> → tìm <code>MELORIX-KONTAKT</code> và đổi <strong>Off → Port A</strong>. Nếu chưa hiện, đóng/mở lại Kontakt. Nạp một nhạc cụ đang có như <strong>Erhu Hmoob Nplog</strong>, chuyển sang <strong>Classic View</strong> nếu chưa thấy phần Rack/MIDI Ch (có thể cần bấm nút <strong>i</strong> ở header nhạc cụ), đặt <strong>MIDI Ch: [A] 1</strong> (hoặc Omni để kiểm tra bước đầu).</li>
+              <li><strong>Kích hoạt MIDI trong Kontakt 8:</strong> mở <strong>Kontakt 8 (Standalone)</strong> → <strong>File → Options → MIDI → Inputs</strong> → tìm <code>MELORIX-KONTAKT</code> và đổi <strong>Off → Port A</strong>. Nếu chưa hiện, đóng/mở lại Kontakt. Mở file <code>.nki</code> cần sử dụng (ví dụ <strong>S90 ES for Kontakt edition1.nki</strong> hoặc <strong>Erhu Hmoob Nplog</strong>) ngay trong Kontakt. Chuyển sang <strong>Classic View</strong> nếu chưa thấy phần Rack/MIDI Ch (có thể cần bấm nút <strong>i</strong> ở header nhạc cụ), đặt <strong>MIDI Ch: [A] 1</strong> (hoặc Omni để kiểm tra bước đầu).</li>
               <li><strong>Nghe âm thanh thật:</strong> đặt <strong>Kênh MIDI 1</strong> và bấm <strong>Thử nốt</strong>. Kontakt phát âm thanh qua thiết bị âm thanh do Kontakt chọn (ví dụ DUO-CAPTURE EX), không phải qua trình duyệt.</li>
             </ol>
-            <p class="mx-kontakt-setup-note">Cách này dùng Kontakt 8 thật: mọi mẫu WAV, nhóm trống, key mapping và xử lý NKI vẫn do Kontakt đảm nhận. MELORIX không tự cài driver hoặc mở file NKI trên máy.</p>
+            <p class="mx-kontakt-setup-note">Kontakt 8 thực thi nhạc cụ .nki và xử lý sample, key mapping, hiệu ứng và script theo thư viện. MELORIX chỉ điều khiển qua MIDI, không yêu cầu bạn tách WAV và không tự truy cập các file trên Windows.</p>
           </div>
           <p v-if="!supported" class="mx-instrument-import-error">Chỉ dùng được trên Chrome hoặc Edge Windows có Web MIDI; Safari iPad không hỗ trợ.</p>
           <button class="mx-midi-button" type="button" :disabled="busy || !supported" @click="grant">
@@ -93,7 +98,7 @@ onUnmounted(()=>{unsubscribe?.()})
             <input type="checkbox" :checked="externalOnly" :disabled="!connected || playing" @change="setExternalOnly">
             Chỉ nghe Kontakt 8 khi dùng Piano Roll hoặc Play (tắt âm thanh nhạc cụ Web Audio trong MELORIX)
           </label>
-          <p>Chế độ này tự bật gửi MIDI khi Play. Để nghe đúng tiếng Erhu/Drum Mix, bật tùy chọn này <strong>trước khi nhấn Play</strong>. Nếu bài đang chạy, bấm Stop trước khi đổi chế độ. Track Piano Roll phải gửi trên đúng kênh MIDI mà Kontakt nhận; bản xuất MP4 chưa thu tiếng Kontakt.</p>
+          <p>Chế độ này tự bật gửi MIDI khi Play. Để nghe đúng tiếng Erhu/Drum Mix, bật tùy chọn này <strong>trước khi nhấn Play</strong>. Nếu bài đang chạy, bấm Stop trước khi đổi chế độ. Track Piano Roll phải gửi trên đúng kênh MIDI mà Kontakt nhận. Nếu muốn đưa tiếng Kontakt vào MP4, dùng mục Thu / nhập âm thanh Kontakt (MP4) trong menu Nhạc cụ.</p>
           <p class="mx-midi-bridge-status" role="status" aria-live="polite">{{ status }}</p>
           <label class="mx-kontakt-confirm">
             <input type="checkbox" :checked="heardKontakt" :disabled="!connected" @change="confirmHeard">
