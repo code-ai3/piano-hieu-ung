@@ -149,7 +149,7 @@ onBeforeUnmount(()=>{alive=false;stopCapture(true);if(currentUrl)URL.revokeObjec
    <p><strong>Cách 1 — Thu trực tiếp.</strong> Bấm nút dưới, trong Chrome/Edge chọn <strong>Toàn bộ màn hình</strong> và bật <strong>Chia sẻ âm thanh hệ thống</strong> (nếu có). Sau khi cho phép, MELORIX tự phát MIDI từ đầu. Thu xong thì bấm Dừng.</p>
    <div class="mx-kontakt-capture-actions">
     <button v-if="!recording" type="button" :disabled="processing||busy" @click="beginCapture">Bắt đầu thu và phát MIDI từ đầu</button>
-    <button v-else type="button" class="mx-kontakt-stop" @click="stopCapture">Dừng thu âm thanh</button>
+    <button v-else type="button" class="mx-kontakt-stop" @click="stopCapture()">Dừng thu âm thanh</button>
    </div>
    <p class="mx-kontakt-capture-note">Lưu ý: ASIO của DUO-CAPTURE EX có thể không đi qua luồng âm thanh hệ thống Windows. MELORIX không thể ép trình duyệt nghe được đầu ra Kontakt. Nếu bản thu im lặng, dùng cách 2.</p>
    <p><strong>Cách 2 — Nhập âm thanh đã thu.</strong> Xuất một bản WAV/MP3 từ Kontakt qua DAW hoặc ghi âm rồi chọn tệp ở đây. Âm thanh nằm trong trình duyệt, không tải lên máy chủ.</p>
