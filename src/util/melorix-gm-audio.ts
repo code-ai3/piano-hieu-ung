@@ -139,7 +139,7 @@ export class GmWebAudio {
      note:clamp(Math.round(note),0,127),velocity:clamp(velocity,1,127),
      time:Math.max(this.ctx.currentTime+.005,when),duration:clamp(duration,.06,15)
     })
-    if(typeof stopNote==='function')return {stop:()=>{try{stopNote({time:this.ctx.currentTime+.002})}catch{}}}
+    if(typeof stopNote==='function')return {stop:()=>{try{stopNote(this.ctx.currentTime+.002)}catch{}}}
    }catch(error){console.warn('Soundfont note fallback:',error)}
   }
   return voice.percussion
