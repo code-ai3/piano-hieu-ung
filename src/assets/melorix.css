@@ -525,3 +525,21 @@ html, body, #app { width:100%; height:100%; min-height:0; overflow:hidden; overs
 .mx-kontakt-export-offset small{font-size:11px;opacity:.8}
 .mx-kontakt-export-options>p{margin:0;opacity:.75}
 .mx-kontakt-export-options>button{padding:9px 12px;border-radius:8px;border:1px solid #7e94ae;text-align:left}
+
+/* Global bundled instrument catalog. It does not rely on browser storage. */
+.mx-global-library{width:min(750px,100%);max-height:min(90dvh,920px)}
+.mx-global-library-body{display:flex;flex-direction:column;gap:13px;font-size:13px;line-height:1.65}
+.mx-global-library-body>p{margin:0}
+.mx-global-library-filter{display:flex;align-items:end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.mx-global-library-filter label{display:flex;flex-direction:column;gap:5px;flex:1;min-width:180px}
+.mx-global-library-filter select{background:#182638;color:#e9f2fd;padding:8px;border:1px solid #657687;border-radius:6px;min-height:39px}
+.mx-global-library-filter button,.mx-global-library-item-actions button,.mx-global-library-item-actions a{border-radius:6px;border:1px solid #779bb5;padding:8px 12px;color:#effcff;text-decoration:none;background:#2c5063;cursor:pointer}
+.mx-global-library-filter button:disabled,.mx-global-library-item-actions button:disabled{opacity:.4;cursor:not-allowed}
+.mx-global-library-item{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;border:1px solid #485e71;border-radius:9px;padding:13px;background:#192838}
+.mx-global-library-item>div:first-child{display:flex;flex:1;flex-direction:column;gap:3px;min-width:160px}
+.mx-global-library-item strong{font-size:14px;color:#f0f8ff}
+.mx-global-library-item span{font-size:12px;color:#9cc8e7}
+.mx-global-library-item p{margin:0;font-size:12px;color:#b9cedf}
+.mx-global-library-item-actions{display:flex;gap:8px;flex-wrap:wrap}
+.mx-global-library-note{padding:10px;border-left:3px solid #b28b5e;background:rgba(126,138,148,.12);border-radius:5px;font-size:12px}
+.mx-global-library-empty{padding:18px 12px;background:#253343;border:1px dashed #7892a6;border-radius:7px}
