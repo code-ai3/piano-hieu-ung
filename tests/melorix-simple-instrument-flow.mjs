@@ -13,7 +13,7 @@ assert.ok(!menu.includes('openKontaktRouter'),'No multi-route config in ordinary
 assert.match(piano,/void refreshPublishedInstruments\(\)/,'Read shared instruments on page load')
 assert.match(piano,/publishedInstruments\.value\.filter\(p=>p\.format==='nki'\)/,'Offer published NKI in track instrument dropdown')
 assert.match(piano,/assignedTrackPresets\.value=\{\.\.\.assignedTrackPresets\.value,\[p\.id\]:selected\}/,'Assign chosen library instrument to new track')
-assert.match(piano,/isPublishedTrackInstrument\(preset\)\)return/,'NKI must not pretend to use WebAudio WAV')
+assert.match(piano,/erhuWebSampler\.play\(/,'Real Erhu playback needs decoded WAVs')
 assert.ok(!library.includes("@choose="))
 assert.ok(!library.includes("emit('choose'"))
 assert.ok(!library.includes('publishedInstrumentUrl'),'Library browser must be view only')
