@@ -788,6 +788,10 @@ async function exportVideo() {
         throw new Error('Kontakt audio sync offset must be between -300 and 300 seconds')
       }
       audioBuf=alignKontaktAudio(kontaktAudioBuffer.value,exportSeconds,kontaktAudioOffset.value)
+    }else if(originalAudioActive()&&currentTrack.value?.originalAudioUrl){
+      const original=await decodeOriginalAudio(currentTrack.value.originalAudioUrl)
+      audioBuf=alignKontaktAudio(original,exportSeconds,0)
+      exportAudioNotice.value='Xuất âm thanh bản thu gốc; nốt MIDI chỉ dùng cho hình nốt rơi.'
     }else{
       const wavSamples=new Map<string,{buffer:AudioBuffer,root:number}>()
       for(const sample of localSamples.value){
@@ -822,7 +826,7 @@ async function exportVideo() {
 
     const vs = new VideoSampleSource({ codec: 'avc', bitrate: 8_000_000 })
     output.addVideoTrack(vs)
-    const as = new AudioSampleSource({ codec: 'aac', bitrate: 128000 })
+    const as = new AudioSampleSource({ codec: 'aac', bitrate: 256000 })
     output.addAudioTrack(as)
     await output.start()
 
@@ -2428,7 +2432,8 @@ watch(() => currentTime.value, (t) => {
               <input v-model.number="kontaktAudioOffset" type="number" step="0.1" min="-300" max="300" aria-label="Độ lệch âm thanh Kontakt (giây)">
               <small>+ làm tiếng bắt đầu trễ; − cắt đoạn đầu âm thanh thu. Thường để 0 nếu đã thu từ lúc MELORIX phát bài.</small>
             </label>
-            <p v-if="!kontaktAudioBuffer" role="note">MP4 dùng bản phối đa nhạc cụ (Piano, GM, trống, Synth, WAV cá nhân), giữ Volume và biểu cảm. NKI chưa có mẫu web sẽ dùng GM thay thế; nếu tải GM thất bại sẽ dùng tiếng dự phòng.</p>
+            <p v-if="hasOriginalAudio && useOriginalAudio && !useKontaktAudio" role="note">Đang giữ bản thu âm gốc khi xuất MP4. Bản thu không bị thay bằng GM và không thay đổi khi sửa nốt MIDI.</p>
+            <p v-else-if="!kontaktAudioBuffer || !useKontaktAudio" role="note">MP4 dựng lại âm thanh từ MIDI bằng Piano/GM/Drums/Synth. MIDI không chứa âm sắc và hiệu ứng trong bản thu gốc.</p>
              <p v-if="exportAudioNotice" role="status">{{ exportAudioNotice }}</p>
             <button type="button" @click="openKontaktAudioCapture">{{ kontaktAudioBuffer ? 'Thay / nghe lại bản thu Kontakt' : 'Thu hoặc nhập âm thanh Kontakt' }}</button>
           </div>
@@ -2473,6 +2478,12 @@ watch(() => currentTime.value, (t) => {
         </button>
         <!-- 当前曲目 -->
         <span class="text-xs text-black/50 dark:text-white/50 truncate flex-1 min-w-0">{{ currentTrack?.name || '--' }}</span>
+         <label v-if="hasOriginalAudio" class="mx-original-audio-toggle"
+           title="Bật: nghe bản thu gốc không qua GM. Tắt: nghe MIDI dựng lại. Chỉnh nốt không làm thay đổi bản thu gốc.">
+           <input type="checkbox" v-model="useOriginalAudio" :disabled="exporting" @change="onOriginalAudioModeChange">
+           <i class="fas fa-wave-square" aria-hidden="true"></i>
+           <span>{{ useOriginalAudio ? 'Bản thu gốc' : 'Âm thanh MIDI' }}</span>
+         </label>
         <!-- 单曲循环 -->
         <button @click="repeat = !repeat" class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border border-[rgba(255,255,255,0.5)] shadow-glass-light transition-all duration-300 hover:-translate-y-px hover:shadow-glass-hover-light active:translate-y-0 dark:shadow-none"
           :class="repeat
