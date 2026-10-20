@@ -10,6 +10,8 @@ import { velocityVisualStrength, velocityParticleCount } from '@/util/velocity-e
 import type { VelocityVisualMode } from '@/util/velocity-effects'
 import type { VideoFormat, PortraitKeyboard } from '@/util/video-format'
 import { SplendidGrandPiano, renderOffline } from 'smplr'
+import { ExpressiveAudioMaster, expressedVelocity } from '@/util/melorix-expressive-audio'
+import type { ExpressionMode } from '@/util/melorix-expressive-audio'
 import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
 import MelorixPianoRoll from '@/components/MelorixPianoRoll.vue'
@@ -172,6 +174,17 @@ type TrackInstrument=InstrumentPreset|LocalInstrumentId|CatalogInstrumentId
 const newTrackPreset=ref<TrackInstrument>('piano')
 const assignedTrackPresets=ref<Record<number,TrackInstrument>>({})
 const trackVolumeLevels=ref<Record<number,number>>({})
+const expressionMode=ref<ExpressionMode>('natural')
+let audioMaster:ExpressiveAudioMaster|null=null
+function getAudioMaster(ctx:AudioContext):AudioNode{
+ if(!audioMaster)audioMaster=new ExpressiveAudioMaster(ctx,expressionMode.value)
+ return audioMaster.input
+}
+function setExpressionMode(mode:ExpressionMode){
+ if(exporting.value)return
+ expressionMode.value=mode
+ if(audioMaster&&audioCtx.value)audioMaster.setMode(audioCtx.value,mode)
+}
 const trackGainNodes=new Map<number,GainNode>()
 function trackVolumePercent(id:number){return trackVolumeLevels.value[id]??100}
 function trackOutput(ctx:AudioContext,id:number):GainNode{
@@ -179,7 +192,7 @@ function trackOutput(ctx:AudioContext,id:number):GainNode{
  if(!node){
   node=ctx.createGain()
   node.gain.value=trackVolumePercent(id)/100
-  node.connect(ctx.destination)
+  node.connect(getAudioMaster(ctx))
   trackGainNodes.set(id,node)
  }
  return node
@@ -198,6 +211,31 @@ function clearTrackAudioOutputs(){
  trackGainNodes.clear()
 }
 const importedMidiPrograms=ref<Record<number,number>>({})
+// The bundled SplendidGrandPiano samples are genuine recordings and work offline.
+type PianoTrackSample={sampler:SplendidGrandPiano;ready:boolean}
+const pianoTrackSamples=new Map<number,PianoTrackSample>()
+function ensurePianoTrackSample(ctx:AudioContext,id:number):PianoTrackSample{
+ const cached=pianoTrackSamples.get(id)
+ if(cached)return cached
+ const storage={fetch:(url:string)=>fetch(url.replace('#','%23'))}
+ const sampler=SplendidGrandPiano(ctx,{
+  volume:100,
+  baseUrl:'/samples/sfzinstruments-splendid-grand-piano/samples',
+  decayTime:.65,
+  destination:trackOutput(ctx,id),
+  storage:storage as any,
+ })
+ const entry:PianoTrackSample={sampler,ready:false}
+ pianoTrackSamples.set(id,entry)
+ void sampler.load.then(()=>{entry.ready=true}).catch(error=>{
+  console.warn('Cannot load bundled sampled piano; GM fallback remains available:',error)
+ })
+ return entry
+}
+function stopPianoTrackSamples(){
+ for(const entry of pianoTrackSamples.values()){try{entry.sampler.dispose()}catch{}}
+ pianoTrackSamples.clear()
+}
 let gmEngine:GmWebAudio|null=null
 const gmAudioNotice=ref('')
 function gmVoiceForId(trackId:number){
@@ -233,20 +271,36 @@ function preloadGmForEnabledTracks(){
  for(const part of midiParts.value){
   if(!part.enabled)continue
   const choice=assignedTrackPresets.value[part.id]
-  if(choice===undefined || choice.startsWith('library:') || choice==='piano')engine.preload(gmVoiceForId(part.id),part.id)
+  if((choice===undefined||choice==='piano') && gmVoiceForId(part.id).key==='acoustic_grand_piano'){
+   ensurePianoTrackSample(ctx,part.id)
+  }else if(choice===undefined||choice.startsWith('library:')||choice==='piano'){
+   engine.preload(gmVoiceForId(part.id),part.id)
+  }
  }
 }
-function playTrackVoice(ctx:AudioContext,trackId:number,midi:number,velocity:number,when:number,duration:number,voices:Set<SynthVoice>,_stopId?:string){
+function playTrackVoice(ctx:AudioContext,trackId:number,midi:number,velocity:number,when:number,duration:number,voices:Set<SynthVoice>,_stopId?:string,scoreOnset?:number){
  const preset=trackPreset(trackId)
  const chosen=assignedTrackPresets.value[trackId]
+ // Playback-only musical emphasis. Editor auditions and the MIDI file stay unchanged.
+ const playedVelocity=scoreOnset===undefined?velocity:
+  expressedVelocity(velocity,scoreOnset,midiTempo.value,expressionMode.value)
+ if((chosen===undefined||chosen==='piano') && gmVoiceForId(trackId).key==='acoustic_grand_piano'){
+  const pianoTrack=ensurePianoTrackSample(ctx,trackId)
+  if(pianoTrack.ready){
+   const release=pianoTrack.sampler.start({note:midi,velocity:playedVelocity,
+    time:Math.max(ctx.currentTime+.005,when),duration:Math.max(.06,duration)})
+   voices.add({stop:()=>release(ctx.currentTime+.002)})
+   return
+  }
+ }
  if(chosen===undefined || (isPublishedTrackInstrument(preset) && !(preset==='library:erhu-hmoob-nplog' && erhuWebSampler.ready))){
-  playGmVoice(ctx,trackId,midi,velocity,when,duration,voices)
+  playGmVoice(ctx,trackId,midi,playedVelocity,when,duration,voices)
   return
  }
  if(preset==='piano'){
-  playGmVoice(ctx,trackId,midi,velocity,when,duration,voices)
+  playGmVoice(ctx,trackId,midi,playedVelocity,when,duration,voices)
  }else{
-  routedNote(ctx,midi,velocity,when,duration,preset,voices,trackId)
+  routedNote(ctx,midi,playedVelocity,when,duration,preset,voices,trackId)
  }
 }
 
@@ -1053,7 +1107,7 @@ function scheduleUpcomingAudio() {
   // When resuming/starting mid-song do not retrigger older notes.
   if(delay<-.035)continue
   playTrackVoice(ctx,n.trackId,n.midi,n.velocity*127,
-    ctx.currentTime+Math.max(.005,delay),n.duration*speed.value,synthScheduledVoices)
+    ctx.currentTime+Math.max(.005,delay),n.duration*speed.value,synthScheduledVoices,undefined,n.time)
  }
 }
 function scheduleAll() {
@@ -1104,7 +1158,9 @@ function resetPiano() {
   stopChordAudition()
   stopSynthVoices(synthScheduledVoices)
   gmEngine?.stop();gmEngine=null
+  stopPianoTrackSamples()
   clearTrackAudioOutputs()
+  audioMaster?.disconnect();audioMaster=null
   piano?.stop(); piano = null
   audioCtx.value?.close(); audioCtx.value = null
   pianoLoaded.value = false; initPianoPromise = null
@@ -1883,7 +1939,11 @@ watch(() => currentTime.value, (t) => {
           <button type="button" @click="stop">Dừng / về đầu</button>
            <button type="button" @click="testWebSound">Kiểm tra loa (trống + nhạc cụ)</button>
            <div v-if="gmAudioNotice" role="status" class="mx-menu-caption">{{ gmAudioNotice }}</div>
-          <button type="button" @click="nextTrack">Bài tiếp theo</button>
+          <div class="mx-menu-caption">Biểu cảm khi phát (không sửa MIDI gốc)</div>
+           <button type="button" :aria-pressed="expressionMode==='original'" @click="setExpressionMode('original')">{{ expressionMode==='original'?'✓ ':'' }}Nguyên bản MIDI</button>
+           <button type="button" :aria-pressed="expressionMode==='natural'" @click="setExpressionMode('natural')">{{ expressionMode==='natural'?'✓ ':'' }}Tự nhiên · nhấn nhá nhẹ</button>
+           <button type="button" :aria-pressed="expressionMode==='warm'" @click="setExpressionMode('warm')">{{ expressionMode==='warm'?'✓ ':'' }}Ấm và sâu · ngân vang hơn</button>
+           <button type="button" @click="nextTrack">Bài tiếp theo</button>
           <button type="button" @click="repeat = !repeat">{{ repeat ? '✓ ' : '' }}Lặp lại bài</button>
         </div></details>
         <details name="melorix-main-menu"><summary>Track MIDI</summary><div class="mx-menu-pop">
