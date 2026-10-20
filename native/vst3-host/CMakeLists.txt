@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(MelorixVst3Probe LANGUAGES CXX)
+project(MelorixVst3Probe VERSION 0.1.0 LANGUAGES CXX)
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
  message(FATAL_ERROR "MELORIX VST3 host probe currently supports Windows x64 only")
 endif()
