@@ -13,6 +13,7 @@ import { SplendidGrandPiano } from 'smplr'
 import { renderMultiTrackAudio } from '@/util/melorix-offline-mix'
 import { ExpressiveAudioMaster, expressedVelocity } from '@/util/melorix-expressive-audio'
 import {exportMidiProgram} from '@/util/melorix-midi-program-export'
+import {removeMidiTrack,omitTrackSetting} from '@/util/melorix-track-actions'
 import type { ExpressionMode } from '@/util/melorix-expressive-audio'
 import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
@@ -52,6 +53,7 @@ const speed = ref(1)
 const allNotes = ref<NoteEvent[]>([])
 const midiTempo = ref(120)
 const pianoRollTrackId = ref<number | null>(null)
+const selectedTrackId=ref<number|null>(null)
 const pianoRollHeight = ref(330)
 const pianoRollPart = computed(() => midiParts.value.find(part => part.id === pianoRollTrackId.value) || null)
 const pianoRollNotes = computed(() => allNotes.value.filter(note => note.trackId === pianoRollTrackId.value))
@@ -393,6 +395,7 @@ function changeInstrumentTarget(e:Event){
  const id=Number((e.target as HTMLSelectElement).value)
  if(!midiParts.value.some(p=>p.id===id))return
  instrumentPreviewTrackId.value=id
+ selectTrack(id)
  instrumentEditorPreset.value=trackPreset(id)
 }
 function applyInstrumentSelection(){
@@ -445,8 +448,9 @@ function openTrackComposer(){
 }
 function openInstrumentTrackPanel(id?:number){
  closeControlPanel()
- const chosen=id??midiParts.value[0]?.id
+ const chosen=id??selectedTrackId.value??midiParts.value[0]?.id
  if(chosen===undefined)return
+ selectTrack(chosen)
  instrumentPreviewTrackId.value=chosen
  instrumentEditorPreset.value=trackPreset(chosen)
 }
@@ -472,6 +476,39 @@ function assignTrackPreset(id:number,selection:TrackInstrument){
  playState.value='idle'
  closeControlPanel()
 }
+function deleteMidiTrack(id:number){
+ if(exporting.value)return
+ const part=midiParts.value.find(p=>p.id===id)
+ if(!part)return
+ const count=allNotes.value.filter(n=>n.trackId===id).length
+ const recordingWarning=kontaktAudioBuffer.value?'\nBản thu Kontakt của bài cũng sẽ được bỏ vì không còn khớp bản phối.':''
+ if(!window.confirm(`Xóa track "${part.name}" và ${count} nốt MIDI?\nThao tác này không thể hoàn tác.${recordingWarning}`))return
+ // Stop scheduled MIDI and Web Audio before removing notes or track routing.
+ playRequest++
+ pianoLoading=false
+ resetPiano()
+ if(kontaktAudioBuffer.value){
+  setKontaktAudio(null,'')
+  captureSession.value++
+ }
+ const result=removeMidiTrack(midiParts.value,allNotes.value,id,selectedTrackId.value)
+ midiParts.value=result.parts
+ allNotes.value=result.notes
+ selectedTrackId.value=result.selectedId
+ if(pianoRollTrackId.value===id)pianoRollTrackId.value=null
+ if(instrumentPreviewTrackId.value===id)closeControlPanel()
+ assignedTrackPresets.value=omitTrackSetting(assignedTrackPresets.value,id)
+ importedMidiPrograms.value=omitTrackSetting(importedMidiPrograms.value,id)
+ kontaktTrackChannels.value=omitTrackSetting(kontaktTrackChannels.value,id)
+ kontaktTrackNames.value=omitTrackSetting(kontaktTrackNames.value,id)
+ trackVolumeLevels.value=omitTrackSetting(trackVolumeLevels.value,id)
+ duration.value=allNotes.value.reduce((max,n)=>Math.max(max,n.time+n.duration),0)
+ playState.value='idle'
+ currentTime.value=0
+ lastScheduledIdx=0
+ keyState.value={}
+ updateNoteRange()
+}
 function createInstrumentTrack(){
  if(exporting.value)return
  const selected=newTrackPreset.value
@@ -483,6 +520,7 @@ function createInstrumentTrack(){
  else {stopSynthVoices(synthScheduledVoices);piano?.stop()}
  const freeKontaktChannel=nextKontaktChannel(midiParts.value,kontaktTrackChannels.value)
  midiParts.value.push(p)
+ selectedTrackId.value=p.id
  kontaktTrackChannels.value={...kontaktTrackChannels.value,[p.id]:freeKontaktChannel}
  assignedTrackPresets.value={...assignedTrackPresets.value,[p.id]:selected}
  if(isPublishedTrackInstrument(selected)&&midiBridge.connected&&!midiBridge.playbackEnabled)midiBridge.setPlayback(true)
@@ -937,6 +975,7 @@ function processMidi(midi: Midi) {
   if(playState.value==='playing')pause()
   midiBridge.stopAll()
   pianoRollTrackId.value = null
+  selectedTrackId.value=null
   assignedTrackPresets.value={}
   // Do not retain GM instruments routed to disconnected buses from the previous MIDI.
   gmEngine?.stop();gmEngine=null
@@ -950,6 +989,7 @@ function processMidi(midi: Midi) {
   midiTempo.value = midi.header.tempos[0]?.bpm || 120
   const parsed = extractMidiParts(midi)
   midiParts.value = parsed.parts
+  selectedTrackId.value=parsed.parts[0]?.id??null
   allNotes.value = parsed.events
   duration.value = midi.duration || parsed.events.reduce((end, n) => Math.max(end, n.time + n.duration), 0)
   currentTime.value = 0
@@ -961,8 +1001,18 @@ function processMidi(midi: Midi) {
   // not only after the first Play click. No AudioContext resume is required here.
   if(audioCtx.value)preloadGmForEnabledTracks()
 }
+function selectTrack(id:number){
+ if(exporting.value||!midiParts.value.some(p=>p.id===id))return
+ selectedTrackId.value=id
+ if(pianoRollTrackId.value!==null&&pianoRollTrackId.value!==id){
+  stopPianoAudition()
+  stopChordAudition()
+  pianoRollTrackId.value=id
+ }
+}
 function openPianoRoll(id: number) {
   if (exporting.value || !midiParts.value.some(part => part.id === id)) return
+  selectTrack(id)
   pianoRollTrackId.value = id
   if (playState.value === 'playing') pause()
 }
@@ -2028,16 +2078,24 @@ watch(() => currentTime.value, (t) => {
           <button type="button" :disabled="exporting || !midiParts.length" @click="setAllParts(false)">Tắt tất cả</button>
         </div>
         <div class="mx-track-sidebar-list">
-          <p v-if="!midiParts.length" class="mx-track-sidebar-empty">Nhập MIDI để xem và chỉnh các nhạc cụ.</p>
-          <section v-for="part in timelineRows" :key="part.id" class="mx-track-side-item" :class="{ 'mx-track-side-item-muted': !part.enabled }">
+          <p v-if="!midiParts.length" class="mx-track-sidebar-empty">Chưa có track. Nhấn + để thêm nhạc cụ hoặc nhập MIDI.</p>
+          <section v-for="part in timelineRows" :key="part.id" class="mx-track-side-item"
+             :class="{ 'mx-track-side-item-muted': !part.enabled, 'mx-track-side-item-selected': selectedTrackId===part.id }"
+             @click="selectTrack(part.id)">
             <div class="mx-track-side-top">
               <button type="button" class="mx-eye" :title="part.enabled ? 'Ẩn track' : 'Bật track'" :disabled="exporting" @click="setPartEnabled(part.id, !part.enabled)">
                 <i :class="part.enabled ? 'fas fa-eye' : 'fas fa-eye-slash'"></i>
               </button>
               <span class="mx-swatch" :style="{ backgroundColor: part.color }"></span>
-              <span class="mx-track-name" :title="part.name">{{ part.name }}</span>
+              <button type="button" class="mx-track-name mx-track-select"
+                 :title="'Chọn '+part.name+' · nhấp đúp để mở Piano Roll'"
+                 :aria-label="'Chọn track '+part.name" :aria-pressed="selectedTrackId===part.id" :disabled="exporting"
+                 @click.stop="selectTrack(part.id)" @dblclick.stop="openPianoRoll(part.id)">{{ part.name }}</button>
               <button type="button" class="mx-track-mini" :aria-pressed="!part.enabled" :disabled="exporting" @click="setPartEnabled(part.id, !part.enabled)" title="Mute">M</button>
               <button type="button" class="mx-track-mini" :aria-pressed="part.enabled && enabledPartCount === 1" :disabled="exporting" @click="soloPart(part.id)" title="Solo">S</button>
+               <button type="button" class="mx-track-delete" :disabled="exporting"
+                 :aria-label="'Xóa track '+part.name" :title="'Xóa track '+part.name"
+                 @click.stop="deleteMidiTrack(part.id)"><i class="fas fa-trash-alt" aria-hidden="true"></i></button>
             </div>
             <div class="mx-track-side-sub">
               <button type="button" class="mx-track-instrument-trigger" :aria-expanded="activeEditorPanel === 'instrument' && instrumentPreviewTrackId === part.id" :aria-label="'Chọn nhạc cụ cho ' + part.name" :title="'Thay âm sắc cho ' + part.name" :disabled="exporting" @click="toggleInstrumentPreview(part.id)">
@@ -2056,7 +2114,7 @@ watch(() => currentTime.value, (t) => {
                 @input="setTrackVolume(part.id,$event)">
               <output>{{ trackVolumePercent(part.id) }}%</output>
             </label>
-            <div class="mx-track-side-minimap mx-editable-track" :aria-label="'Nhấp đúp để chỉnh từng nốt trong ' + part.name" :title="'Nhấp đúp để chỉnh Piano Roll: ' + part.name" role="button" tabindex="0" @dblclick.stop="openPianoRoll(part.id)" @keydown.enter="openPianoRoll(part.id)">
+            <div class="mx-track-side-minimap mx-editable-track" :aria-label="'Chọn track hoặc nhấp đúp để chỉnh từng nốt trong ' + part.name" :title="'Nhấp đúp để chỉnh Piano Roll: ' + part.name" role="button" tabindex="0" @dblclick.stop="openPianoRoll(part.id)" @keydown.enter="openPianoRoll(part.id)">
               <span v-for="(bar,idx) in part.bars" :key="idx" class="mx-track-side-mini-note" :style="{ left: bar.left + '%', width: bar.width + '%', backgroundColor: part.color }"></span>
             </div>
           </section>
@@ -2074,13 +2132,18 @@ watch(() => currentTime.value, (t) => {
           </div>
           <div class="mx-lanes">
             <div v-if="!midiParts.length" class="mx-empty">Đang nạp bài MIDI…</div>
-            <div v-for="part in timelineRows" :key="part.id" class="mx-track-row">
+            <div v-for="part in timelineRows" :key="part.id" class="mx-track-row"
+               :class="{ 'mx-track-row-selected': selectedTrackId===part.id }" @click="selectTrack(part.id)">
               <div class="mx-track-controls">
                 <button type="button" class="mx-eye" :title="part.enabled ? 'Ẩn track' : 'Hiện track'" :disabled="exporting" @click="setPartEnabled(part.id, !part.enabled)">
                   <i :class="part.enabled ? 'fas fa-eye' : 'fas fa-eye-slash'"></i>
                 </button>
                 <span class="mx-swatch" :style="{ background: part.color }"></span>
-                <span class="mx-track-name" :style="{ color: part.enabled ? part.color : '#929ba8' }" :title="part.name">{{ part.name }}</span>
+                <button type="button" class="mx-track-name mx-track-select"
+                   :style="{ color: part.enabled ? part.color : '#929ba8' }"
+                   :aria-label="'Chọn track '+part.name" :aria-pressed="selectedTrackId===part.id"
+                   :disabled="exporting" @click.stop="selectTrack(part.id)" @dblclick.stop="openPianoRoll(part.id)"
+                   :title="'Chọn '+part.name+' · nhấp đúp để mở Piano Roll'">{{ part.name }}</button>
                 <button type="button" class="mx-track-mini" :aria-pressed="!part.enabled" :disabled="exporting" @click="setPartEnabled(part.id, !part.enabled)">M</button>
                 <button type="button" class="mx-track-mini" :aria-pressed="part.enabled && enabledPartCount === 1" :disabled="exporting" @click="soloPart(part.id)">S</button>
                 <input type="color" class="mx-track-color" :value="part.color" :disabled="exporting" :aria-label="'Màu track ' + part.name" @input="onPartColorInput(part.id, $event)">

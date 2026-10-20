@@ -5,6 +5,7 @@ on:
     branches:
       - fix/melorix-web-audit-round1
       - feature/melorix-mp4-multitrack-audio
+      - feature/melorix-track-select-delete
   workflow_dispatch:
 
 permissions:
