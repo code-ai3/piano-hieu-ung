@@ -68,6 +68,7 @@ int wmain(int argc,wchar_t* argv[]){
  if(FAILED(comStatus)){failure("Windows COM could not initialize");return 4;}
  // The Steinberg loader calls module entry points and GetPluginFactory and
  // properly unloads the module when the shared pointer leaves scope.
+ {
  std::string error;
  auto module=VST3::Hosting::Module::create(source,error);
  if(!module){
@@ -118,7 +119,10 @@ int wmain(int argc,wchar_t* argv[]){
           <<",\"componentInitialized\":"<<(initialized?"true":"false")
           <<",\"audioProcessorInterface\":"<<(audioProcessor?"true":"false")
           <<",\"audioRendered\":false,\"pluginEditorOpened\":false}\n";
- module.reset();
+ // IMPORTANT: The copied PluginFactory owns an SDK IPtr into the DLL.
+ // It must be destroyed before the Module unloads the library; resetting
+ // Module while factory is alive causes an access violation on Windows.
+ }
  CoUninitialize();
  return (initialize&&!initialized)?6:0;
 }
