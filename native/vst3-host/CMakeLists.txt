@@ -15,7 +15,10 @@ set(SMTG_CREATE_PLUGIN_LINK OFF CACHE BOOL "" FORCE)
 # Uses the SDK's official hosting module (Module::create), not an invented
 # factory ABI. MIT license; do not bundle Kontakt/NKI or load paid plugins in CI.
 add_subdirectory("${VST3_SDK_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/steinberg")
-add_executable(melorix-vst3-probe probe.cpp)
+add_executable(melorix-vst3-probe
+ probe.cpp
+ "${VST3_SDK_ROOT}/public.sdk/source/vst/hosting/module_win32.cpp"
+)
 target_compile_features(melorix-vst3-probe PRIVATE cxx_std_17)
 target_compile_definitions(melorix-vst3-probe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_link_libraries(melorix-vst3-probe PRIVATE sdk_hosting ole32)
