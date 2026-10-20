@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run test:tracks && npm run test:video && npm run test:velocity && npm run test:export && npm run test:editor && npm run test:playhead && npm run test:selection && npm run test:quantize && npm run test:velocity-editor && npm run test:scale && npm run test:chords && npm run test:instruments && npm run test:local-wav && npm run test:kontakt && npm run test:web-midi && npm run test:kontakt-routing && npm run test:kontakt-audio && npm run test:midi-overlap && npm run test:nki-workflow && npm run test:global-instruments && npm run test:simple-instruments && npm run test:erhu-cache && npm run test:gm-audio && npm run test:track-volume && run-p type-check \"build-only {@}\" --",
+    "build": "npm run test:tracks && npm run test:video && npm run test:velocity && npm run test:export && npm run test:editor && npm run test:playhead && npm run test:selection && npm run test:quantize && npm run test:velocity-editor && npm run test:scale && npm run test:chords && npm run test:instruments && npm run test:local-wav && npm run test:kontakt && npm run test:web-midi && npm run test:kontakt-routing && npm run test:kontakt-audio && npm run test:midi-overlap && npm run test:nki-workflow && npm run test:global-instruments && npm run test:simple-instruments && npm run test:erhu-cache && npm run test:gm-audio && npm run test:track-volume && npm run test:desktop && run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
     "test:tracks": "node --experimental-strip-types tests/midi-tracks.mjs",
     "test:video": "node --experimental-strip-types tests/video-format.mjs",
@@ -33,7 +33,9 @@
     "test:simple-instruments": "node tests/melorix-simple-instrument-flow.mjs",
     "test:erhu-cache": "node --experimental-strip-types tests/melorix-erhu-sample-cache.mjs",
     "test:gm-audio": "node --experimental-strip-types tests/melorix-gm-audio.mjs",
-    "test:track-volume": "node --experimental-strip-types tests/melorix-track-volume.mjs"
+    "test:track-volume": "node --experimental-strip-types tests/melorix-track-volume.mjs",
+    "test:desktop": "node tests/melorix-desktop.mjs",
+    "desktop:build:win": "electron-builder --win portable nsis --x64 --publish never"
   },
   "dependencies": {
     "@fortawesome/fontawesome-free": "^7.0.0",
@@ -59,5 +61,6 @@
     "typescript": "~5.3.0",
     "vite": "^5.0.10",
     "vue-tsc": "^1.8.25"
-  }
+  },
+  "main": "desktop/main.cjs"
 }

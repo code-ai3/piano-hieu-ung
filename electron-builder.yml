@@ -1,0 +1,36 @@
+appId: vn.lunor.melorix
+productName: MELORIX
+electronVersion: 37.2.0
+asar: true
+compression: normal
+
+directories:
+  output: release
+
+files:
+  - dist/**/*
+  - desktop/main.cjs
+  - package.json
+  - "!node_modules/**/*"
+  - "!**/*.map"
+
+win:
+  icon: desktop/melorix.ico
+  target:
+    - target: portable
+      arch:
+        - x64
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  artifactName: MELORIX-Setup-${version}-${arch}.${ext}
+
+portable:
+  artifactName: MELORIX-Portable-${version}-${arch}.${ext}

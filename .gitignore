@@ -22,3 +22,7 @@ dist-ssr
 *.sln
 *.sw?
 *.tsbuildinfo
+
+# Electron Desktop build artifacts
+release/
+desktop/melorix.ico
