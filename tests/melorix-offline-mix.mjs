@@ -17,7 +17,7 @@ for(const item of [
  'programs:importedMidiPrograms.value','presets:assignedTrackPresets.value',
  'volumes:trackVolumeLevels.value','erhuSamples:erhuWebSampler.getDecodedSamples()',
  'tempo:midiTempo.value','expression:expressionMode.value',
- 'audioBuf=mix.audioBuffer','MP4 dùng bản phối đa nhạc cụ'
+ 'audioBuf=mix.audioBuffer','MP4 dựng lại âm thanh từ MIDI bằng Piano/GM/Drums/Synth'
 ])assert.ok(source.includes(item),'Missing export wiring: '+item)
 assert.match(mixer,/parts\.filter\(p=>p\.enabled\)/)
 assert.match(mixer,/if\(volume===0\)return/)
