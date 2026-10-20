@@ -52,7 +52,7 @@ export function gmVoiceForTrack(params:{
  return {key:GM_SOUNDFONT_NAMES[chosen]||'acoustic_grand_piano',percussion:false,program:chosen}
 }
 function clamp(value:number,min:number,max:number){return Number.isFinite(value)?Math.max(min,Math.min(max,value)):min}
-function fallbackTone(ctx:AudioContext,note:number,velocity:number,when:number,duration:number,program:number):SynthVoice{
+function fallbackTone(ctx:AudioContext,note:number,velocity:number,when:number,duration:number,program:number,destination:AudioNode=ctx.destination):SynthVoice{
  const t=Math.max(ctx.currentTime+.005,when)
  const length=clamp(duration,.06,12)
  const amp=ctx.createGain()
@@ -66,12 +66,12 @@ function fallbackTone(ctx:AudioContext,note:number,velocity:number,when:number,d
  amp.gain.linearRampToValueAtTime(peak,t+(strings?.08:.008))
  amp.gain.setValueAtTime(peak*.5,t+length)
  amp.gain.exponentialRampToValueAtTime(.0001,t+length+.10)
- source.connect(amp);amp.connect(ctx.destination)
+ source.connect(amp);amp.connect(destination)
  source.start(t);source.stop(t+length+.13)
  source.onended=()=>{try{source.disconnect();amp.disconnect()}catch{}}
  return {stop:()=>{try{source.stop(Math.max(ctx.currentTime+.002,t+.001))}catch{}}}
 }
-function fallbackDrum(ctx:AudioContext,note:number,velocity:number,when:number):SynthVoice{
+function fallbackDrum(ctx:AudioContext,note:number,velocity:number,when:number,destination:AudioNode=ctx.destination):SynthVoice{
  const t=Math.max(ctx.currentTime+.005,when)
  const intensity=clamp(velocity/127,.05,1)
  const kick=[35,36].includes(note)
@@ -81,7 +81,7 @@ function fallbackDrum(ctx:AudioContext,note:number,velocity:number,when:number):
  const gain=ctx.createGain()
  gain.gain.setValueAtTime(kick?.32*intensity:hat?.16*intensity:.21*intensity,t)
  gain.gain.exponentialRampToValueAtTime(.0001,t+length)
- gain.connect(ctx.destination)
+ gain.connect(destination)
  let source:AudioScheduledSourceNode
  if(kick||tom){
   const osc=ctx.createOscillator()
@@ -114,15 +114,22 @@ type Entry={instrument:LoadedSoundfont;ready:boolean;failed:boolean}
 export class GmWebAudio {
  private ctx:AudioContext
  private cache=new Map<string,Entry>()
- constructor(ctx:AudioContext){this.ctx=ctx}
- preload(voice:GMVoice):void{
-  if(this.cache.has(voice.key))return
+ private destinationForTrack:(trackId:number)=>AudioNode
+ constructor(ctx:AudioContext,destinationForTrack?:(trackId:number)=>AudioNode){
+  this.ctx=ctx
+  this.destinationForTrack=destinationForTrack??(()=>ctx.destination)
+ }
+ private cacheKey(voice:GMVoice,trackId:number):string{return trackId+':'+voice.key}
+ preload(voice:GMVoice,trackId=-1):void{
+  const key=this.cacheKey(voice,trackId)
+  if(this.cache.has(key))return
+  const destination=this.destinationForTrack(trackId)
   try{
    const instrument=voice.percussion
-    ?Soundfont(this.ctx,{instrumentUrl:'https://paulrosen.github.io/midi-js-soundfonts/FluidR3_GM/percussion-mp3.js'})
-    :Soundfont(this.ctx,{instrument:voice.key,kit:'FluidR3_GM'})
+    ?Soundfont(this.ctx,{instrumentUrl:'https://paulrosen.github.io/midi-js-soundfonts/FluidR3_GM/percussion-mp3.js',destination})
+    :Soundfont(this.ctx,{instrument:voice.key,kit:'FluidR3_GM',destination})
    const entry:Entry={instrument,ready:false,failed:false}
-   this.cache.set(voice.key,entry)
+   this.cache.set(key,entry)
    const pending=instrument.load
    void Promise.resolve(pending).then(()=>{entry.ready=true}).catch(error=>{
     entry.failed=true
@@ -130,9 +137,10 @@ export class GmWebAudio {
    })
   }catch(error){console.warn('General MIDI preload failed:',voice.key,error)}
  }
- play(voice:GMVoice,note:number,velocity:number,when:number,duration:number):SynthVoice{
-  const entry=this.cache.get(voice.key)
-  if(!entry)this.preload(voice)
+ play(voice:GMVoice,note:number,velocity:number,when:number,duration:number,trackId=-1):SynthVoice{
+  const entry=this.cache.get(this.cacheKey(voice,trackId))
+  if(!entry)this.preload(voice,trackId)
+  const destination=this.destinationForTrack(trackId)
   if(entry?.ready&&!entry.failed){
    try{
     const stopNote=entry.instrument.start({
@@ -143,8 +151,8 @@ export class GmWebAudio {
    }catch(error){console.warn('Soundfont note fallback:',error)}
   }
   return voice.percussion
-   ?fallbackDrum(this.ctx,note,velocity,when)
-   :fallbackTone(this.ctx,note,velocity,when,duration,voice.program)
+   ?fallbackDrum(this.ctx,note,velocity,when,destination)
+   :fallbackTone(this.ctx,note,velocity,when,duration,voice.program,destination)
  }
  stop(){for(const item of this.cache.values()){try{item.instrument.stop()}catch{}}}
 }
