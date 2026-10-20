@@ -13,6 +13,7 @@ import { SplendidGrandPiano } from 'smplr'
 import { renderMultiTrackAudio } from '@/util/melorix-offline-mix'
 import { ExpressiveAudioMaster, expressedVelocity } from '@/util/melorix-expressive-audio'
 import {exportMidiProgram} from '@/util/melorix-midi-program-export'
+import {removeMidiTrack,omitTrackSetting} from '@/util/melorix-track-actions'
 import type { ExpressionMode } from '@/util/melorix-expressive-audio'
 import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
@@ -52,6 +53,7 @@ const speed = ref(1)
 const allNotes = ref<NoteEvent[]>([])
 const midiTempo = ref(120)
 const pianoRollTrackId = ref<number | null>(null)
+const selectedTrackId=ref<number|null>(null)
 const pianoRollHeight = ref(330)
 const pianoRollPart = computed(() => midiParts.value.find(part => part.id === pianoRollTrackId.value) || null)
 const pianoRollNotes = computed(() => allNotes.value.filter(note => note.trackId === pianoRollTrackId.value))
@@ -393,6 +395,7 @@ function changeInstrumentTarget(e:Event){
  const id=Number((e.target as HTMLSelectElement).value)
  if(!midiParts.value.some(p=>p.id===id))return
  instrumentPreviewTrackId.value=id
+ selectTrack(id)
  instrumentEditorPreset.value=trackPreset(id)
 }
 function applyInstrumentSelection(){
@@ -445,8 +448,9 @@ function openTrackComposer(){
 }
 function openInstrumentTrackPanel(id?:number){
  closeControlPanel()
- const chosen=id??midiParts.value[0]?.id
+ const chosen=id??selectedTrackId.value??midiParts.value[0]?.id
  if(chosen===undefined)return
+ selectTrack(chosen)
  instrumentPreviewTrackId.value=chosen
  instrumentEditorPreset.value=trackPreset(chosen)
 }
@@ -472,6 +476,38 @@ function assignTrackPreset(id:number,selection:TrackInstrument){
  playState.value='idle'
  closeControlPanel()
 }
+function deleteMidiTrack(id:number){
+ if(exporting.value)return
+ const part=midiParts.value.find(p=>p.id===id)
+ if(!part)return
+ const count=allNotes.value.filter(n=>n.trackId===id).length
+ if(!window.confirm(`Xóa track "${part.name}" và ${count} nốt MIDI?\nThao tác này không thể hoàn tác.`))return
+ // Stop scheduled MIDI and Web Audio before removing notes or track routing.
+ playRequest++
+ pianoLoading=false
+ resetPiano()
+ if(kontaktAudioBuffer.value){
+  setKontaktAudio(null,'')
+  captureSession.value++
+ }
+ const result=removeMidiTrack(midiParts.value,allNotes.value,id,selectedTrackId.value)
+ midiParts.value=result.parts
+ allNotes.value=result.notes
+ selectedTrackId.value=result.selectedId
+ if(pianoRollTrackId.value===id)pianoRollTrackId.value=null
+ if(instrumentPreviewTrackId.value===id)closeControlPanel()
+ assignedTrackPresets.value=omitTrackSetting(assignedTrackPresets.value,id)
+ importedMidiPrograms.value=omitTrackSetting(importedMidiPrograms.value,id)
+ kontaktTrackChannels.value=omitTrackSetting(kontaktTrackChannels.value,id)
+ kontaktTrackNames.value=omitTrackSetting(kontaktTrackNames.value,id)
+ trackVolumeLevels.value=omitTrackSetting(trackVolumeLevels.value,id)
+ duration.value=allNotes.value.reduce((max,n)=>Math.max(max,n.time+n.duration),0)
+ playState.value='idle'
+ currentTime.value=0
+ lastScheduledIdx=0
+ keyState.value={}
+ updateNoteRange()
+}
 function createInstrumentTrack(){
  if(exporting.value)return
  const selected=newTrackPreset.value
@@ -483,6 +519,7 @@ function createInstrumentTrack(){
  else {stopSynthVoices(synthScheduledVoices);piano?.stop()}
  const freeKontaktChannel=nextKontaktChannel(midiParts.value,kontaktTrackChannels.value)
  midiParts.value.push(p)
+ selectedTrackId.value=p.id
  kontaktTrackChannels.value={...kontaktTrackChannels.value,[p.id]:freeKontaktChannel}
  assignedTrackPresets.value={...assignedTrackPresets.value,[p.id]:selected}
  if(isPublishedTrackInstrument(selected)&&midiBridge.connected&&!midiBridge.playbackEnabled)midiBridge.setPlayback(true)
@@ -937,6 +974,7 @@ function processMidi(midi: Midi) {
   if(playState.value==='playing')pause()
   midiBridge.stopAll()
   pianoRollTrackId.value = null
+  selectedTrackId.value=null
   assignedTrackPresets.value={}
   // Do not retain GM instruments routed to disconnected buses from the previous MIDI.
   gmEngine?.stop();gmEngine=null
@@ -950,6 +988,7 @@ function processMidi(midi: Midi) {
   midiTempo.value = midi.header.tempos[0]?.bpm || 120
   const parsed = extractMidiParts(midi)
   midiParts.value = parsed.parts
+  selectedTrackId.value=parsed.parts[0]?.id??null
   allNotes.value = parsed.events
   duration.value = midi.duration || parsed.events.reduce((end, n) => Math.max(end, n.time + n.duration), 0)
   currentTime.value = 0
@@ -961,8 +1000,18 @@ function processMidi(midi: Midi) {
   // not only after the first Play click. No AudioContext resume is required here.
   if(audioCtx.value)preloadGmForEnabledTracks()
 }
+function selectTrack(id:number){
+ if(exporting.value||!midiParts.value.some(p=>p.id===id))return
+ selectedTrackId.value=id
+ if(pianoRollTrackId.value!==null&&pianoRollTrackId.value!==id){
+  stopPianoAudition()
+  stopChordAudition()
+  pianoRollTrackId.value=id
+ }
+}
 function openPianoRoll(id: number) {
   if (exporting.value || !midiParts.value.some(part => part.id === id)) return
+  selectTrack(id)
   pianoRollTrackId.value = id
   if (playState.value === 'playing') pause()
 }
