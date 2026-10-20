@@ -192,12 +192,12 @@ app.whenReady().then(() => {
     const selected=approvedPluginPath(pluginPath,
       vst3Approvals.get(event.sender.id)||new Set())
     if(!selected)throw new Error('Hãy quét VST3 rồi chọn plugin đã được tìm thấy')
-    return getVst3Session().request('LOAD\\t'+trackId+'\\t'+selected)
+    return getVst3Session().request('LOAD\t'+trackId+'\t'+selected)
   })
   ipcMain.handle('melorix:vst3:unbind',async(event,trackId)=>{
     if(!trustedNativeSender(event))throw new Error('Nguồn gọi VST3 không được phép')
     if(!validTrackId(trackId))throw new Error('Track MIDI không hợp lệ')
-    return getVst3Session().request('UNLOAD\\t'+trackId)
+    return getVst3Session().request('UNLOAD\t'+trackId)
   })
   ipcMain.handle('melorix:vst3:tracks',async(event)=>{
     if(!trustedNativeSender(event))throw new Error('Nguồn gọi VST3 không được phép')
