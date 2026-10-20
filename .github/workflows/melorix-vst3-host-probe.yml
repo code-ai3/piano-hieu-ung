@@ -200,6 +200,32 @@ jobs:
           Write-Host ('PASS: assigned real VST3 note -> native PCM float32 WAV in memory, peak '+$messages[1].peak)
           $global:LASTEXITCODE=0
 
+      - name: Validate native WASAPI live MIDI controls without assuming CI sound hardware
+        run: |
+          $exe='native/vst3-host-build/bin/melorix-vst3-session.exe'
+          $plugin=@(Get-ChildItem native/vst3-host-build -Recurse |
+            Where-Object { $_.Name -eq 'melorix-test-synth.vst3' -and !$_.PSIsContainer -and $_.Length -gt 20000 })[0].FullName
+          $cmds=@("LOAD`t11`t$plugin","LIVE_START`t11","LIVE_NOTE`t11`t69`t100",
+            "LIVE_NOTE`t11`t69`t0",'LIVE_STOP','LIST',"UNLOAD`t11",'QUIT')
+          $raw=@($cmds | & $exe)
+          if ($LASTEXITCODE -ne 0) { throw "WASAPI startup/cleanup crashed: $LASTEXITCODE" }
+          $messages=@($raw | ForEach-Object { $_ | ConvertFrom-Json })
+          if ($messages.Count -ne 8 -or !$messages[0].componentInitialized -or
+              !$messages[4].ok -or $messages[5].audioConnected -ne $false -or
+              !$messages[6].removed) { throw 'Native WASAPI commands failed to keep VST3 lifecycle sound' }
+          if ($messages[1].ok) {
+            if ($messages[1].driver -ne 'wasapi-shared' -or !$messages[2].ok -or !$messages[3].ok) {
+              throw 'Available WASAPI endpoint could not receive VST3 note on/off'
+            }
+            Write-Host 'PASS: WASAPI shared-mode initialized on CI and accepted live VST3 MIDI'
+          } else {
+            if (!$messages[1].error -or $messages[2].ok -ne $false) {
+              throw 'Unavailable CI soundcard not reported explicitly'
+            }
+            Write-Host 'PASS: no audio output endpoint available on CI; native host failed safely without claiming Kontakt playback'
+          }
+          $global:LASTEXITCODE=0
+
       - name: Build genuine Steinberg ADelay VST3 test effect
         run: |
           cmake --build native/vst3-host-build --target adelay --config Release --parallel 4
