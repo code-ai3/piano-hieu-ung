@@ -5,11 +5,13 @@ on:
     branches:
       - feature/melorix-vst3-host-stage2-loader
       - feature/melorix-vst3-stage3-track-instances
+      - feature/melorix-vst3-stage3b-native-editor
     paths:
       - .github/workflows/melorix-vst3-host-probe.yml
       - native/vst3-host/**
       - tests/melorix-vst3-stage2.mjs
       - tests/melorix-vst3-stage3.mjs
+      - tests/melorix-vst3-stage3b.mjs
       - desktop/**/*
       - src/components/MelorixVst3Browser.vue
   workflow_dispatch:
@@ -35,6 +37,7 @@ jobs:
         run: |
           node tests/melorix-vst3-stage2.mjs
           node tests/melorix-vst3-stage3.mjs
+          node tests/melorix-vst3-stage3b.mjs
           if ($LASTEXITCODE -ne 0) { throw 'VST3 Stage 3 source regressions failed' }
 
       - uses: ilammy/msvc-dev-cmd@v1
@@ -129,6 +132,22 @@ jobs:
           }
           Write-Host 'PASS: one native process loaded independent VST3 instances on two MIDI tracks, rejected invalid path, unloaded one without affecting the other'
           $global:LASTEXITCODE=0
+
+      - name: Verify missing VST3 editor is handled without process crash
+        run: |
+          $exe='native/vst3-host-build/bin/melorix-vst3-session.exe'
+          $plugins=@(Get-ChildItem native/vst3-host-build -Recurse |
+            Where-Object { $_.Name -eq 'melorix-test-synth.vst3' -and !$_.PSIsContainer -and $_.Length -gt 20000 })
+          $module=$plugins[0].FullName
+          $commands=@("LOAD`t6`t$module","EDITOR_OPEN`t6`t0",'LIST',"EDITOR_CLOSE`t6",'QUIT')
+          $raw=@($commands | & $exe)
+          if ($LASTEXITCODE -ne 0) { throw "Editor fallback crashed native host: $LASTEXITCODE" }
+          $v=@($raw | ForEach-Object { $_ | ConvertFrom-Json })
+          if ($v.Count -ne 5 -or !$v[0].ok -or $v[1].ok -ne $false -or
+              !$v[2].ok -or $v[2].tracks.Count -ne 1 -or !$v[3].ok) {
+            throw 'Editor unavailable must be reported without losing track'
+          }
+          Write-Host 'PASS: VST3 without native editor fails safely, component remains loaded'
 
       - name: Build genuine Steinberg ADelay VST3 test effect
         run: |
