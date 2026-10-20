@@ -103,7 +103,6 @@ export async function renderMultiTrackAudio(opts:MixConfig):Promise<MixResult>{
    }
    try{
     const instrument=Soundfont(ctx,{destination:gain,scheduler,
-     notesToLoad:{notes:[...new Set(notes.map(n=>n.midi))]},
      ...(voice.percussion
       ?{instrumentUrl:'https://paulrosen.github.io/midi-js-soundfonts/FluidR3_GM/percussion-mp3.js'}
       :{kit:'FluidR3_GM',instrument:voice.key})})
