@@ -26,6 +26,7 @@ import { INSTRUMENT_PRESETS, instrumentPreset, isInstrumentPreset, makeInstrumen
 import type { InstrumentPreset, SynthVoice } from '@/util/melorix-instruments'
 import { createLocalSampleSpec, validLocalWavFile, samplePitchRate } from '@/util/melorix-local-wav'
 import { ErhuWebSampler } from '@/util/melorix-erhu-web-sampler'
+import {GmWebAudio,gmVoiceForTrack} from '@/util/melorix-gm-audio'
 import type { LocalInstrumentId, LocalSampleSpec } from '@/util/melorix-local-wav'
 import { midiBridge } from '@/util/melorix-midi-bridge'
 import { trackMidiChannel } from '@/util/melorix-web-midi'
@@ -170,6 +171,61 @@ type CatalogInstrumentId=`library:${string}`
 type TrackInstrument=InstrumentPreset|LocalInstrumentId|CatalogInstrumentId
 const newTrackPreset=ref<TrackInstrument>('piano')
 const assignedTrackPresets=ref<Record<number,TrackInstrument>>({})
+const importedMidiPrograms=ref<Record<number,number>>({})
+let gmEngine:GmWebAudio|null=null
+const gmAudioNotice=ref('')
+function gmVoiceForId(trackId:number){
+ const part=midiParts.value.find(p=>p.id===trackId)
+ const choice=assignedTrackPresets.value[trackId]
+ return gmVoiceForTrack({
+  program:importedMidiPrograms.value[trackId],
+  channel:part?.channel,
+  name:part?.name,
+  instrument:part?.instrument,
+  libraryId:choice?.startsWith('library:')?choice.slice(8):undefined
+ })
+}
+function getGmEngine(ctx:AudioContext):GmWebAudio{
+ if(!gmEngine)gmEngine=new GmWebAudio(ctx)
+ return gmEngine
+}
+function playGmVoice(ctx:AudioContext,trackId:number,midi:number,velocity:number,when:number,duration:number,voices:Set<SynthVoice>){
+ const engine=getGmEngine(ctx)
+ const voice=engine.play(gmVoiceForId(trackId),midi,velocity,when,duration)
+ voices.add(voice)
+}
+async function prepareAudioContext():Promise<AudioContext>{
+ const ctx=audioCtx.value??new AudioContext()
+ audioCtx.value=ctx
+ await ctx.resume()
+ return ctx
+}
+function preloadGmForEnabledTracks(){
+ const ctx=audioCtx.value
+ if(!ctx)return
+ const engine=getGmEngine(ctx)
+ for(const part of midiParts.value){
+  if(!part.enabled)continue
+  const choice=assignedTrackPresets.value[part.id]
+  if(choice===undefined || choice.startsWith('library:'))engine.preload(gmVoiceForId(part.id))
+ }
+}
+function playTrackVoice(ctx:AudioContext,trackId:number,midi:number,velocity:number,when:number,duration:number,voices:Set<SynthVoice>,stopId?:string){
+ const preset=trackPreset(trackId)
+ const chosen=assignedTrackPresets.value[trackId]
+ if(chosen===undefined || (isPublishedTrackInstrument(preset) && !(preset==='library:erhu-hmoob-nplog' && erhuWebSampler.ready))){
+  playGmVoice(ctx,trackId,midi,velocity,when,duration,voices)
+  return
+ }
+ if(preset==='piano' && piano && pianoLoaded.value){
+  piano.start({note:midiNoteName(midi),velocity,time:when,duration,stopId})
+ }else if(preset==='piano'){
+  playGmVoice(ctx,trackId,midi,velocity,when,duration,voices)
+ }else{
+  routedNote(ctx,midi,velocity,when,duration,preset,voices)
+ }
+}
+
 const localSamples=ref<LocalSampleSpec[]>([])
 const localSampleBuffers=new Map<LocalInstrumentId,AudioBuffer>()
 
@@ -728,7 +784,7 @@ async function initPiano() {
   if (initPianoPromise) { await initPianoPromise; return }
   if (piano) return
   initPianoPromise = (async () => {
-    const ctx = new AudioContext()
+    const ctx = audioCtx.value??new AudioContext()
     // 自定义 storage：修复文件名中 # 被浏览器当 hash 截断的问题
     const safeStorage = { fetch: (url: string) => fetch(url.replace('#', '%23')) }
     piano = SplendidGrandPiano(ctx, {
@@ -791,6 +847,8 @@ function processMidi(midi: Midi) {
   midiBridge.stopAll()
   pianoRollTrackId.value = null
   assignedTrackPresets.value={}
+  importedMidiPrograms.value=Object.fromEntries(midi.tracks.map((track,index)=>[index,
+   typeof track.instrument?.number==='number'?track.instrument.number:0]))
   instrumentPreviewTrackId.value=null
   trackComposerPreviewOpen.value=false
   midiTempo.value = midi.header.tempos[0]?.bpm || 120
@@ -954,34 +1012,36 @@ const midiPlaybackPlan=computed(()=>mergeOverlappingMidiNotes(notes.value.map(n=
  start:n.time,
  duration:n.duration,
 }))))
+// Schedule Web Audio in short windows, never thousands of voices all at once.
+// This also lets soundfont samples that finish downloading replace the fallback.
+const AUDIO_LOOKAHEAD_SECONDS=.35
+function scheduleUpcomingAudio() {
+ const ctx=audioCtx.value
+ if(!ctx||midiBridge.externalOnly||ctx.state!=='running')return
+ const targetTime=currentTime.value/speed.value
+ for(let i=lastScheduledIdx;i<notes.value.length;i++){
+  const n=notes.value[i]
+  const delay=(n.time-targetTime)*speed.value
+  if(delay>AUDIO_LOOKAHEAD_SECONDS)break
+  lastScheduledIdx=i+1
+  // When resuming/starting mid-song do not retrigger older notes.
+  if(delay<-.035)continue
+  playTrackVoice(ctx,n.trackId,n.midi,n.velocity*127,
+    ctx.currentTime+Math.max(.005,delay),n.duration*speed.value,synthScheduledVoices)
+ }
+}
 function scheduleAll() {
-  const ctx = audioCtx.value
-  const onlyKontakt = midiBridge.externalOnly
-  if (!onlyKontakt && (!piano || !ctx)) return
-  // Anchor every scheduled message to the same high-resolution clock value.
-  const midiClockMs = performance.now()
-  const targetTime = currentTime.value / speed.value
-  for (let i = lastScheduledIdx; i < notes.value.length; i++) {
-    const n = notes.value[i]
-    if (n.time < targetTime - 0.02) { lastScheduledIdx = i + 1; continue }
-    const delay = (n.time - targetTime) * speed.value
-    const preset=trackPreset(n.trackId)
-    if (!onlyKontakt && ctx && piano) {
-      const t = ctx.currentTime + Math.max(0.003, delay)
-      if(preset==='piano')piano.start({note:n.name,velocity:n.velocity*127,time:t})
-      else routedNote(ctx,n.midi,n.velocity*127,t,n.duration*speed.value,preset,synthScheduledVoices)
-    }
-  }
-  // Merge overlapping notes sharing a MIDI pitch/channel so their Note Off
-  // messages cannot prematurely silence one another.
-  if(!exporting.value){
-   for(const event of midiPlaybackPlan.value){
-    if(event.start<targetTime-0.02)continue
-    midiBridge.schedule(event.note,event.velocity,event.channel,
-     Math.max(0,(event.start-targetTime)*speed.value),
-     Math.max(.05,event.duration*speed.value),midiClockMs)
-   }
-  }
+ scheduleUpcomingAudio()
+ // Web MIDI is scheduled separately once at Play/seek/repeat; do not resend each animation frame.
+ if(exporting.value)return
+ const midiClockMs=performance.now()
+ const targetTime=currentTime.value/speed.value
+ for(const event of midiPlaybackPlan.value){
+  if(event.start<targetTime-.02)continue
+  midiBridge.schedule(event.note,event.velocity,event.channel,
+   Math.max(0,(event.start-targetTime)*speed.value),
+   Math.max(.05,event.duration*speed.value),midiClockMs)
+ }
 }
 
 // ---- 播放控制 ----
@@ -993,9 +1053,11 @@ async function play() {
   const request=++playRequest
   try {
     if(!midiBridge.externalOnly){
-       await erhuWebSampler.init()
-       await initPiano()
-      await audioCtx.value?.resume()
+      const ctx=await prepareAudioContext()
+      preloadGmForEnabledTracks()
+      void erhuWebSampler.init()
+      if(!piano)void initPiano().catch(e=>console.warn('Grand piano preload:',e))
+      if(ctx.state!=='running')throw Error('AudioContext not running')
     }
     if(request!==playRequest)return
     lastScheduledIdx = 0; lastFrameTime = performance.now()
@@ -1015,6 +1077,7 @@ function resetPiano() {
   stopPianoAudition()
   stopChordAudition()
   stopSynthVoices(synthScheduledVoices)
+  gmEngine?.stop();gmEngine=null
   piano?.stop(); piano = null
   audioCtx.value?.close(); audioCtx.value = null
   pianoLoaded.value = false; initPianoPromise = null
@@ -1028,6 +1091,19 @@ function stop() {
   resetPiano(); if(!midiBridge.externalOnly)void initPiano().catch(e=>console.warn('Piano preload:',e))
 }
 function togglePlay() { playState.value === 'playing' ? pause() : play() }
+async function testWebSound(){
+ try{
+  const ctx=await prepareAudioContext()
+  const engine=getGmEngine(ctx)
+  const percussion={key:'percussion',percussion:true,program:0}
+  const pianoTest={key:'acoustic_grand_piano',percussion:false,program:0}
+  for(const [n,delay] of [[36,0],[38,.28],[42,.54]]){
+   synthKeyVoices.add(engine.play(percussion,n,110,ctx.currentTime+.05+delay,.20))
+  }
+  synthKeyVoices.add(engine.play(pianoTest,72,115,ctx.currentTime+.9,.65))
+  gmAudioNotice.value='Đã phát 3 tiếng trống và nốt Đô để thử loa; nếu vẫn im, kiểm tra âm lượng của tab và đầu ra hệ thống.'
+ }catch(error){gmAudioNotice.value='Không mở được đầu ra âm thanh: '+String(error)}
+}
 
 const AUDITION_STOP_ID = 'melorix-editor-key'
 let auditionRequest = 0
@@ -1042,19 +1118,12 @@ async function startPianoAudition(midi: number) {
  stopChordAudition()
  stopPianoAudition()
  midiBridge.auditionStart([midi],trackMidiChannel(kontaktChannelForTrack(pianoRollTrackId.value??-1)))
- if(midiBridge.externalOnly||(isPublishedTrackInstrument(trackPreset(pianoRollTrackId.value??-1))&&!erhuWebSampler.ready))return
+ if(midiBridge.externalOnly)return
  const request = auditionRequest
  try {
-  const loading = initPiano()
-  const earlyResume = audioCtx.value?.resume()
-  await loading
-  await earlyResume
-  await audioCtx.value?.resume()
-  await piano?.load
-  if(request !== auditionRequest || exporting.value || !piano) return
-  const preset=trackPreset(pianoRollTrackId.value??-1)
-  if(preset==='piano')piano.start({note:midiNoteName(midi),velocity:95,stopId:AUDITION_STOP_ID})
-  else if(audioCtx.value)routedNote(audioCtx.value,midi,95,audioCtx.value.currentTime+.003,8,preset,synthKeyVoices)
+  const ctx=await prepareAudioContext()
+  if(request !== auditionRequest || exporting.value) return
+  playTrackVoice(ctx,pianoRollTrackId.value??-1,midi,95,ctx.currentTime+.003,1.2,synthKeyVoices,AUDITION_STOP_ID)
  } catch(error) { console.error('Piano audition failed:',error) }
 }
 
@@ -1076,19 +1145,12 @@ async function startChordAudition(pitches:number[]){
  const request=chordRequest
  midiBridge.auditionStart(pitches,trackMidiChannel(kontaktChannelForTrack(pianoRollTrackId.value??-1)))
  chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
- if(midiBridge.externalOnly||(isPublishedTrackInstrument(trackPreset(pianoRollTrackId.value??-1))&&!erhuWebSampler.ready))return
+ if(midiBridge.externalOnly)return
  try {
-  const loading=initPiano()
-  const earlyResume=audioCtx.value?.resume()
-  await loading
-  await earlyResume
-  await audioCtx.value?.resume()
-  await piano?.load
-  if(request!==chordRequest||exporting.value||!piano)return
-  const preset=trackPreset(pianoRollTrackId.value??-1)
+  const ctx=await prepareAudioContext()
+  if(request!==chordRequest||exporting.value)return
   for(const pitch of pitches){
-   if(preset==='piano')piano.start({note:midiNoteName(pitch),velocity:95,stopId:CHORD_STOP_ID})
-   else if(audioCtx.value)routedNote(audioCtx.value,pitch,95,audioCtx.value.currentTime+.003,1.2,preset,synthChordVoices)
+   playTrackVoice(ctx,pianoRollTrackId.value??-1,pitch,95,ctx.currentTime+.003,1.2,synthChordVoices,CHORD_STOP_ID)
   }
   if(chordStopTimer===null)chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
  }catch(error){console.error('Chord audition failed:',error)}
@@ -1589,6 +1651,7 @@ function fmtTime(s: number) {
 function loop() {
   if (playState.value === 'playing') {
     currentTime.value += (performance.now() - lastFrameTime) / 1000
+    scheduleUpcomingAudio()
     if (currentTime.value >= duration.value) {
       if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; midiBridge.stopAll(); stopSynthVoices(synthScheduledVoices); piano?.stop(); scheduleAll() }
       else { nextTrack() }
@@ -1791,6 +1854,8 @@ watch(() => currentTime.value, (t) => {
         <details name="melorix-main-menu"><summary>Phát lại</summary><div class="mx-menu-pop">
           <button type="button" :disabled="!notes.length || exporting" @click="togglePlay">{{ playState === 'playing' ? 'Tạm dừng' : 'Phát nhạc' }}</button>
           <button type="button" @click="stop">Dừng / về đầu</button>
+           <button type="button" @click="testWebSound">Kiểm tra loa (trống + nhạc cụ)</button>
+           <div v-if="gmAudioNotice" role="status" class="mx-menu-caption">{{ gmAudioNotice }}</div>
           <button type="button" @click="nextTrack">Bài tiếp theo</button>
           <button type="button" @click="repeat = !repeat">{{ repeat ? '✓ ' : '' }}Lặp lại bài</button>
         </div></details>
@@ -2285,7 +2350,7 @@ watch(() => currentTime.value, (t) => {
           </div>
           <p v-if="catalogLoadError" role="status">{{ catalogLoadError }}</p>
           <p v-if="newTrackPreset==='library:erhu-hmoob-nplog' && erhuWebReady">Đã cài 7 mẫu WAV Erhu thật trên trình duyệt. Cách chơi có thể khác Kontakt NKI.</p>
-           <p v-else-if="isPublishedTrackInstrument(newTrackPreset)">NKI không tự phát trên web. Cần Kontakt hoặc mẫu WAV tương ứng.</p>
+           <p v-else-if="isPublishedTrackInstrument(newTrackPreset)">Tiếng web sử dụng mẫu General MIDI thay thế nếu chưa nạp WAV/NKI gốc, không phải Kontakt.</p>
         </form>
 
             <form v-if="activeEditorPanel==='instrument' && instrumentPreviewTrackId!==null" class="mx-track-ui-preview mx-track-add-form mx-instrument-select-form" @submit.prevent="applyInstrumentSelection">
@@ -2304,7 +2369,7 @@ watch(() => currentTime.value, (t) => {
                 <button type="submit" :disabled="exporting">Áp dụng nhạc cụ</button>
                 <button type="button" @click="closeControlPanel">Hủy</button>
               </div>
-              <p v-if="isPublishedTrackInstrument(instrumentEditorPreset)">Track dùng nhạc cụ Kontakt đã chọn. Trình duyệt không tự chạy file NKI.</p>
+              <p v-if="isPublishedTrackInstrument(instrumentEditorPreset)">Tiếng web dùng mẫu General MIDI thay thế nếu chưa có WAV gốc, không phải Kontakt NKI.</p>
             </form>
           </div>
         </section>
