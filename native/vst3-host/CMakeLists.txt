@@ -29,6 +29,9 @@ if(MELORIX_BUILD_VST3_TEST_PLUGIN)
  # CMake project() variables of the SDK remain scoped to its subdirectory.
  # The official ADelay sample expects the parent ${vstsdk_VERSION}.
  set(vstsdk_VERSION 3.8.1)
+ set(SDK_ROOT "${VST3_SDK_ROOT}")
+ set(public_sdk_SOURCE_DIR "${VST3_SDK_ROOT}/public.sdk")
+ set(pluginterfaces_SOURCE_DIR "${VST3_SDK_ROOT}/pluginterfaces")
  # In the full SDK, this helper is defined in samples/vst/CMakeLists.txt.
  # We build only the isolated ADelay target, not the full demo catalogue.
  function(smtg_target_setup_as_vst3_example target)
