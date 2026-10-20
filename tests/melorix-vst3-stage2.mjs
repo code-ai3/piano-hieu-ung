@@ -8,7 +8,7 @@ for(const marker of [
  '"public.sdk/source/vst/hosting/module.h"',
  'VST3::Hosting::Module::create(source,error)',
  'factory.classInfos()',
- 'info.category()==Steinberg::Vst::kVstAudioEffectClass',
+ 'info.category()==kVstAudioEffectClass',
  'factory.createInstance<Steinberg::Vst::IComponent>(info.ID())',
  'component->initialize(context)',
  'Steinberg::Vst::IAudioProcessor::iid',
