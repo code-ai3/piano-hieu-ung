@@ -122,7 +122,7 @@ private:
 };
 } // namespace Melorix
 
-BEGIN_FACTORY_DEF("MELORIX QA","https://example.invalid","qa@example.invalid",1)
+BEGIN_FACTORY_DEF("MELORIX QA","https://example.invalid","qa@example.invalid",2)
  DEF_CLASS(Melorix::TestSynthCID,Steinberg::PClassInfo::kManyInstances,
    kVstAudioEffectClass,"MELORIX Test MIDI Synth",0,"Instrument|Synth",
    "0.1.0",kVstVersionString,Melorix::TestSynth::createInstance,nullptr)
