@@ -148,8 +148,16 @@ app.whenReady().then(() => {
   protocol.handle('melorix', handleLocalAsset)
   // Ask only for unsandboxed MIDI device access; Kontakt is still an external app.
   // SysEx and other unrelated permissions are intentionally not granted.
-  session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => {
-    callback(permission === 'midi' && isTrustedAppUrl(contents.getURL()))
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+    const url = details?.requestingUrl || contents.getURL()
+    callback(permission === 'midi' && isTrustedAppUrl(url))
+  })
+  // Electron requires both the check and request handlers for many Web APIs.
+  // Only the local app origin can access MIDI, and SysEx stays denied.
+  session.defaultSession.setPermissionCheckHandler((contents, permission, requestingOrigin) => {
+    if (permission !== 'midi') return false
+    return isTrustedAppUrl(requestingOrigin) ||
+      Boolean(contents && isTrustedAppUrl(contents.getURL()))
   })
   createWindow()
   app.on('activate', () => {
