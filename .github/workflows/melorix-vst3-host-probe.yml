@@ -46,7 +46,7 @@ jobs:
       - name: Configure official SDK hosting module
         run: |
           $sdk = Join-Path $env:RUNNER_TEMP 'vst3sdk'
-          cmake -S native/vst3-host -B native/vst3-host-build -G "Visual Studio 17 2022" -A x64 "-DVST3_SDK_ROOT=$sdk" -DSMTG_CREATE_PLUGIN_LINK=OFF
+          cmake -S native/vst3-host -B native/vst3-host-build -G Ninja "-DVST3_SDK_ROOT=$sdk" -DCMAKE_BUILD_TYPE=Release -DSMTG_CREATE_PLUGIN_LINK=OFF
           if ($LASTEXITCODE -ne 0) { throw 'VST3 SDK CMake failed' }
 
       - name: Compile MELORIX native plugin loader
@@ -56,7 +56,7 @@ jobs:
 
       - name: Verify isolated host rejects an invalid VST3 path
         run: |
-          $exe = 'native/vst3-host-build/bin/Release/melorix-vst3-probe.exe'
+          $exe = 'native/vst3-host-build/bin/melorix-vst3-probe.exe'
           if (!(Test-Path $exe)) { throw 'Missing built native loader' }
           $output = & $exe --inspect 'Z:\NoSuchPlugin\Kontakt.vst3'
           if ($LASTEXITCODE -ne 3) { throw "Incorrect invalid-plugin exit: $LASTEXITCODE" }
