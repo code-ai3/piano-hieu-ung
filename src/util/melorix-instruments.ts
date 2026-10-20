@@ -39,7 +39,7 @@ export function synthVoicePlan(preset:InstrumentPreset,midi:number,velocity:numb
  }
 }
 export interface SynthVoice {stop:()=>void}
-export function playSynthVoice(ctx:AudioContext,midi:number,velocity:number,when:number,duration:number,preset:InstrumentPreset):SynthVoice {
+export function playSynthVoice(ctx:AudioContext,midi:number,velocity:number,when:number,duration:number,preset:InstrumentPreset,destination:AudioNode=ctx.destination):SynthVoice {
  const p=synthVoicePlan(preset,midi,velocity,duration)
  const t=Math.max(ctx.currentTime+.002,when)
  const end=t+p.length
@@ -50,7 +50,7 @@ export function playSynthVoice(ctx:AudioContext,midi:number,velocity:number,when
  amp.gain.exponentialRampToValueAtTime(Math.max(.0001,peak*p.sustain),t+Math.min(p.attack+p.decay,p.length*.85))
  amp.gain.setValueAtTime(Math.max(.0001,peak*p.sustain),end)
  amp.gain.exponentialRampToValueAtTime(.0001,end+p.release)
- amp.connect(ctx.destination)
+ amp.connect(destination)
  const sources:OscillatorNode[]=[]
  let remaining=p.blend>0?2:1
  let disposed=false
