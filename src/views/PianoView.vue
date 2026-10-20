@@ -694,6 +694,13 @@ function onOriginalAudioModeChange(){
  currentTime.value=0
  lastScheduledIdx=0
  keyState.value={}
+ // MIDI mode uses the edited MIDI duration; original mode uses the longer
+ // source recording if it contains tails or silence beyond the notes.
+ duration.value=allNotes.value.reduce((max,n)=>Math.max(max,n.time+n.duration),0)
+ if(originalAudioActive()){
+  const source=ensureOriginalAudioPlayer()
+  if(Number.isFinite(source.duration))duration.value=Math.max(duration.value,source.duration)
+ }
  if(wasPlaying)void play()
 }
 watch(speed,()=>{if(originalAudioPlayer)originalAudioPlayer.playbackRate=1/Math.max(.25,speed.value)})
