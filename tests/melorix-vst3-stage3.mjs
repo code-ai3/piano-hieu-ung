@@ -61,7 +61,7 @@ for(const denied of [
 assert.equal(typeof Vst3Session,'function')
 assert.ok(browser.includes('async function bindToTrack()'))
 assert.ok(browser.includes('async function removeBinding(id:number)'))
-assert.ok(browser.includes('chưa đưa tiếng VST3 vào thanh phát'))
+assert.ok(browser.includes('hiện là nghe thử offline, chưa phải âm thanh realtime khi Play'))
 assert.ok(view.includes(':tracks="midiParts.map(part=>({id:part.id,label:part.name}))"'))
 assert.ok(workflow.includes('Exercise real VST3 instances per track'))
 assert.ok(workflow.includes('melorix-vst3-session'))
