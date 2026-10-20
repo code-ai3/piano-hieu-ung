@@ -9,6 +9,8 @@
 #include "public.sdk/source/vst/hosting/hostclasses.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
+#include "pluginterfaces/vst/ivsteditcontroller.h"
+#include "native/vst3-host/editor-win32.hpp"
 #include <windows.h>
 #include <objbase.h>
 #include <filesystem>
@@ -19,6 +21,10 @@
 #include <algorithm>
 #include <cwctype>
 #include <cstdint>
+#include <thread>
+#include <mutex>
+#include <deque>
+#include <cstdlib>
 
 namespace {
 namespace fs=std::filesystem;
@@ -87,11 +93,19 @@ struct Loaded {
  // The SDK factory returns an owning IPtr. NEVER assign its temporary to a
  // raw pointer: the temporary would release the instance immediately.
  Steinberg::IPtr<IComponent> component;
+ Steinberg::IPtr<IEditController> controller;
+ bool ownControllerInit{false};
+ MelorixEditor::EditorWindow editor;
  HostApplication* context{nullptr};
  bool initialized{false};
  std::string pluginName;
  fs::path path;
  ~Loaded(){
+  editor.close();
+  if(controller){
+   if(ownControllerInit)controller->terminate();
+   controller=nullptr;
+  }
   if(component){
    if(initialized)component->terminate();
    component=nullptr; // release IPtr while the owning VST3 module is still loaded
@@ -115,7 +129,8 @@ void list(){
   out+="{\"track\":"+std::to_string(id)+",\"plugin\":"
        +escape(slot->pluginName)+",\"path\":"
        +escape(utf8(slot->path.wstring()))+
-       ",\"componentInitialized\":true}";
+       ",\"componentInitialized\":true,\"editorOpened\":"
+       +(slot->editor.hwnd?"true":"false")+"}";
  }
  out+="]}";
  reply(out);
@@ -155,6 +170,69 @@ void load(int id,const std::string& raw){
    +std::to_string(id)+",\"plugin\":"+escape(instances[id]->pluginName)
    +",\"componentInitialized\":true,\"audioConnected\":false,\"editorOpened\":false}");
 }
+void openEditor(int id,const std::string& rawOwner){
+ const auto it=instances.find(id);
+ if(it==instances.end()){fail("Load a VST3 instrument on the track first");return;}
+ auto& slot=*it->second;
+ if(slot.editor.hwnd){
+  ShowWindow(slot.editor.hwnd,SW_RESTORE);
+  SetForegroundWindow(slot.editor.hwnd);
+  reply("{\"schema\":3,\"ok\":true,\"operation\":\"editor-open\",\"track\":"
+    +std::to_string(id)+",\"editorOpened\":true,\"audioConnected\":false}");
+  return;
+ }
+ if(!slot.controller){
+  const auto factory=slot.module->getFactory();
+  // Single-component VST3 plugins implement IEditController on IComponent.
+  IEditController* raw=nullptr;
+  if(slot.component->queryInterface(IEditController::iid,reinterpret_cast<void**>(&raw))==kResultOk&&raw){
+   slot.controller=Steinberg::owned(raw); // queryInterface returns one owned reference
+  }else{
+   TUID controllerCID{};
+   if(slot.component->getControllerClassId(controllerCID)==kResultOk){
+    slot.controller=factory.createInstance<IEditController>(VST3::UID(controllerCID));
+    if(slot.controller){
+     if(slot.controller->initialize(slot.context)==kResultOk){
+      slot.ownControllerInit=true;
+     }else{
+      slot.controller=nullptr;
+     }
+    }
+   }
+  }
+ }
+ if(!slot.controller){fail("The selected VST3 has no available editor controller");return;}
+ // Owner is a window handle only from the trusted Electron main process.
+ // "0" is reserved for CI/native diagnostics without Electron.
+ HWND owner=nullptr;
+ if(rawOwner!="0"){
+  try{
+   size_t chars=0;
+   const auto address=std::stoull(rawOwner,&chars,16);
+   if(chars!=rawOwner.size()||!address||address>UINTPTR_MAX){
+    fail("Invalid MELORIX owner window");return;
+   }
+   owner=reinterpret_cast<HWND>(static_cast<uintptr_t>(address));
+   if(!IsWindow(owner)){fail("MELORIX owner HWND is not active");return;}
+  }catch(...){fail("Invalid MELORIX owner window");return;}
+ }
+ // The editor view is the actual vendor-rendered native GUI. It is owned
+ // by MELORIX, rather than opening Kontakt Standalone or cloning its skin.
+ const auto title=L"MELORIX VST3 \u2014 "+fs::u8path(slot.pluginName).wstring();
+ if(!slot.editor.open(slot.controller.get(),title,owner)){
+  fail("VST3 does not expose a Windows HWND editor or the view cannot attach");
+  return;
+ }
+ reply("{\"schema\":3,\"ok\":true,\"operation\":\"editor-open\",\"track\":"
+  +std::to_string(id)+",\"editorOpened\":true,\"audioConnected\":false}");
+}
+void closeEditor(int id){
+ const auto it=instances.find(id);
+ if(it==instances.end()){fail("Track has no loaded VST3 instance");return;}
+ it->second->editor.close();
+ reply("{\"schema\":3,\"ok\":true,\"operation\":\"editor-close\",\"track\":"
+  +std::to_string(id)+",\"editorOpened\":false}");
+}
 void unload(int id){
  const auto removed=instances.erase(id);
  reply("{\"schema\":3,\"ok\":true,\"operation\":\"unload\",\"track\":"
@@ -172,6 +250,18 @@ void process(const std::string& line){
   reply("{\"schema\":3,\"ok\":true,\"operation\":\"quit\"}");
   return;
  }
+ if(line.rfind("EDITOR_OPEN\t",0)==0){
+  const auto split=line.find('\t',12);
+  if(split==std::string::npos){fail("EDITOR_OPEN needs track and owner HWND");return;}
+  int id{};
+  if(!parseTrack(line.substr(12,split-12),id)){fail("Invalid editor track ID");return;}
+  openEditor(id,line.substr(split+1));return;
+ }
+ if(line.rfind("EDITOR_CLOSE\t",0)==0){
+  int id{};
+  if(!parseTrack(line.substr(13),id)){fail("Invalid editor track ID");return;}
+  closeEditor(id);return;
+ }
  if(line.rfind("UNLOAD\t",0)==0){
   int id{};
   if(!parseTrack(line.substr(7),id)){fail("Invalid track ID");return;}
@@ -187,20 +277,73 @@ void process(const std::string& line){
  fail("Unknown native VST3 host command");
 }
 } // namespace
+// Native editor windows and VST3 UI callbacks must run on the same STA as
+// IComponent::initialize(). A reader thread only queues input; it never calls
+// vendor code. A Win32 GUI pump processes commands and vendor messages.
+std::mutex commandLock;
+std::deque<std::string> commands;
+HWND commandWindow=nullptr;
+constexpr UINT kDispatchCommands=WM_APP+73;
+constexpr UINT kDispatchEof=WM_APP+74;
+void dispatch(){
+ std::deque<std::string> incoming;
+ {
+  std::lock_guard<std::mutex> guard(commandLock);
+  incoming.swap(commands);
+ }
+ for(const auto& line:incoming){
+  try{process(line);}
+  catch(const std::exception& e){fail(std::string("VST3 native error: ")+e.what());}
+  catch(...){fail("Unknown VST3 native error");}
+  if(line=="QUIT"){PostQuitMessage(0);return;}
+ }
+}
+LRESULT CALLBACK commandProc(HWND h,UINT msg,WPARAM w,LPARAM l){
+ if(msg==kDispatchCommands){dispatch();return 0;}
+ if(msg==kDispatchEof){dispatch();PostQuitMessage(0);return 0;}
+ return DefWindowProcW(h,msg,w,l);
+}
 int main(){
  // A separate COM STA for one native plugin-instance session.
  const HRESULT hr=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
  if(FAILED(hr)){fail("Could not initialize native COM session");return 3;}
- std::string line;
- while(std::getline(std::cin,line)){
-  if(!line.empty()&&line.back()=='\r')line.pop_back();
-  if(line.size()>8192){fail("Request too long");continue;}
-  if(line=="QUIT"){process(line);break;}
-  try{process(line);}
-  catch(const std::exception& e){fail(std::string("VST3 native error: ")+e.what());}
-  catch(...){fail("Unknown VST3 native error");}
+ WNDCLASSW wc{};
+ wc.lpfnWndProc=commandProc;
+ wc.hInstance=GetModuleHandleW(nullptr);
+ wc.lpszClassName=L"MELORIX_VST3_COMMAND_QUEUE";
+ if(!RegisterClassW(&wc)&&GetLastError()!=ERROR_CLASS_ALREADY_EXISTS){
+  fail("Cannot register Win32 VST3 UI dispatch");CoUninitialize();return 4;
  }
+ commandWindow=CreateWindowExW(0,wc.lpszClassName,L"",0,0,0,0,0,
+   HWND_MESSAGE,nullptr,wc.hInstance,nullptr);
+ if(!commandWindow){fail("Cannot create Win32 VST3 dispatcher");CoUninitialize();return 4;}
+ std::thread reader([]{
+  std::string line;
+  bool quit=false;
+  while(std::getline(std::cin,line)){
+   if(!line.empty()&&line.back()=='\r')line.pop_back();
+   if(line.size()>8192)line="INVALID_LONG_COMMAND";
+   const bool last=line=="QUIT";
+   {
+    std::lock_guard<std::mutex> guard(commandLock);
+    commands.push_back(std::move(line));
+   }
+   PostMessageW(commandWindow,kDispatchCommands,0,0);
+   if(last){quit=true;break;}
+  }
+  if(!quit)PostMessageW(commandWindow,kDispatchEof,0,0);
+ });
+ MSG msg{};
+ while(GetMessageW(&msg,nullptr,0,0)>0){
+  TranslateMessage(&msg);
+  DispatchMessageW(&msg);
+ }
+ // QUIT is the expected graceful shutdown; if stdin stayed open after HWND
+ // termination, close it so the reader cannot block forever.
+ if(reader.joinable())reader.join();
  instances.clear();
+ DestroyWindow(commandWindow);
+ commandWindow=nullptr;
  CoUninitialize();
  return 0;
 }
