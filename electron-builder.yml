@@ -1,5 +1,6 @@
 appId: vn.lunor.melorix
 productName: MELORIX
+electronVersion: 37.2.0
 asar: true
 compression: normal
 
@@ -22,7 +23,6 @@ win:
     - target: nsis
       arch:
         - x64
-  signingHashAlgorithms: []
 
 nsis:
   oneClick: false
