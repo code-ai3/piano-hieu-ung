@@ -109,7 +109,10 @@ async function handleAudioUpload(file: File) {
     const blob = new Blob([bytes as BlobPart], { type: 'audio/midi' })
     const url = URL.createObjectURL(blob)
     const name = file.name.replace(/\.[^.]+$/, '')
-    playlist.value.push({ name: `${t('piano.aiTranscriptionLabel')} ${name}`, file: url })
+    // Keep the original local audio separately; MIDI is only a transcription.
+    // Playback and video export can now use the actual imported sound.
+    const originalAudioUrl=URL.createObjectURL(file)
+    playlist.value.push({ name: `${t('piano.aiTranscriptionLabel')} ${name}`, file: url, originalAudioUrl })
     loadTrack(playlist.value.length - 1)
   } catch (e: any) {
     console.error(e)
@@ -618,7 +621,7 @@ function hash(n: number) {
 }
 
 // ---- 播放列表 ----
-interface Track { name: string; file: string }
+interface Track { name: string; file: string; originalAudioUrl?: string }
 const playlist = ref<Track[]>([
   { name: 'Canon', file: '/midi/canon.mid' },
   { name: 'Kiss The Rain', file: '/midi/Kiss%20The%20Rain.mid' },
@@ -628,6 +631,53 @@ const currentTrackIdx = ref(0)
 const showPlaylist = ref(false)
 
 const currentTrack = computed(() => playlist.value[currentTrackIdx.value])
+const useOriginalAudio=ref(true)
+const hasOriginalAudio=computed(()=>Boolean(currentTrack.value?.originalAudioUrl))
+let originalAudioPlayer:HTMLAudioElement|null=null
+function originalAudioActive(){return hasOriginalAudio.value&&useOriginalAudio.value}
+function ensureOriginalAudioPlayer():HTMLAudioElement{
+ const url=currentTrack.value?.originalAudioUrl
+ if(!url)throw new Error('Bài này không có bản thu âm gốc')
+ if(!originalAudioPlayer){
+  originalAudioPlayer=new Audio()
+  originalAudioPlayer.preload='auto'
+  originalAudioPlayer.addEventListener('loadedmetadata',()=>{
+   if(!originalAudioActive())return
+   const length=originalAudioPlayer?.duration
+   if(length&&Number.isFinite(length))duration.value=Math.max(duration.value,length)
+  })
+ }
+ if(originalAudioPlayer.src!==url){
+  originalAudioPlayer.pause()
+  originalAudioPlayer.src=url
+  originalAudioPlayer.load()
+ }
+ // The browser preserves pitch when playbackRate differs from 1, where supported.
+ originalAudioPlayer.preservesPitch=true
+ originalAudioPlayer.playbackRate=1/Math.max(.25,speed.value)
+ return originalAudioPlayer
+}
+function pauseOriginalAudio(){originalAudioPlayer?.pause()}
+function onOriginalAudioModeChange(){
+ if(exporting.value)return
+ const wasPlaying=playState.value==='playing'
+ pauseOriginalAudio()
+ resetPiano()
+ playState.value='idle'
+ currentTime.value=0
+ lastScheduledIdx=0
+ keyState.value={}
+ if(wasPlaying)void play()
+}
+watch(speed,()=>{if(originalAudioPlayer)originalAudioPlayer.playbackRate=1/Math.max(.25,speed.value)})
+async function decodeOriginalAudio(url:string):Promise<AudioBuffer>{
+ const response=await fetch(url)
+ if(!response.ok)throw new Error('Không đọc được bản thu âm gốc')
+ const content=await response.arrayBuffer()
+ const context=new AudioContext()
+ try{return await context.decodeAudioData(content)}
+ finally{void context.close()}
+}
 const repeat = ref(false)
 const isFullscreen = ref(false)
 watch([videoFormat, isFullscreen], () => { void nextTick(fitPreviewCanvas) })
