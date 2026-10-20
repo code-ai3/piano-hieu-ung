@@ -247,7 +247,8 @@ function gmVoiceForId(trackId:number){
   channel:part?.channel,
   name:part?.name,
   instrument:part?.instrument,
-  libraryId:choice?.startsWith('library:')?choice.slice(8):undefined
+  libraryId:choice?.startsWith('library:')?choice.slice(8):undefined,
+  forcePiano:choice==='piano'
  })
 }
 function getGmEngine(ctx:AudioContext):GmWebAudio{
