@@ -244,6 +244,9 @@ void closeEditor(int id){
 void audition(int id,const std::string& args){
  const auto it=instances.find(id);
  if(it==instances.end()){fail("Track has no loaded VST3 instance");return;}
+ if(liveOutputTrack==id && liveOutput.running()){
+  fail("Stop the WASAPI stream before rendering a separate offline VST3 preview");return;
+ }
  const auto a=args.find('\t'),b=a==std::string::npos?std::string::npos:args.find('\t',a+1);
  if(a==std::string::npos||b==std::string::npos||args.find('\t',b+1)!=std::string::npos){
   fail("AUDITION requires MIDI pitch, velocity and duration in milliseconds");return;
