@@ -5,7 +5,7 @@ const emit=defineEmits<{(event:'close'):void}>()
 const props=defineProps<{tracks:{id:number;label:string}[]}>()
 type InstalledVst3={name:string;path:string;hasBinary:boolean}
 type ScannerResult={schema:1;engine:'discovery-only';plugins:InstalledVst3[]}
-type LoadedTrack={track:number;plugin:string;path:string;componentInitialized:boolean}
+type LoadedTrack={track:number;plugin:string;path:string;componentInitialized:boolean;editorOpened?:boolean}
 type TrackStatus={schema:3;ok:true;tracks:LoadedTrack[];audioConnected:false;editorOpened:false}
 type NativeApi={
  environment:'desktop'
@@ -13,6 +13,8 @@ type NativeApi={
  bindVst3Track:(id:number,path:string)=>Promise<unknown>
  unbindVst3Track:(id:number)=>Promise<unknown>
  listVst3Tracks:()=>Promise<TrackStatus>
+ openVst3Editor:(id:number)=>Promise<unknown>
+ closeVst3Editor:(id:number)=>Promise<unknown>
 }
 const api=(window as Window&{melorixDesktop?:NativeApi}).melorixDesktop
 const scanning=ref(false)
@@ -40,6 +42,16 @@ async function bindToTrack(){
  binding.value=true;routingError.value=''
  try{
   await api.bindVst3Track(selectedTrackId.value,plugin.path)
+  await refreshBindings()
+ }catch(error){routingError.value=error instanceof Error?error.message:String(error)}
+ finally{binding.value=false}
+}
+async function toggleEditor(slot:LoadedTrack){
+ if(!api?.openVst3Editor||!api?.closeVst3Editor||binding.value)return
+ binding.value=true;routingError.value=''
+ try{
+  if(slot.editorOpened)await api.closeVst3Editor(slot.track)
+  else await api.openVst3Editor(slot.track)
   await refreshBindings()
  }catch(error){routingError.value=error instanceof Error?error.message:String(error)}
  finally{binding.value=false}
@@ -85,7 +97,8 @@ onMounted(()=>{
    </header>
    <p class="mx-vst3-development" role="note">
     Giai đoạn 3A — Có thể nạp và giữ một VST3 instance cho từng track trong tiến trình native riêng.
-    <strong>Chưa mở được giao diện Kontakt hoặc phát tiếng plugin trong MELORIX</strong>; đây mới là khởi tạo plugin và gán track.
+    Có thể mở cửa sổ giao diện gốc của plugin ngay từ track MELORIX, nếu VST3 cung cấp Windows editor.
+    <strong>Chưa kết nối âm thanh Kontakt hoặc chọn NKI được kiểm chứng</strong>; cửa sổ editor là native do chính plugin vẽ, không phải bản giả lập.
    </p>
    <div class="mx-vst3-actionbar">
     <button type="button" :disabled="scanning||!api" @click="scanInstalled">
@@ -112,8 +125,13 @@ onMounted(()=>{
      <p v-if="!props.tracks.length">Chưa có track MIDI. Tạo hoặc nhập track trước khi gắn plugin.</p>
      <p v-if="routingError" class="mx-vst3-error" role="alert">{{ routingError }}</p>
      <div v-for="slot in loaded" :key="slot.track" class="mx-vst3-loaded-row">
-       <span>Track {{ slot.track }} — {{ slot.plugin }} <small>Đã khởi tạo (chưa nối audio)</small></span>
-       <button type="button" :disabled="binding" @click="removeBinding(slot.track)">Gỡ</button>
+       <span>Track {{ slot.track }} — {{ slot.plugin }} <small>{{ slot.editorOpened?'Editor native đang mở · ':'Đã khởi tạo · ' }}chưa nối audio</small></span>
+       <div class="mx-vst3-loaded-actions">
+         <button type="button" :disabled="binding" @click="toggleEditor(slot)">
+           {{ slot.editorOpened?'Đóng giao diện':'Mở giao diện VST3' }}
+         </button>
+         <button type="button" :disabled="binding" @click="removeBinding(slot.track)">Gỡ</button>
+       </div>
      </div>
    </section>
    <p v-if="!api" role="alert" class="mx-vst3-error">Chỉ khả dụng trên MELORIX Desktop (Windows). Trang web không được phép quét plugin máy tính.</p>
@@ -167,5 +185,6 @@ onMounted(()=>{
 .mx-vst3-loaded-row{padding:8px 0;display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid #4e5d70;font-size:12px}
 .mx-vst3-loaded-row small{display:block;color:#dfb678;font-size:10px;margin-top:3px}
 .mx-vst3-assign-panel .mx-vst3-error{margin:8px 0;color:#ffb5ab}
+.mx-vst3-loaded-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 
 </style>

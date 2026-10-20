@@ -5,11 +5,13 @@ on:
     branches:
       - feature/melorix-vst3-host-stage2-loader
       - feature/melorix-vst3-stage3-track-instances
+      - feature/melorix-vst3-stage3b-native-editor
     paths:
       - .github/workflows/melorix-vst3-host-probe.yml
       - native/vst3-host/**
       - tests/melorix-vst3-stage2.mjs
       - tests/melorix-vst3-stage3.mjs
+      - tests/melorix-vst3-stage3b.mjs
       - desktop/**/*
       - src/components/MelorixVst3Browser.vue
   workflow_dispatch:
@@ -35,6 +37,7 @@ jobs:
         run: |
           node tests/melorix-vst3-stage2.mjs
           node tests/melorix-vst3-stage3.mjs
+          node tests/melorix-vst3-stage3b.mjs
           if ($LASTEXITCODE -ne 0) { throw 'VST3 Stage 3 source regressions failed' }
 
       - uses: ilammy/msvc-dev-cmd@v1
@@ -128,6 +131,43 @@ jobs:
             throw 'Stage3A may not claim Kontakt audio or UI'
           }
           Write-Host 'PASS: one native process loaded independent VST3 instances on two MIDI tracks, rejected invalid path, unloaded one without affecting the other'
+          $global:LASTEXITCODE=0
+
+      - name: Verify missing track editor is handled without process crash
+        run: |
+          $exe='native/vst3-host-build/bin/melorix-vst3-session.exe'
+          $plugins=@(Get-ChildItem native/vst3-host-build -Recurse |
+            Where-Object { $_.Name -eq 'melorix-test-synth.vst3' -and !$_.PSIsContainer -and $_.Length -gt 20000 })
+          $module=$plugins[0].FullName
+          $commands=@("LOAD`t6`t$module","EDITOR_OPEN`t999`t0",'LIST',"EDITOR_CLOSE`t6",'QUIT')
+          $raw=@($commands | & $exe)
+          if ($LASTEXITCODE -ne 0) { throw "Editor fallback crashed native host: $LASTEXITCODE" }
+          $v=@($raw | ForEach-Object { $_ | ConvertFrom-Json })
+          if ($v.Count -ne 5 -or !$v[0].ok -or $v[1].ok -ne $false -or
+              !$v[2].ok -or $v[2].tracks.Count -ne 1 -or !$v[3].ok) {
+            throw 'Editor unavailable must be reported without losing track'
+          }
+          Write-Host 'PASS: requesting editor for an unassigned track is rejected without affecting loaded VST3'
+
+      - name: Verify real VST3 IPlugView native editor attaches to Win32 HWND
+        run: |
+          $exe='native/vst3-host-build/bin/melorix-vst3-session.exe'
+          $plugins=@(Get-ChildItem native/vst3-host-build -Recurse |
+            Where-Object { $_.Name -eq 'melorix-test-synth.vst3' -and !$_.PSIsContainer -and $_.Length -gt 20000 })
+          if (!$plugins.Count) { throw 'No native GUI test VST3' }
+          $module=$plugins[0].FullName
+          $cmds=@("LOAD`t8`t$module","EDITOR_OPEN`t8`t0",'LIST',
+            "EDITOR_CLOSE`t8",'LIST',"UNLOAD`t8",'QUIT')
+          $raw=@($cmds | & $exe)
+          if ($LASTEXITCODE -ne 0) { throw "Native IPlugView session crashed: $LASTEXITCODE" }
+          $state=@($raw | ForEach-Object { $_ | ConvertFrom-Json })
+          if ($state.Count -ne 7 -or !$state[0].componentInitialized -or
+              !$state[1].editorOpened -or !$state[2].tracks[0].editorOpened -or
+              $state[3].editorOpened -ne $false -or
+              $state[4].tracks[0].editorOpened -ne $false) {
+            throw 'Actual native VST3 editor did not attach and detach its HWND'
+          }
+          Write-Host 'PASS: Real Steinberg SDK IPlugView attached to HWND, visible state reported, removed on close, plugin instance preserved'
           $global:LASTEXITCODE=0
 
       - name: Build genuine Steinberg ADelay VST3 test effect
