@@ -58,7 +58,7 @@ function clamp(value:number,min:number,max:number){return Number.isFinite(value)
 // Offline fallback is only used while recorded GM soundfont samples are unavailable.
 // Two partials, velocity-controlled brightness and instrument-specific envelopes feel
 // less like a flat beep while preserving exact MIDI pitch and onset.
-function fallbackTone(ctx:AudioContext,note:number,velocity:number,when:number,duration:number,program:number,destination:AudioNode=ctx.destination):SynthVoice{
+export function fallbackTone(ctx:BaseAudioContext,note:number,velocity:number,when:number,duration:number,program:number,destination:AudioNode=ctx.destination):SynthVoice{
  const t=Math.max(ctx.currentTime+.005,when)
  const length=clamp(duration,.06,12)
  const power=clamp(velocity/127,.01,1)
@@ -102,7 +102,7 @@ function fallbackTone(ctx:AudioContext,note:number,velocity:number,when:number,d
   for(const osc of oscs){try{osc.stop(at)}catch{}}
  }}
 }
-function fallbackDrum(ctx:AudioContext,note:number,velocity:number,when:number,destination:AudioNode=ctx.destination):SynthVoice{
+export function fallbackDrum(ctx:BaseAudioContext,note:number,velocity:number,when:number,destination:AudioNode=ctx.destination):SynthVoice{
  const t=Math.max(ctx.currentTime+.005,when)
  const intensity=clamp(velocity/127,.05,1)
  const kick=[35,36].includes(note)

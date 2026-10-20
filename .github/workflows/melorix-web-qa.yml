@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/melorix-web-audit-round1
+      - feature/melorix-mp4-multitrack-audio
   workflow_dispatch:
 
 permissions:

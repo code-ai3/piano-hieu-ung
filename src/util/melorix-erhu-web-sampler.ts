@@ -5,6 +5,8 @@ export class ErhuWebSampler {
  private bank=new Map<number,AudioBuffer>()
  private loading:Promise<void>|null=null
  get ready(){return this.bank.size===7}
+ /** Read-only snapshot for browser MP4 offline rendering; no source WAV is uploaded. */
+ getDecodedSamples():ReadonlyMap<number,AudioBuffer>{return new Map(this.bank)}
  init():Promise<void>{
   if(this.loading)return this.loading
   this.loading=(async()=>{

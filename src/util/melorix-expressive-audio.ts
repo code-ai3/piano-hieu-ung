@@ -27,7 +27,7 @@ export class ExpressiveAudioMaster{
  private wet:GainNode
  private filter:BiquadFilterNode
  private mode:ExpressionMode
- constructor(ctx:AudioContext,mode:ExpressionMode){
+ constructor(ctx:BaseAudioContext,mode:ExpressionMode){
   this.mode=mode
   this.input=ctx.createGain()
   const compressor=ctx.createDynamicsCompressor()
@@ -60,7 +60,7 @@ export class ExpressiveAudioMaster{
   this.wet.connect(compressor)
   this.setMode(ctx,mode)
  }
- setMode(ctx:AudioContext,mode:ExpressionMode){
+ setMode(ctx:BaseAudioContext,mode:ExpressionMode){
   this.mode=mode
   const wet=mode==='original'?0:mode==='natural'?.18:.31
   this.wet.gain.setTargetAtTime(wet,ctx.currentTime,.04)
