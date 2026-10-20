@@ -46,13 +46,18 @@ jobs:
       - name: Configure official SDK hosting module
         run: |
           $sdk = Join-Path $env:RUNNER_TEMP 'vst3sdk'
-          cmake -S native/vst3-host -B native/vst3-host-build -G Ninja "-DVST3_SDK_ROOT=$sdk" -DCMAKE_BUILD_TYPE=Release -DSMTG_CREATE_PLUGIN_LINK=OFF
+          cmake -S native/vst3-host -B native/vst3-host-build -G Ninja "-DVST3_SDK_ROOT=$sdk" -DCMAKE_BUILD_TYPE=Release -DSMTG_CREATE_PLUGIN_LINK=OFF -DMELORIX_BUILD_VST3_TEST_PLUGIN=ON
           if ($LASTEXITCODE -ne 0) { throw 'VST3 SDK CMake failed' }
 
       - name: Compile MELORIX native plugin loader
         run: |
           cmake --build native/vst3-host-build --target melorix-vst3-probe --config Release --parallel 4
           if ($LASTEXITCODE -ne 0) { throw 'VST3 loader compilation failed' }
+
+      - name: Build genuine Steinberg ADelay VST3 test effect
+        run: |
+          cmake --build native/vst3-host-build --target adelay --config Release --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'Steinberg ADelay VST3 test plugin build failed' }
 
       - name: Verify isolated host rejects an invalid VST3 path
         run: |
@@ -63,6 +68,30 @@ jobs:
           $message = $output | ConvertFrom-Json
           if ($message.ok -ne $false -or $message.schema -ne 2) { throw 'Invalid error JSON contract' }
           Write-Host 'PASS: SDK loader compiled; invalid VST3 is not launched'
+          $global:LASTEXITCODE = 0
+
+      - name: Test loading and initializing genuine Steinberg ADelay VST3
+        run: |
+          $exe='native/vst3-host-build/bin/melorix-vst3-probe.exe'
+          $plugins=@(Get-ChildItem -Path native/vst3-host-build -Recurse |
+            Where-Object { $_.Name -eq 'adelay.vst3' -and $_.PSIsContainer })
+          if (!$plugins.Count) { throw 'Missing ADelay VST3 bundle from Steinberg SDK' }
+          $module=$plugins[0].FullName
+          $inspect=& $exe --inspect $module
+          if ($LASTEXITCODE -ne 0) { throw "Real ADelay inspect failed: $LASTEXITCODE" }
+          $data=$inspect | ConvertFrom-Json
+          if (!$data.ok -or $data.factoryClasses -lt 1 -or $data.audioRendered) {
+            throw 'Real VST3 factory enumeration failed'
+          }
+          Write-Host ('PASS: VST3 module was really loaded; factory has '+$data.factoryClasses+' classes')
+          $init=& $exe --initialize $module
+          if ($LASTEXITCODE -ne 0) { throw "Real ADelay initialize failed: $LASTEXITCODE" }
+          $result=$init | ConvertFrom-Json
+          if (!$result.componentInitialized -or !$result.audioProcessorInterface -or $result.audioRendered) {
+            throw 'Real Steinberg plugin did not initialize its IAudioProcessor'
+          }
+          Write-Host 'PASS: Steinberg ADelay IComponent initialized and released, but no sound or Kontakt UI'
+          $global:LASTEXITCODE = 0
 
       - name: Upload host probe for engineering QA (not MELORIX release)
         uses: actions/upload-artifact@v4
