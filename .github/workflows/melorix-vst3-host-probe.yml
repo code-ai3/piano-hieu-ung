@@ -97,6 +97,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MELORIX-VST3-loader-probe-x64-NOT-RELEASE
-          path: native/vst3-host-build/bin/Release/melorix-vst3-probe.exe
+          path: native/vst3-host-build/bin/melorix-vst3-probe.exe
           retention-days: 7
           if-no-files-found: error
