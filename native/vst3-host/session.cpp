@@ -12,6 +12,7 @@
 #include "pluginterfaces/vst/ivsteditcontroller.h"
 #include "editor-win32.hpp"
 #include "track-preview.hpp"
+#include "wasapi-live.hpp"
 #include <windows.h>
 #include <objbase.h>
 #include <filesystem>
@@ -119,6 +120,8 @@ struct Loaded {
  Loaded& operator=(const Loaded&)=delete;
 };
 std::map<int,std::unique_ptr<Loaded>> instances;
+MelorixWasapi::LiveStream liveOutput;
+int liveOutputTrack=-1;
 
 void list(){
  std::string out="{\"schema\":3,\"ok\":true,\"operation\":\"list\","
@@ -166,6 +169,7 @@ void load(int id,const std::string& raw){
  if(!found){fail("VST3 has no initializable audio component");return;}
  // Replacing an assignment unloads the prior instance AFTER the new one
  // has initialized successfully, preserving the previous assignment on failure.
+ if(id==liveOutputTrack){liveOutput.stop();liveOutputTrack=-1;}
  instances[id]=std::move(candidate);
  reply("{\"schema\":3,\"ok\":true,\"operation\":\"load\",\"track\":"
    +std::to_string(id)+",\"plugin\":"+escape(instances[id]->pluginName)
@@ -264,6 +268,7 @@ void audition(int id,const std::string& args){
   +escape(rendered.wavBase64)+"}");
 }
 void unload(int id){
+ if(id==liveOutputTrack){liveOutput.stop();liveOutputTrack=-1;}
  const auto removed=instances.erase(id);
  reply("{\"schema\":3,\"ok\":true,\"operation\":\"unload\",\"track\":"
   +std::to_string(id)+",\"removed\":"+(removed?"true":"false")+"}");
@@ -276,6 +281,7 @@ void process(const std::string& line){
  }
  if(line=="LIST"){list();return;}
  if(line=="QUIT"){
+  liveOutput.stop();liveOutputTrack=-1;
   instances.clear();
   reply("{\"schema\":3,\"ok\":true,\"operation\":\"quit\"}");
   return;
@@ -378,6 +384,7 @@ int main(){
  // QUIT is the expected graceful shutdown; if stdin stayed open after HWND
  // termination, close it so the reader cannot block forever.
  if(reader.joinable())reader.join();
+ liveOutput.stop();liveOutputTrack=-1;
  instances.clear();
  DestroyWindow(commandWindow);
  commandWindow=nullptr;
