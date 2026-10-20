@@ -24,9 +24,28 @@ add_executable(melorix-vst3-probe
 target_compile_features(melorix-vst3-probe PRIVATE cxx_std_17)
 target_compile_definitions(melorix-vst3-probe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_link_libraries(melorix-vst3-probe PRIVATE sdk_hosting ole32)
+# Stage 2B offline renderer: event-driven PCM is written strictly from
+# Steinberg IAudioProcessor::process() of the selected native VST3 plugin.
+add_executable(melorix-vst3-render
+ offline-render.cpp
+ "${VST3_SDK_ROOT}/public.sdk/source/vst/hosting/module_win32.cpp"
+)
+target_compile_features(melorix-vst3-render PRIVATE cxx_std_17)
+target_compile_definitions(melorix-vst3-render PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(melorix-vst3-render PRIVATE sdk_hosting ole32)
+set_target_properties(melorix-vst3-render PROPERTIES
+ RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
 # Optional real Steinberg ADelay example plugin. It is a genuine VST3 DLL,
 # unlike the fake directory fixture used in GĐ1, and belongs only to CI.
 option(MELORIX_BUILD_VST3_TEST_PLUGIN "Build Steinberg ADelay for loader QA" OFF)
+option(MELORIX_BUILD_VST3_TEST_SYNTH "Build true MIDI-to-PCM VST3 QA instrument" OFF)
+if(MELORIX_BUILD_VST3_TEST_SYNTH)
+ smtg_add_vst3plugin(melorix-test-synth test-synth.cpp)
+ target_link_libraries(melorix-test-synth PRIVATE sdk)
+ target_compile_features(melorix-test-synth PRIVATE cxx_std_17)
+endif()
+
 if(MELORIX_BUILD_VST3_TEST_PLUGIN)
  # CMake project() variables of the SDK remain scoped to its subdirectory.
  # The official ADelay sample expects the parent ${vstsdk_VERSION}.
