@@ -3,6 +3,10 @@
 // not faked by the MELORIX host. It provides a deterministic MIDI->PCM CI fixture.
 // SPDX-License-Identifier: MIT
 #include "public.sdk/source/vst/vstaudioeffect.h"
+#include "public.sdk/source/vst/vsteditcontroller.h"
+#include "public.sdk/source/common/pluginview.h"
+#include <windows.h>
+#include <cstring>
 #include "public.sdk/source/main/pluginfactory_constexpr.h"
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/vsttypes.h"
@@ -12,11 +16,51 @@ namespace Melorix {
 using namespace Steinberg;
 using namespace Steinberg::Vst;
 static DECLARE_UID(TestSynthCID, 0xEB12215D, 0x71364E96, 0x92C350DA, 0x3B119CC7);
+static DECLARE_UID(TestControllerCID, 0x7B3E4CD7, 0x49DC4851, 0xA1220B11, 0xE37F0131);
+
+// Test-only native view: verify the HOST attaches real VST3 IPlugView to
+// HWND. We do not copy Kontakt GUI or inject a fake screenshot into MELORIX.
+class TestEditorView final : public Steinberg::CPluginView {
+public:
+ TestEditorView(){setRect(Steinberg::ViewRect(0,0,440,180));}
+ tresult PLUGIN_API isPlatformTypeSupported(FIDString type) override {
+  return std::strcmp(type,Steinberg::kPlatformTypeHWND)==0?kResultTrue:kResultFalse;
+ }
+ tresult PLUGIN_API attached(void* parent,FIDString type) override {
+  if(isPlatformTypeSupported(type)!=kResultTrue)return kResultFalse;
+  if(Steinberg::CPluginView::attached(parent,type)!=kResultOk)return kResultFalse;
+  label_=CreateWindowExW(0,L"STATIC",L"MELORIX VST3 GUI QA | Native HWND",
+    WS_CHILD|WS_VISIBLE|SS_CENTER,10,40,410,70,
+    static_cast<HWND>(parent),nullptr,GetModuleHandleW(nullptr),nullptr);
+  if(!label_){Steinberg::CPluginView::removed();return kResultFalse;}
+  return kResultOk;
+ }
+ tresult PLUGIN_API removed() override {
+  if(label_){DestroyWindow(label_);label_=nullptr;}
+  return Steinberg::CPluginView::removed();
+ }
+private:
+ HWND label_{nullptr};
+};
+
+class TestController final : public EditController {
+public:
+ static FUnknown* createInstance(void*) {
+  return static_cast<IEditController*>(new TestController());
+ }
+ IPlugView* PLUGIN_API createView(FIDString name) override {
+  return FIDStringsEqual(name,ViewType::kEditor)?new TestEditorView():nullptr;
+ }
+};
+
 
 class TestSynth final : public AudioEffect {
 public:
  static FUnknown* createInstance(void*) {
   return static_cast<IAudioProcessor*>(new TestSynth());
+ }
+ TestSynth(){
+  setControllerClass(FUID::fromTUID(TestControllerCID));
  }
  tresult PLUGIN_API initialize(FUnknown* context) override {
   const auto result=AudioEffect::initialize(context);
@@ -82,4 +126,7 @@ BEGIN_FACTORY_DEF("MELORIX QA","https://example.invalid","qa@example.invalid",1)
  DEF_CLASS(Melorix::TestSynthCID,Steinberg::PClassInfo::kManyInstances,
    kVstAudioEffectClass,"MELORIX Test MIDI Synth",0,"Instrument|Synth",
    "0.1.0",kVstVersionString,Melorix::TestSynth::createInstance,nullptr)
+ DEF_CLASS(Melorix::TestControllerCID,Steinberg::PClassInfo::kManyInstances,
+   kVstComponentControllerClass,"MELORIX Test Native GUI Controller",0,"",
+   "0.1.0",kVstVersionString,Melorix::TestController::createInstance,nullptr)
 END_FACTORY
