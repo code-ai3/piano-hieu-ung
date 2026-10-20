@@ -63,10 +63,10 @@ function fallbackTone(ctx:AudioContext,note:number,velocity:number,when:number,d
  const pluck=(program>=24&&program<=31)||program===46
  const strings=(program>=40&&program<=51)||(program>=88&&program<=95)
  const wind=program>=56&&program<=79
- const attack=strings?.075:wind?.027:.007
- const release=strings?.27:wind?.18:pluck?.09:.14
- const sustain=pluck?.20:bass?.46:strings?.72:.62
- const peak=(bass?.07:.055)*Math.pow(power,.75)
+ const attack=strings ? 0.075 : wind ? 0.027 : 0.007
+ const release=strings ? 0.27 : wind ? 0.18 : pluck ? 0.09 : 0.14
+ const sustain=pluck ? 0.20 : bass ? 0.46 : strings ? 0.72 : 0.62
+ const peak=(bass ? 0.07 : 0.055)*Math.pow(power,.75)
  const hz=440*Math.pow(2,(clamp(note,0,127)-69)/12)
  const amp=ctx.createGain()
  const filter=ctx.createBiquadFilter()
