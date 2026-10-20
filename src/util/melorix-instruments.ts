@@ -39,7 +39,7 @@ export function synthVoicePlan(preset:InstrumentPreset,midi:number,velocity:numb
  }
 }
 export interface SynthVoice {stop:()=>void}
-export function playSynthVoice(ctx:AudioContext,midi:number,velocity:number,when:number,duration:number,preset:InstrumentPreset,destination:AudioNode=ctx.destination):SynthVoice {
+export function playSynthVoice(ctx:BaseAudioContext,midi:number,velocity:number,when:number,duration:number,preset:InstrumentPreset,destination:AudioNode=ctx.destination):SynthVoice {
  const p=synthVoicePlan(preset,midi,velocity,duration)
  const t=Math.max(ctx.currentTime+.002,when)
  const end=t+p.length
