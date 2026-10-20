@@ -32,6 +32,7 @@ File do Windows runner tạo ở thư mục `release/`. Sau khi job thành công
 ## Các tệp chính
 - `desktop/main.cjs`: cửa sổ Electron và protocol `melorix://app` đọc tệp đã đóng gói (không mở website bên ngoài).
 - `electron-builder.yml`: config NSIS và Portable x64.
+- `desktop/make_windows_icon.py`: sinh icon .ico nhiều kích thước (có 256×256) từ hình thương hiệu MELORIX, phục vụ Windows builder.
 - `.github/workflows/melorix-desktop-windows.yml`: tự động build Windows.
 - `tests/melorix-desktop.mjs`: kiểm tra bảo mật scheme và cấu hình đóng gói.
 

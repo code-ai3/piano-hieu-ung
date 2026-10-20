@@ -15,7 +15,7 @@ files:
   - "!**/*.map"
 
 win:
-  icon: public/favicon.ico
+  icon: desktop/melorix.ico
   target:
     - target: portable
       arch:
