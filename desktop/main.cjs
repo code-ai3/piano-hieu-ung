@@ -7,6 +7,12 @@ const path = require('node:path')
 const { readFile } = require('node:fs/promises')
 
 const ORIGIN = 'melorix://app'
+function isAppOrigin(url) {
+  // Node's WHATWG URL.origin is "null" for custom schemes, even if
+  // Chromium registered them as standard, so compare protocol/host instead.
+  return url.protocol === 'melorix:' && url.hostname === 'app' &&
+    !url.username && !url.password && !url.port
+}
 const MIME = Object.freeze({
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -57,7 +63,7 @@ function allowedFilePath(root, pathname) {
 
 async function handleLocalAsset(request) {
   const url = new URL(request.url)
-  if (url.origin !== ORIGIN || !['GET', 'HEAD'].includes(request.method)) {
+  if (!isAppOrigin(url) || !['GET', 'HEAD'].includes(request.method)) {
     return new Response('Not allowed', { status: 403 })
   }
   const root = path.resolve(app.getAppPath(), 'dist')
@@ -87,7 +93,7 @@ async function handleLocalAsset(request) {
 function isTrustedAppUrl(raw) {
   try {
     const url = new URL(raw)
-    return url.origin === ORIGIN
+    return isAppOrigin(url)
   } catch { return false }
 }
 
