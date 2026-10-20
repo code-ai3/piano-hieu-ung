@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
-import {Midi} from '@tonejs/midi'
+import ToneMidi from '@tonejs/midi'
+const {Midi}=ToneMidi
 import {exportMidiProgram} from '../src/util/melorix-midi-program-export.ts'
 for(const n of [0,1,24,25,32,33,40,64,110,127]){
  assert.equal(exportMidiProgram(n),n,'Keep imported GM program '+n)
