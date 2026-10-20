@@ -26,3 +26,6 @@ dist-ssr
 # Electron Desktop build artifacts
 release/
 desktop/melorix.ico
+
+# Windows scanner is built by GitHub Actions, never committed
+native/bin/

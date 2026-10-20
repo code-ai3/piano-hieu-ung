@@ -19,6 +19,7 @@ import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
 import MelorixPianoRoll from '@/components/MelorixPianoRoll.vue'
 import MelorixMidiConnector from '@/components/MelorixMidiConnector.vue'
+import MelorixVst3Browser from '@/components/MelorixVst3Browser.vue'
 import MelorixKontaktTrackRouter from '@/components/MelorixKontaktTrackRouter.vue'
 import MelorixKontaktAudioCapture from '@/components/MelorixKontaktAudioCapture.vue'
 import MelorixPublishedLibrary from '@/components/MelorixPublishedLibrary.vue'
@@ -159,6 +160,11 @@ const isTrackPanelOpen = ref(typeof window !== 'undefined' && window.innerWidth 
 const isTimelineOpen = ref(false)
 // Instrument routing is per track and survives Piano Roll edits.
 const showMidiConnector=ref(false)
+const showVst3Browser=ref(false)
+// Only native Electron preload exposes the read-only local VST3 scanner.
+// Ordinary Cloudflare/Chrome pages never inspect the user's installed plugins.
+const hasNativeVst3Scanner=typeof window!=='undefined'&&
+ typeof (window as Window&{melorixDesktop?:{scanVst3?:unknown}}).melorixDesktop?.scanVst3==='function'
 const kontaktMidiLive=ref(false)
 let unsubscribeKontaktStatus:(()=>void)|null=null
 function syncKontaktStatus(){kontaktMidiLive.value=midiBridge.externalOnly}
@@ -2553,6 +2559,12 @@ watch(() => currentTime.value, (t) => {
           <i class="fas fa-plug" aria-hidden="true"></i>
           <span>{{ kontaktMidiLive ? 'Kontakt MIDI' : 'Kết nối Kontakt' }}</span>
         </button>
+        <button v-if="hasNativeVst3Scanner" type="button" class="mx-kontakt-live-action"
+          title="Quét VST3 đang cài trong Windows; giai đoạn này chưa nạp plugin"
+          @click="showVst3Browser=true">
+          <i class="fas fa-puzzle-piece" aria-hidden="true"></i>
+          <span>Nhạc cụ VST3</span>
+        </button>
         <!-- 单曲循环 -->
         <button @click="repeat = !repeat" class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border border-[rgba(255,255,255,0.5)] shadow-glass-light transition-all duration-300 hover:-translate-y-px hover:shadow-glass-hover-light active:translate-y-0 dark:shadow-none"
           :class="repeat
@@ -2641,6 +2653,7 @@ watch(() => currentTime.value, (t) => {
 
     <MelorixMidiConnector v-if="showMidiConnector" :playing="playState === 'playing'"
        @kontakt-enabled="activateKontaktOnly" @close="showMidiConnector = false" />
+     <MelorixVst3Browser v-if="showVst3Browser" @close="showVst3Browser=false" />
     <MelorixPublishedLibrary v-if="showPublishedLibrary" @close="showPublishedLibrary=false" />
     <MelorixKontaktAudioCapture :key="captureSession" :open="showKontaktAudioCapture"
      :playing="playState === 'playing'" :busy="exporting" :can-play="notes.length > 0"

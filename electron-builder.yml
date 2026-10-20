@@ -10,9 +10,14 @@ directories:
 files:
   - dist/**/*
   - desktop/main.cjs
+  - desktop/preload.cjs
   - package.json
   - "!node_modules/**/*"
   - "!**/*.map"
+
+extraResources:
+  - from: native/bin/melorix-vst3-scan.exe
+    to: vst3/melorix-vst3-scan.exe
 
 win:
   icon: desktop/melorix.ico
