@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <cwctype>
 
 namespace fs = std::filesystem;
 struct Candidate {
@@ -63,7 +64,7 @@ void scan(const fs::path& folder, int depth, std::vector<Candidate>& found, std:
     if(ec||found.size()>=512) break;
     auto path=item.path();
     std::wstring extension=path.extension().wstring();
-    std::transform(extension.begin(),extension.end(),extension.begin(),::towlower);
+    std::transform(extension.begin(),extension.end(),extension.begin(),[](wchar_t c){return static_cast<wchar_t>(std::towlower(c));});
     const bool directory=item.is_directory(ec);
     const bool regular=item.is_regular_file(ec);
     if(ec) {ec.clear();continue;}
