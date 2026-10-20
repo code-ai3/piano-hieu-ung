@@ -148,3 +148,31 @@
 .mx-track-volume-zero output{color:#ffb574}
 .mx-track-side-item-muted .mx-track-volume{opacity:.65}
 .mx-track-volume input:disabled{cursor:not-allowed}
+
+/* MIDI track selection and explicit delete; works with narrow sidebar and keyboard. */
+.mx-track-side-item{cursor:pointer;transition:background-color .12s ease,box-shadow .12s ease}
+.mx-track-side-item:hover{background:#ffffff07}
+.mx-track-side-item.mx-track-side-item-selected{
+ background:#f59b4d16;box-shadow:inset 3px 0 0 #ffae63;
+}
+.mx-track-side-item-muted.mx-track-side-item-selected{opacity:.8}
+.mx-track-side-item-selected .mx-track-name{color:#ffd8a2}
+.mx-track-select{
+ display:block;min-width:0;flex:1 1 auto;max-width:100%;padding:0;
+ text-align:left;border:0;background:transparent;color:inherit;
+ cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ font-family:inherit;font-weight:600;line-height:1.55;
+}
+.mx-track-select[aria-pressed="true"]{text-decoration:underline;text-decoration-color:#ffad62;text-underline-offset:3px}
+.mx-track-select:focus-visible,.mx-track-delete:focus-visible{
+ outline:2px solid #ffba70;outline-offset:2px;
+}
+.mx-track-select:disabled,.mx-track-delete:disabled{cursor:not-allowed;opacity:.5}
+.mx-track-delete{
+ display:grid;place-items:center;flex:0 0 21px;width:21px;height:23px;
+ padding:0;border:1px solid #6b4341;border-radius:4px;
+ background:#50323147;color:#e7a09e;font-size:10px;cursor:pointer;
+}
+.mx-track-delete:hover:not(:disabled){background:#783735;color:#fff1ee;border-color:#d76c6a}
+.mx-track-row-selected .mx-track-controls{background:#39332e;box-shadow:inset 3px 0 0 #ffae63}
+.mx-track-row-selected .mx-lane{outline:1px solid #ffae635c;outline-offset:-1px}
