@@ -481,7 +481,8 @@ function deleteMidiTrack(id:number){
  const part=midiParts.value.find(p=>p.id===id)
  if(!part)return
  const count=allNotes.value.filter(n=>n.trackId===id).length
- if(!window.confirm(`Xóa track "${part.name}" và ${count} nốt MIDI?\nThao tác này không thể hoàn tác.`))return
+ const recordingWarning=kontaktAudioBuffer.value?'\nBản thu Kontakt của bài cũng sẽ được bỏ vì không còn khớp bản phối.':''
+ if(!window.confirm(`Xóa track "${part.name}" và ${count} nốt MIDI?\nThao tác này không thể hoàn tác.${recordingWarning}`))return
  // Stop scheduled MIDI and Web Audio before removing notes or track routing.
  playRequest++
  pianoLoading=false
