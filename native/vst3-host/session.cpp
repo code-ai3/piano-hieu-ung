@@ -125,7 +125,9 @@ int liveOutputTrack=-1;
 
 void list(){
  std::string out="{\"schema\":3,\"ok\":true,\"operation\":\"list\","
-  "\"audioConnected\":false,\"editorOpened\":false,\"tracks\":[";
+  "\"audioConnected\":" + std::string(liveOutput.running()?"true":"false") +
+  ",\"driver\":\"wasapi-shared\",\"liveTrack\":" + std::to_string(liveOutputTrack) +
+  ",\"editorOpened\":false,\"tracks\":[";
  bool first=true;
  for(const auto& [id,slot]:instances){
   if(!first)out+=',';
@@ -134,7 +136,8 @@ void list(){
        +escape(slot->pluginName)+",\"path\":"
        +escape(utf8(slot->path.wstring()))+
        ",\"componentInitialized\":true,\"editorOpened\":"
-       +(slot->editor.hwnd?"true":"false")+"}";
+       +(slot->editor.hwnd?"true":"false")+
+       ",\"liveAudio\":"+(liveOutputTrack==id&&liveOutput.running()?"true":"false")+"}";
  }
  out+="]}";
  reply(out);
