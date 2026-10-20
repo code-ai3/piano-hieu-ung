@@ -12,7 +12,7 @@ for(const value of [
  'slot.controller->initialize(slot.context)',
  'slot.controller->createView',
  'slot.editor.open(slot.controller.get()',
- 'slot.editor.close()',
+ 'it->second->editor.close()',
  'EDITOR_OPEN',
  'EDITOR_CLOSE',
  'GetMessageW(&msg,nullptr,0,0)',
