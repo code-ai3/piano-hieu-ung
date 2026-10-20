@@ -159,6 +159,18 @@ const isTrackPanelOpen = ref(typeof window !== 'undefined' && window.innerWidth 
 const isTimelineOpen = ref(false)
 // Instrument routing is per track and survives Piano Roll edits.
 const showMidiConnector=ref(false)
+const kontaktMidiLive=ref(false)
+let unsubscribeKontaktStatus:(()=>void)|null=null
+function syncKontaktStatus(){kontaktMidiLive.value=midiBridge.externalOnly}
+function activateKontaktOnly(){
+ // The user's complete recording and editable MIDI must never play twice.
+ if(useOriginalAudio.value){
+  useOriginalAudio.value=false
+  onOriginalAudioModeChange()
+ }else if(playState.value==='playing')stop()
+ syncKontaktStatus()
+}
+
 const showKontaktRouter=ref(false)
 const showPublishedLibrary=ref(false)
 const publishedInstruments=ref<PublishedInstrument[]>([])
@@ -239,6 +251,7 @@ function setTrackVolume(id:number,event:Event){
  trackVolumeLevels.value={...trackVolumeLevels.value,[id]:volume}
  const node=trackGainNodes.get(id)
  if(node&&audioCtx.value)node.gain.setTargetAtTime(volume/100,audioCtx.value.currentTime,.012)
+ if(midiBridge.externalOnly)midiBridge.setChannelVolume(trackMidiChannel(kontaktChannelForTrack(id)),volume)
 }
 function clearTrackAudioOutputs(){
  for(const node of trackGainNodes.values()){try{node.disconnect()}catch{}}
@@ -1279,6 +1292,14 @@ function scheduleAll() {
  // Web MIDI is scheduled separately once at Play/seek/repeat; do not resend each animation frame.
  if(exporting.value)return
  const midiClockMs=performance.now()
+ // Send channel volume before the first note; never send Program Change
+ // because Kontakt's loaded NKI should not be replaced.
+ if(midiBridge.playbackEnabled){
+  for(const part of midiParts.value){
+   if(part.enabled)midiBridge.setChannelVolume(
+    trackMidiChannel(kontaktChannelForTrack(part.id)),trackVolumePercent(part.id))
+  }
+ }
  const targetTime=currentTime.value/speed.value
  for(const event of midiPlaybackPlan.value){
   if(event.start<targetTime-.02)continue
@@ -1977,6 +1998,8 @@ function onKeyDown(e: KeyboardEvent) {
 // ---- 生命周期 ----
 
 onMounted(() => {
+  unsubscribeKontaktStatus=midiBridge.subscribe(syncKontaktStatus)
+  syncKontaktStatus()
   void erhuWebSampler.init().then(()=>{erhuWebReady.value=erhuWebSampler.ready})
   void refreshPublishedInstruments()
   initPiano()
@@ -1999,6 +2022,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  unsubscribeKontaktStatus?.()
   midiBridge.cleanup()
   document.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('pointerdown', onDocumentPointerDown)
@@ -2164,7 +2188,7 @@ watch(() => currentTime.value, (t) => {
           <button type="button" @click="selectErhuFolder">Cài tiếng Erhu WAV cho web (một lần)</button>
            <div v-if="erhuWebMessage" role="status" class="mx-menu-caption">{{ erhuWebMessage }}</div>
            <button type="button" @click="openPersonalInstrumentImport">Nhập mẫu WAV riêng</button>
-          <button type="button" @click="openMidiConnector">Kết nối MIDI / Kontakt 8</button>
+          <button type="button" @click="openMidiConnector"><i class="fas fa-plug mr-2"></i>Kết nối Kontakt trên Windows</button>
           <button type="button" @click="openKontaktRouter">Thiết lập kênh Kontakt</button>
           <button type="button" @click="openKontaktAudioCapture">Thu / nhập âm thanh Kontakt (MP4)</button>
           <button type="button" @click="openInstrumentTrackPanel()">Đổi tiếng của track</button>
@@ -2523,6 +2547,12 @@ watch(() => currentTime.value, (t) => {
            <i class="fas fa-wave-square" aria-hidden="true"></i>
            <span>{{ useOriginalAudio ? 'Bản thu gốc' : 'Âm thanh MIDI' }}</span>
          </label>
+        <button type="button" class="mx-kontakt-live-action" :class="{ 'mx-kontakt-live-connected': kontaktMidiLive }"
+          :title="kontaktMidiLive ? 'MIDI đang điều khiển Kontakt; bấm để thử nốt hoặc đổi cổng' : 'Kết nối Kontakt Standalone trên Windows'"
+          @click="openMidiConnector" :aria-label="kontaktMidiLive ? 'Kontakt MIDI đang kết nối' : 'Kết nối Kontakt'">
+          <i class="fas fa-plug" aria-hidden="true"></i>
+          <span>{{ kontaktMidiLive ? 'Kontakt MIDI' : 'Kết nối Kontakt' }}</span>
+        </button>
         <!-- 单曲循环 -->
         <button @click="repeat = !repeat" class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border border-[rgba(255,255,255,0.5)] shadow-glass-light transition-all duration-300 hover:-translate-y-px hover:shadow-glass-hover-light active:translate-y-0 dark:shadow-none"
           :class="repeat
@@ -2609,7 +2639,8 @@ watch(() => currentTime.value, (t) => {
       </aside>
     </div> <!-- workspace -->
 
-    <MelorixMidiConnector v-if="showMidiConnector" :playing="playState === 'playing'" @close="showMidiConnector = false" />
+    <MelorixMidiConnector v-if="showMidiConnector" :playing="playState === 'playing'"
+       @kontakt-enabled="activateKontaktOnly" @close="showMidiConnector = false" />
     <MelorixPublishedLibrary v-if="showPublishedLibrary" @close="showPublishedLibrary=false" />
     <MelorixKontaktAudioCapture :key="captureSession" :open="showKontaktAudioCapture"
      :playing="playState === 'playing'" :busy="exporting" :can-play="notes.length > 0"
