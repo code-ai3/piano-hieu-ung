@@ -25,6 +25,8 @@ export function expressedVelocity(velocity:number,onsetSeconds:number,bpm:number
 export class ExpressiveAudioMaster{
  readonly input:GainNode
  private wet:GainNode
+ private dryOriginal:GainNode
+ private dryProcessed:GainNode
  private filter:BiquadFilterNode
  private mode:ExpressionMode
  constructor(ctx:BaseAudioContext,mode:ExpressionMode){
@@ -36,7 +38,15 @@ export class ExpressiveAudioMaster{
   compressor.ratio.value=1.6
   compressor.attack.value=.009
   compressor.release.value=.21
-  this.input.connect(compressor)
+  // "Nguyên bản MIDI" must bypass dynamics and reverb entirely.
+  this.dryOriginal=ctx.createGain()
+  this.dryProcessed=ctx.createGain()
+  this.dryOriginal.gain.value=0
+  this.dryProcessed.gain.value=0
+  this.input.connect(this.dryOriginal)
+  this.dryOriginal.connect(ctx.destination)
+  this.input.connect(this.dryProcessed)
+  this.dryProcessed.connect(compressor)
   compressor.connect(ctx.destination)
   const impulse=ctx.createBuffer(2,Math.round(ctx.sampleRate*1.15),ctx.sampleRate)
   let seed=0x13a73
@@ -63,9 +73,11 @@ export class ExpressiveAudioMaster{
  setMode(ctx:BaseAudioContext,mode:ExpressionMode){
   this.mode=mode
   const wet=mode==='original'?0:mode==='natural'?.18:.31
+  this.dryOriginal.gain.setTargetAtTime(mode==='original'?1:0,ctx.currentTime,.018)
+  this.dryProcessed.gain.setTargetAtTime(mode==='original'?0:1,ctx.currentTime,.018)
   this.wet.gain.setTargetAtTime(wet,ctx.currentTime,.04)
   this.filter.frequency.setTargetAtTime(mode==='warm'?3000:4200,ctx.currentTime,.04)
  }
  get currentMode(){return this.mode}
- disconnect(){this.input.disconnect();this.wet.disconnect();this.filter.disconnect()}
+ disconnect(){this.input.disconnect();this.wet.disconnect();this.filter.disconnect();this.dryOriginal.disconnect();this.dryProcessed.disconnect()}
 }
