@@ -6,12 +6,15 @@ on:
       - feature/melorix-vst3-host-stage2-loader
       - feature/melorix-vst3-stage3-track-instances
       - feature/melorix-vst3-stage3b-native-editor
+      - feature/melorix-vst3-stage3c-audio-routing
     paths:
       - .github/workflows/melorix-vst3-host-probe.yml
       - native/vst3-host/**
       - tests/melorix-vst3-stage2.mjs
       - tests/melorix-vst3-stage3.mjs
       - tests/melorix-vst3-stage3b.mjs
+      - tests/melorix-vst3-stage3c.mjs
+      - src/util/melorix-vst3-preview.ts
       - desktop/**/*
       - src/components/MelorixVst3Browser.vue
   workflow_dispatch:
@@ -38,6 +41,7 @@ jobs:
           node tests/melorix-vst3-stage2.mjs
           node tests/melorix-vst3-stage3.mjs
           node tests/melorix-vst3-stage3b.mjs
+          node tests/melorix-vst3-stage3c.mjs
           if ($LASTEXITCODE -ne 0) { throw 'VST3 Stage 3 source regressions failed' }
 
       - uses: ilammy/msvc-dev-cmd@v1
@@ -168,6 +172,32 @@ jobs:
             throw 'Actual native VST3 editor did not attach and detach its HWND'
           }
           Write-Host 'PASS: Real Steinberg SDK IPlugView attached to HWND, visible state reported, removed on close, plugin instance preserved'
+          $global:LASTEXITCODE=0
+
+      - name: Render actual note through persistent assigned VST3 instance to lossless in-memory float WAV
+        run: |
+          $exe='native/vst3-host-build/bin/melorix-vst3-session.exe'
+          $plugins=@(Get-ChildItem native/vst3-host-build -Recurse |
+            Where-Object { $_.Name -eq 'melorix-test-synth.vst3' -and !$_.PSIsContainer -and $_.Length -gt 20000 })
+          if (!$plugins.Count) { throw 'Missing VST3 QA plugin' }
+          $module=$plugins[0].FullName
+          $raw=@(@("LOAD`t7`t$module","AUDITION`t7`t69`t110`t450",'LIST',"UNLOAD`t7",'QUIT') | & $exe)
+          if ($LASTEXITCODE -ne 0) { throw 'Persistent VST3 audition crashed' }
+          $messages=@($raw | ForEach-Object { $_ | ConvertFrom-Json })
+          if ($messages.Count -ne 5 -or !$messages[1].realVst3Pcm -or
+              $messages[1].sampleRate -ne 44100 -or $messages[1].format -ne 'wav-f32' -or
+              $messages[1].peak -lt 0.02 -or $messages[1].nonzeroSamples -lt 2000 -or
+              $messages[2].tracks.Count -ne 1 -or !$messages[3].removed) {
+            throw 'Real persistent VST3 note audition did not produce valid PCM'
+          }
+          $audio=[Convert]::FromBase64String($messages[1].wavBase64)
+          if ([Text.Encoding]::ASCII.GetString($audio,0,4) -ne 'RIFF' -or
+              [BitConverter]::ToUInt16($audio,20) -ne 3 -or
+              [BitConverter]::ToUInt16($audio,34) -ne 32 -or
+              $audio.Length -ne (44 + $messages[1].frames*8)) {
+            throw 'In-memory WAV float32 PCM is invalid'
+          }
+          Write-Host ('PASS: assigned real VST3 note -> native PCM float32 WAV in memory, peak '+$messages[1].peak)
           $global:LASTEXITCODE=0
 
       - name: Build genuine Steinberg ADelay VST3 test effect
