@@ -2077,16 +2077,24 @@ watch(() => currentTime.value, (t) => {
           <button type="button" :disabled="exporting || !midiParts.length" @click="setAllParts(false)">Tắt tất cả</button>
         </div>
         <div class="mx-track-sidebar-list">
-          <p v-if="!midiParts.length" class="mx-track-sidebar-empty">Nhập MIDI để xem và chỉnh các nhạc cụ.</p>
-          <section v-for="part in timelineRows" :key="part.id" class="mx-track-side-item" :class="{ 'mx-track-side-item-muted': !part.enabled }">
+          <p v-if="!midiParts.length" class="mx-track-sidebar-empty">Chưa có track. Nhấn + để thêm nhạc cụ hoặc nhập MIDI.</p>
+          <section v-for="part in timelineRows" :key="part.id" class="mx-track-side-item"
+             :class="{ 'mx-track-side-item-muted': !part.enabled, 'mx-track-side-item-selected': selectedTrackId===part.id }"
+             @click="selectTrack(part.id)">
             <div class="mx-track-side-top">
               <button type="button" class="mx-eye" :title="part.enabled ? 'Ẩn track' : 'Bật track'" :disabled="exporting" @click="setPartEnabled(part.id, !part.enabled)">
                 <i :class="part.enabled ? 'fas fa-eye' : 'fas fa-eye-slash'"></i>
               </button>
               <span class="mx-swatch" :style="{ backgroundColor: part.color }"></span>
-              <span class="mx-track-name" :title="part.name">{{ part.name }}</span>
+              <button type="button" class="mx-track-name mx-track-select"
+                 :title="'Chọn '+part.name+' · nhấp đúp để mở Piano Roll'"
+                 :aria-label="'Chọn track '+part.name" :aria-pressed="selectedTrackId===part.id" :disabled="exporting"
+                 @click.stop="selectTrack(part.id)" @dblclick.stop="openPianoRoll(part.id)">{{ part.name }}</button>
               <button type="button" class="mx-track-mini" :aria-pressed="!part.enabled" :disabled="exporting" @click="setPartEnabled(part.id, !part.enabled)" title="Mute">M</button>
               <button type="button" class="mx-track-mini" :aria-pressed="part.enabled && enabledPartCount === 1" :disabled="exporting" @click="soloPart(part.id)" title="Solo">S</button>
+               <button type="button" class="mx-track-delete" :disabled="exporting"
+                 :aria-label="'Xóa track '+part.name" :title="'Xóa track '+part.name"
+                 @click.stop="deleteMidiTrack(part.id)"><i class="fas fa-trash-alt" aria-hidden="true"></i></button>
             </div>
             <div class="mx-track-side-sub">
               <button type="button" class="mx-track-instrument-trigger" :aria-expanded="activeEditorPanel === 'instrument' && instrumentPreviewTrackId === part.id" :aria-label="'Chọn nhạc cụ cho ' + part.name" :title="'Thay âm sắc cho ' + part.name" :disabled="exporting" @click="toggleInstrumentPreview(part.id)">
@@ -2105,7 +2113,7 @@ watch(() => currentTime.value, (t) => {
                 @input="setTrackVolume(part.id,$event)">
               <output>{{ trackVolumePercent(part.id) }}%</output>
             </label>
-            <div class="mx-track-side-minimap mx-editable-track" :aria-label="'Nhấp đúp để chỉnh từng nốt trong ' + part.name" :title="'Nhấp đúp để chỉnh Piano Roll: ' + part.name" role="button" tabindex="0" @dblclick.stop="openPianoRoll(part.id)" @keydown.enter="openPianoRoll(part.id)">
+            <div class="mx-track-side-minimap mx-editable-track" :aria-label="'Chọn track hoặc nhấp đúp để chỉnh từng nốt trong ' + part.name" :title="'Nhấp đúp để chỉnh Piano Roll: ' + part.name" role="button" tabindex="0" @dblclick.stop="openPianoRoll(part.id)" @keydown.enter="openPianoRoll(part.id)">
               <span v-for="(bar,idx) in part.bars" :key="idx" class="mx-track-side-mini-note" :style="{ left: bar.left + '%', width: bar.width + '%', backgroundColor: part.color }"></span>
             </div>
           </section>
@@ -2123,13 +2131,18 @@ watch(() => currentTime.value, (t) => {
           </div>
           <div class="mx-lanes">
             <div v-if="!midiParts.length" class="mx-empty">Đang nạp bài MIDI…</div>
-            <div v-for="part in timelineRows" :key="part.id" class="mx-track-row">
+            <div v-for="part in timelineRows" :key="part.id" class="mx-track-row"
+               :class="{ 'mx-track-row-selected': selectedTrackId===part.id }" @click="selectTrack(part.id)">
               <div class="mx-track-controls">
                 <button type="button" class="mx-eye" :title="part.enabled ? 'Ẩn track' : 'Hiện track'" :disabled="exporting" @click="setPartEnabled(part.id, !part.enabled)">
                   <i :class="part.enabled ? 'fas fa-eye' : 'fas fa-eye-slash'"></i>
                 </button>
                 <span class="mx-swatch" :style="{ background: part.color }"></span>
-                <span class="mx-track-name" :style="{ color: part.enabled ? part.color : '#929ba8' }" :title="part.name">{{ part.name }}</span>
+                <button type="button" class="mx-track-name mx-track-select"
+                   :style="{ color: part.enabled ? part.color : '#929ba8' }"
+                   :aria-label="'Chọn track '+part.name" :aria-pressed="selectedTrackId===part.id"
+                   :disabled="exporting" @click.stop="selectTrack(part.id)" @dblclick.stop="openPianoRoll(part.id)"
+                   :title="'Chọn '+part.name+' · nhấp đúp để mở Piano Roll'">{{ part.name }}</button>
                 <button type="button" class="mx-track-mini" :aria-pressed="!part.enabled" :disabled="exporting" @click="setPartEnabled(part.id, !part.enabled)">M</button>
                 <button type="button" class="mx-track-mini" :aria-pressed="part.enabled && enabledPartCount === 1" :disabled="exporting" @click="soloPart(part.id)">S</button>
                 <input type="color" class="mx-track-color" :value="part.color" :disabled="exporting" :aria-label="'Màu track ' + part.name" @input="onPartColorInput(part.id, $event)">
