@@ -176,3 +176,20 @@
 .mx-track-delete:hover:not(:disabled){background:#783735;color:#fff1ee;border-color:#d76c6a}
 .mx-track-row-selected .mx-track-controls{background:#39332e;box-shadow:inset 3px 0 0 #ffae63}
 .mx-track-row-selected .mx-lane{outline:1px solid #ffae635c;outline-offset:-1px}
+
+/* Actual MIDI note painting: mode buttons stay visible at the start of the editor toolbar. */
+.mx-roll-editbar .mx-roll-tool{
+ flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+ gap:5px;min-width:49px;border-color:#596578;background:#26303d;
+ color:#c2d2e4;white-space:nowrap;
+}
+.mx-roll-editbar .mx-roll-tool[aria-pressed="true"]{
+ background:#85512c;border-color:#eba56a;color:#fff1de;
+ box-shadow:inset 0 0 0 1px #f4b17c33;
+}
+.mx-roll-editbar .mx-roll-tool:not(:disabled):hover{border-color:#f6aa69}
+.mx-roll-editbar .mx-roll-tool:focus-visible{outline:2px solid #ffd398;outline-offset:2px}
+.mx-roll-grid.mx-roll-grid-draw{cursor:crosshair;touch-action:pan-y}
+.mx-roll-grid.mx-roll-grid-erase{cursor:crosshair}
+.mx-roll-grid-erase .mx-roll-note{cursor:not-allowed}
+@media(max-width:580px){.mx-roll-editbar .mx-roll-tool{min-width:44px;padding:4px 5px;gap:3px}}
