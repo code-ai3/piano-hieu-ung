@@ -2,7 +2,7 @@
 import {onMounted,onUnmounted,ref} from 'vue'
 import {Vst3PreviewPlayer} from '@/util/melorix-vst3-preview'
 
-const emit=defineEmits<{(event:'close'):void}>()
+const emit=defineEmits<{(event:'close'):void;(event:'bindings-change',ids:number[]):void}>()
 const props=defineProps<{tracks:{id:number;label:string}[]}>()
 type InstalledVst3={name:string;path:string;hasBinary:boolean}
 type ScannerResult={schema:1;engine:'discovery-only';plugins:InstalledVst3[]}
@@ -49,6 +49,7 @@ async function refreshBindings(){
   const snapshot=await api.listVst3Tracks()
   if(!Array.isArray(snapshot.tracks))throw Error('Danh sách track VST3 không hợp lệ')
   loaded.value=snapshot.tracks.filter(entry=>entry.componentInitialized)
+  emit('bindings-change',loaded.value.map(x=>x.track))
  }catch(error){routingError.value=error instanceof Error?error.message:String(error)}
 }
 async function bindToTrack(){
