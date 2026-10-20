@@ -43,6 +43,18 @@ target_link_libraries(melorix-vst3-render PRIVATE sdk_hosting ole32)
 set_target_properties(melorix-vst3-render PROPERTIES
  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+# Stage 3A: persistent, process-isolated VST3 component instances per MIDI track.
+# Audio and native editor support are explicitly out of scope for this milestone.
+add_executable(melorix-vst3-session
+ session.cpp
+ "${VST3_SDK_ROOT}/public.sdk/source/vst/hosting/module_win32.cpp"
+)
+target_compile_features(melorix-vst3-session PRIVATE cxx_std_17)
+target_compile_definitions(melorix-vst3-session PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(melorix-vst3-session PRIVATE sdk_hosting ole32)
+set_target_properties(melorix-vst3-session PROPERTIES
+ RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
 # Optional real Steinberg ADelay example plugin. It is a genuine VST3 DLL,
 # unlike the fake directory fixture used in GĐ1, and belongs only to CI.
 option(MELORIX_BUILD_VST3_TEST_PLUGIN "Build Steinberg ADelay for loader QA" OFF)

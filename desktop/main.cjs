@@ -6,6 +6,18 @@ const { app, BrowserWindow, protocol, session, shell, ipcMain } = require('elect
 const { execFile } = require('node:child_process')
 const path = require('node:path')
 const { readFile } = require('node:fs/promises')
+const { Vst3Session, validTrackId, approvedPluginPath }=require('./vst3-session.cjs')
+const vst3Approvals=new Map()
+let vst3Session=null
+function trustedNativeSender(event){
+ return event.senderFrame && event.senderFrame===event.sender.mainFrame &&
+   isTrustedAppUrl(event.senderFrame.url)
+}
+function getVst3Session(){
+ if(!vst3Session)vst3Session=new Vst3Session(path.join(
+  process.resourcesPath,'vst3','melorix-vst3-session.exe'))
+ return vst3Session
+}
 
 const ORIGIN = 'melorix://app'
 function isAppOrigin(url) {
@@ -150,7 +162,7 @@ app.whenReady().then(() => {
   protocol.handle('melorix', handleLocalAsset)
   ipcMain.handle('melorix:vst3:scan', async (event) => {
     // Only the main-frame MELORIX origin may access native plugin discovery.
-    if (!event.senderFrame || !isTrustedAppUrl(event.senderFrame.url)) {
+    if (!trustedNativeSender(event)) {
       throw new Error('Không được phép truy cập danh sách VST3')
     }
     const exe=path.join(process.resourcesPath,'vst3','melorix-vst3-scan.exe')
@@ -164,11 +176,32 @@ app.whenReady().then(() => {
           if(result.schema!==1||result.engine!=='discovery-only'||!Array.isArray(result.plugins)){
             reject(new Error('Kết quả quét VST3 không hợp lệ'));return
           }
-          // Do not imply discovery means the VST3 plugin has been loaded.
+          // Store a per-window explicit scan allowlist. A renderer may not
+          // send arbitrary DLL paths or pretend discovery means plugin loaded.
+          vst3Approvals.set(event.sender.id,new Set(
+            result.plugins.filter(p=>p.hasBinary&&typeof p.path==='string')
+              .map(p=>path.win32.normalize(p.path).toLowerCase())))
           resolve(result)
         }catch(parseError){reject(new Error('Không đọc được kết quả VST3: '+parseError.message))}
       })
     })
+  })
+  ipcMain.handle('melorix:vst3:bind',async(event,trackId,pluginPath)=>{
+    if(!trustedNativeSender(event))throw new Error('Nguồn gọi VST3 không được phép')
+    if(!validTrackId(trackId))throw new Error('Track MIDI không hợp lệ')
+    const selected=approvedPluginPath(pluginPath,
+      vst3Approvals.get(event.sender.id)||new Set())
+    if(!selected)throw new Error('Hãy quét VST3 rồi chọn plugin đã được tìm thấy')
+    return getVst3Session().request('LOAD\t'+trackId+'\t'+selected)
+  })
+  ipcMain.handle('melorix:vst3:unbind',async(event,trackId)=>{
+    if(!trustedNativeSender(event))throw new Error('Nguồn gọi VST3 không được phép')
+    if(!validTrackId(trackId))throw new Error('Track MIDI không hợp lệ')
+    return getVst3Session().request('UNLOAD\t'+trackId)
+  })
+  ipcMain.handle('melorix:vst3:tracks',async(event)=>{
+    if(!trustedNativeSender(event))throw new Error('Nguồn gọi VST3 không được phép')
+    return getVst3Session().request('LIST')
   })
   // Ask only for unsandboxed MIDI device access; Kontakt is still an external app.
   // SysEx and other unrelated permissions are intentionally not granted.
@@ -190,6 +223,11 @@ app.whenReady().then(() => {
 }).catch(error => {
   console.error('MELORIX startup failed:', error)
   app.exit(1)
+})
+
+app.on('before-quit',()=>{
+  vst3Session?.shutdown()
+  vst3Approvals.clear()
 })
 
 app.on('window-all-closed', () => {

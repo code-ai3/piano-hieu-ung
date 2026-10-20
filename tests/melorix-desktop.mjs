@@ -17,7 +17,8 @@ const fakeElectron = {
   shell: {},
 }
 const context = {
-  require: (name) => name === 'electron' ? fakeElectron : require(name),
+  require: (name) => name === 'electron' ? fakeElectron :
+    name === './vst3-session.cjs' ? require('../desktop/vst3-session.cjs') : require(name),
   console, URL, Response, process,
 }
 vm.runInNewContext(main + '\nglobalThis.__tests = { isTrustedAppUrl, allowedFilePath, isAppOrigin }', context, {filename:'main.cjs'})

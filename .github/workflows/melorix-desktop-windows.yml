@@ -7,10 +7,12 @@ on:
       - feature/melorix-expressive-playback
       - feature/melorix-desktop-kontakt-live
       - feature/melorix-native-vst3-host
+      - feature/melorix-vst3-stage3-track-instances
     paths:
       - .github/workflows/melorix-desktop-windows.yml
       - desktop/**
       - native/vst3-scan/**
+      - native/vst3-host/**
       - tests/melorix-vst3-foundation.mjs
       - electron-builder.yml
       - package.json
@@ -77,6 +79,26 @@ jobs:
           if ($report.engine -ne 'discovery-only' -or $report.plugins.Count -ne 1) { throw "Invalid discovery-only schema" }
           if ($report.plugins[0].name -ne 'Kontakt 8' -or !$report.plugins[0].hasBinary) { throw "Failed to discover VST3 fixture" }
           Write-Host 'PASS: native VST3 bundle found without LoadLibrary or starting Kontakt'
+
+      - name: Obtain pinned Steinberg VST3 SDK for Stage 3 native plugin host
+        run: |
+          $sdk=Join-Path $env:RUNNER_TEMP 'vst3sdk'
+          git clone --recursive --filter=blob:none https://github.com/steinbergmedia/vst3sdk.git $sdk
+          if ($LASTEXITCODE -ne 0) { throw 'VST3 SDK checkout failed' }
+          git -C $sdk checkout 3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96
+          if ($LASTEXITCODE -ne 0) { throw 'VST3 SDK version mismatch' }
+          git -C $sdk submodule update --init --recursive
+          if ($LASTEXITCODE -ne 0) { throw 'Missing SDK modules' }
+
+      - name: Compile persistent native VST3 track session for Desktop
+        run: |
+          $sdk=Join-Path $env:RUNNER_TEMP 'vst3sdk'
+          cmake -S native/vst3-host -B native/vst3-host-build -G Ninja "-DVST3_SDK_ROOT=$sdk" -DCMAKE_BUILD_TYPE=Release -DMELORIX_BUILD_VST3_TEST_PLUGIN=OFF -DMELORIX_BUILD_VST3_TEST_SYNTH=OFF
+          if ($LASTEXITCODE -ne 0) { throw 'VST3 host configuration failed' }
+          cmake --build native/vst3-host-build --target melorix-vst3-session --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'VST3 persistent host compilation failed' }
+          Copy-Item native/vst3-host-build/bin/melorix-vst3-session.exe native/bin/melorix-vst3-session.exe -Force
+          if (!(Test-Path native/bin/melorix-vst3-session.exe)) { throw 'Missing packaged native VST3 helper' }
 
       - name: Package two Windows executables
         env:

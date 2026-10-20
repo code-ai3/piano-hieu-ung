@@ -2,14 +2,55 @@
 import {onMounted,ref} from 'vue'
 
 const emit=defineEmits<{(event:'close'):void}>()
+const props=defineProps<{tracks:{id:number;label:string}[]}>()
 type InstalledVst3={name:string;path:string;hasBinary:boolean}
 type ScannerResult={schema:1;engine:'discovery-only';plugins:InstalledVst3[]}
-type NativeApi={environment:'desktop';scanVst3:()=>Promise<ScannerResult>}
+type LoadedTrack={track:number;plugin:string;path:string;componentInitialized:boolean}
+type TrackStatus={schema:3;ok:true;tracks:LoadedTrack[];audioConnected:false;editorOpened:false}
+type NativeApi={
+ environment:'desktop'
+ scanVst3:()=>Promise<ScannerResult>
+ bindVst3Track:(id:number,path:string)=>Promise<unknown>
+ unbindVst3Track:(id:number)=>Promise<unknown>
+ listVst3Tracks:()=>Promise<TrackStatus>
+}
 const api=(window as Window&{melorixDesktop?:NativeApi}).melorixDesktop
 const scanning=ref(false)
 const error=ref('')
 const plugins=ref<InstalledVst3[]>([])
 const scanned=ref(false)
+const selectedTrackId=ref<number|null>(null)
+const selectedPluginPath=ref('')
+const binding=ref(false)
+const routingError=ref('')
+const loaded=ref<LoadedTrack[]>([])
+async function refreshBindings(){
+ if(!api?.listVst3Tracks)return
+ try{
+  const snapshot=await api.listVst3Tracks()
+  if(!Array.isArray(snapshot.tracks))throw Error('Danh sách track VST3 không hợp lệ')
+  loaded.value=snapshot.tracks.filter(entry=>entry.componentInitialized)
+ }catch(error){routingError.value=error instanceof Error?error.message:String(error)}
+}
+async function bindToTrack(){
+ if(!api?.bindVst3Track||selectedTrackId.value===null||!selectedPluginPath.value||
+  binding.value||!props.tracks.some(t=>t.id===selectedTrackId.value))return
+ const plugin=plugins.value.find(p=>p.path===selectedPluginPath.value&&p.hasBinary)
+ if(!plugin)return
+ binding.value=true;routingError.value=''
+ try{
+  await api.bindVst3Track(selectedTrackId.value,plugin.path)
+  await refreshBindings()
+ }catch(error){routingError.value=error instanceof Error?error.message:String(error)}
+ finally{binding.value=false}
+}
+async function removeBinding(id:number){
+ if(!api?.unbindVst3Track||binding.value)return
+ binding.value=true;routingError.value=''
+ try{await api.unbindVst3Track(id);await refreshBindings()}
+ catch(error){routingError.value=error instanceof Error?error.message:String(error)}
+ finally{binding.value=false}
+}
 async function scanInstalled(){
  if(!api||scanning.value)return
  scanning.value=true;error.value=''
@@ -25,7 +66,11 @@ async function scanInstalled(){
  }catch(cause){error.value=cause instanceof Error?cause.message:String(cause)}
  finally{scanning.value=false}
 }
-onMounted(()=>void scanInstalled())
+onMounted(()=>{
+ selectedTrackId.value=props.tracks[0]?.id??null
+ void scanInstalled()
+ void refreshBindings()
+})
 </script>
 
 <template>
@@ -39,8 +84,8 @@ onMounted(()=>void scanInstalled())
     <button type="button" aria-label="Đóng trình quản lý VST3" @click="emit('close')">✕</button>
    </header>
    <p class="mx-vst3-development" role="note">
-    Giai đoạn 1 — Quét plugin thật từ ổ đĩa, <strong>chưa thể mở Kontakt hoặc phát VST3</strong>.
-    Bộ host native, giao diện plugin và audio engine sẽ được triển khai ở các giai đoạn tiếp theo.
+    Giai đoạn 3A — Có thể nạp và giữ một VST3 instance cho từng track trong tiến trình native riêng.
+    <strong>Chưa mở được giao diện Kontakt hoặc phát tiếng plugin trong MELORIX</strong>; đây mới là khởi tạo plugin và gán track.
    </p>
    <div class="mx-vst3-actionbar">
     <button type="button" :disabled="scanning||!api" @click="scanInstalled">
@@ -49,6 +94,28 @@ onMounted(()=>void scanInstalled())
     </button>
     <span v-if="scanned">{{ plugins.length }} plugin được tìm thấy</span>
    </div>
+   <section v-if="api?.bindVst3Track" class="mx-vst3-assign-panel" aria-label="Gán nhạc cụ VST3 cho track">
+     <strong>Gắn plugin vào track MIDI</strong>
+     <p>Chỉ chọn plugin đã quét từ máy. MELORIX chưa đưa tiếng VST3 vào thanh phát và chưa mở cửa sổ Kontakt.</p>
+     <div class="mx-vst3-assign-row">
+       <select v-model="selectedTrackId" :disabled="binding||!props.tracks.length" aria-label="Chọn track MIDI">
+         <option v-for="part in props.tracks" :key="part.id" :value="part.id">{{ part.label }}</option>
+       </select>
+       <select v-model="selectedPluginPath" :disabled="binding||!plugins.some(p=>p.hasBinary)" aria-label="Chọn plugin VST3">
+         <option value="">— Chọn VST3 —</option>
+         <option v-for="plugin in plugins.filter(p=>p.hasBinary)" :key="plugin.path" :value="plugin.path">{{ plugin.name }}</option>
+       </select>
+       <button type="button" :disabled="binding||selectedTrackId===null||!selectedPluginPath" @click="bindToTrack">
+         {{ binding?'Đang xử lý…':'Nạp plugin cho track' }}
+       </button>
+     </div>
+     <p v-if="!props.tracks.length">Chưa có track MIDI. Tạo hoặc nhập track trước khi gắn plugin.</p>
+     <p v-if="routingError" class="mx-vst3-error" role="alert">{{ routingError }}</p>
+     <div v-for="slot in loaded" :key="slot.track" class="mx-vst3-loaded-row">
+       <span>Track {{ slot.track }} — {{ slot.plugin }} <small>Đã khởi tạo (chưa nối audio)</small></span>
+       <button type="button" :disabled="binding" @click="removeBinding(slot.track)">Gỡ</button>
+     </div>
+   </section>
    <p v-if="!api" role="alert" class="mx-vst3-error">Chỉ khả dụng trên MELORIX Desktop (Windows). Trang web không được phép quét plugin máy tính.</p>
    <p v-else-if="error" role="alert" class="mx-vst3-error">{{ error }}</p>
    <div class="mx-vst3-plugin-list">
@@ -90,4 +157,15 @@ onMounted(()=>void scanInstalled())
 .mx-vst3-error{margin:0 18px;color:#ffb2af;font-size:12px}
 .mx-vst3-dialog footer{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 18px;border-top:1px solid #364556;color:#9faec0;font-size:11px}
 @media(max-width:560px){.mx-vst3-plugin-title span{margin-left:0;width:100%}.mx-vst3-dialog footer{align-items:flex-start}}
+.mx-vst3-assign-panel{padding:12px 18px;border-bottom:1px solid #46566a;background:#243344}
+.mx-vst3-assign-panel strong{font-size:13px;color:#ffdc9e}
+.mx-vst3-assign-panel p{font-size:11px;line-height:1.5;color:#b6c8dc;margin:6px 0}
+.mx-vst3-assign-row{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:8px}
+.mx-vst3-assign-row select{min-width:110px;flex:1;padding:7px;background:#1a2737;color:#fff;border:1px solid #566b85;border-radius:5px;font-size:11px}
+.mx-vst3-assign-row button,.mx-vst3-loaded-row button{padding:7px 9px;background:#895432;border:1px solid #d69761;border-radius:5px;color:#fff;font-size:11px;cursor:pointer}
+.mx-vst3-assign-row button:disabled,.mx-vst3-loaded-row button:disabled{opacity:.45;cursor:default}
+.mx-vst3-loaded-row{padding:8px 0;display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid #4e5d70;font-size:12px}
+.mx-vst3-loaded-row small{display:block;color:#dfb678;font-size:10px;margin-top:3px}
+.mx-vst3-assign-panel .mx-vst3-error{margin:8px 0;color:#ffb5ab}
+
 </style>
