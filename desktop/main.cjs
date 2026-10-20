@@ -199,6 +199,24 @@ app.whenReady().then(() => {
     if(!validTrackId(trackId))throw new Error('Track MIDI không hợp lệ')
     return getVst3Session().request('UNLOAD\t'+trackId)
   })
+  ipcMain.handle('melorix:vst3:audition',async(event,trackId,pitch,velocity,durationMs)=>{
+    if(!trustedNativeSender(event))throw new Error('Nguồn gọi VST3 không được phép')
+    if(!validTrackId(trackId)||!Number.isInteger(pitch)||pitch<0||pitch>127||
+       !Number.isInteger(velocity)||velocity<1||velocity>127||
+       !Number.isInteger(durationMs)||durationMs<100||durationMs>3000){
+      throw new Error('Thông số MIDI VST3 không hợp lệ')
+    }
+    const result=await getVst3Session().request(
+      'AUDITION\t'+trackId+'\t'+pitch+'\t'+velocity+'\t'+durationMs)
+    if(result.operation!=='audition'||result.realVst3Pcm!==true||
+       result.format!=='wav-f32'||typeof result.wavBase64!=='string'||
+       result.wavBase64.length>5*1024*1024||!Number.isFinite(result.peak)){
+      throw new Error('Âm thanh VST3 không hợp lệ')
+    }
+    return {audioBase64:result.wavBase64,peak:result.peak,
+      nonzeroSamples:result.nonzeroSamples,track:trackId,
+      format:'wav-f32',source:'vst3-process'}
+  })
   ipcMain.handle('melorix:vst3:editor-open',async(event,trackId)=>{
     if(!trustedNativeSender(event))throw new Error('Nguồn mở editor VST3 không hợp lệ')
     if(!validTrackId(trackId))throw new Error('Track không hợp lệ')
