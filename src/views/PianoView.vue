@@ -713,6 +713,7 @@ async function exportVideo() {
         presets:assignedTrackPresets.value,
         volumes:trackVolumeLevels.value,
         wavSamples,
+        erhuSamples:erhuWebSampler.getDecodedSamples(),
         seconds:exportSeconds,
         tempo:midiTempo.value,
         expression:expressionMode.value
