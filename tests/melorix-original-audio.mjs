@@ -34,6 +34,11 @@ for(const mark of [
  '@change="onOriginalAudioModeChange"',
  "Bản thu gốc",
  "MIDI không chứa âm sắc",
+ "function attachOriginalAudioToCurrentMidi(event:Event)",
+ "Gắn bản thu gốc vào MIDI",
+ "track.originalAudioUrl=URL.createObjectURL(file)",
+ "if(old)URL.revokeObjectURL(old)",
+ "if(wasPlaying)void play()",
 ])assert.ok(view.includes(mark),'Missing original recording preservation: '+mark)
 assert.ok(!view.includes("codec: 'aac', bitrate: 128000"),'Do not revert the MP4 AAC bitrate')
 assert.ok(view.indexOf('if(useKontaktAudio.value&&kontaktAudioBuffer.value)')<
