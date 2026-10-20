@@ -20,6 +20,8 @@ import Modal from '@/components/Model.vue'
 import MelorixPianoRoll from '@/components/MelorixPianoRoll.vue'
 import MelorixMidiConnector from '@/components/MelorixMidiConnector.vue'
 import MelorixVst3Browser from '@/components/MelorixVst3Browser.vue'
+import {Vst3PreviewPlayer} from '@/util/melorix-vst3-preview'
+import type {Vst3PreviewApi} from '@/util/melorix-vst3-preview'
 import MelorixKontaktTrackRouter from '@/components/MelorixKontaktTrackRouter.vue'
 import MelorixKontaktAudioCapture from '@/components/MelorixKontaktAudioCapture.vue'
 import MelorixPublishedLibrary from '@/components/MelorixPublishedLibrary.vue'
@@ -49,6 +51,18 @@ type NoteEvent = MidiNoteEvent
 
 // ---- 状态 ----
 const playState = ref<'idle' | 'playing' | 'paused'>('idle')
+type Vst3TrackPreviewApi=Vst3PreviewApi&{listVst3Tracks:()=>Promise<{tracks:{track:number;componentInitialized:boolean}[]}>}
+const vst3Api=(window as Window&{melorixDesktop?:Vst3TrackPreviewApi}).melorixDesktop
+const vst3AssignedTrackIds=ref<Set<number>>(new Set())
+const vst3KeyPreview=new Vst3PreviewPlayer()
+function onVst3BindingsChanged(ids:number[]){vst3AssignedTrackIds.value=new Set(ids)}
+async function refreshVst3PianoBindings(){
+ if(!vst3Api)return
+ try{
+  const snapshot=await vst3Api.listVst3Tracks()
+  onVst3BindingsChanged(snapshot.tracks.filter(t=>t.componentInitialized).map(t=>t.track))
+ }catch(error){console.warn('Cannot read assigned VST3 instruments:',error)}
+}
 const currentTime = ref(0)
 const speed = ref(1)
 const allNotes = ref<NoteEvent[]>([])
@@ -1389,6 +1403,9 @@ async function testWebSound(){
 const AUDITION_STOP_ID = 'melorix-editor-key'
 let auditionRequest = 0
 function stopPianoAudition() {
+ // A fast piano key release must not discard a pending PCM audition that
+ // is still being rendered by the plugin. Stop the current sounding buffer.
+ vst3KeyPreview.stop(false)
  midiBridge.auditionStop()
  auditionRequest++
  stopSynthVoices(synthKeyVoices)
@@ -1398,6 +1415,16 @@ async function startPianoAudition(midi: number) {
  if(exporting.value) return
  stopChordAudition()
  stopPianoAudition()
+ const targetTrack=pianoRollTrackId.value
+ if(vst3Api && targetTrack!==null && vst3AssignedTrackIds.value.has(targetTrack)){
+  uploadError.value=''
+  void vst3KeyPreview.play(vst3Api,targetTrack,midi,95,500,trackVolumePercent(targetTrack)/100)
+   .then(result=>{
+    if(result.nonzeroSamples===0)uploadError.value='Nhạc cụ VST3 chưa trả âm thanh. Mở giao diện plugin và chọn NKI trước khi thử.'
+   })
+   .catch(error=>{uploadError.value=error instanceof Error?error.message:String(error)})
+  return
+ }
  midiBridge.auditionStart([midi],trackMidiChannel(kontaktChannelForTrack(pianoRollTrackId.value??-1)))
  if(midiBridge.externalOnly)return
  const request = auditionRequest
@@ -2009,6 +2036,7 @@ onMounted(() => {
   void erhuWebSampler.init().then(()=>{erhuWebReady.value=erhuWebSampler.ready})
   void refreshPublishedInstruments()
   initPiano()
+  void refreshVst3PianoBindings()
   rafId = requestAnimationFrame(loop)
   // 预加载默认背景
   const def = bgPresets[0]
@@ -2038,6 +2066,7 @@ onUnmounted(() => {
   previewResizeObserver = null
   cancelAnimationFrame(rafId)
   resetPiano()
+  void vst3KeyPreview.dispose()
   originalAudioPlayer?.pause()
   if(originalAudioPlayer){
    originalAudioPlayer.removeAttribute('src')
@@ -2655,6 +2684,7 @@ watch(() => currentTime.value, (t) => {
        @kontakt-enabled="activateKontaktOnly" @close="showMidiConnector = false" />
      <MelorixVst3Browser v-if="showVst3Browser"
        :tracks="midiParts.map(part=>({id:part.id,label:part.name}))"
+       @bindings-change="onVst3BindingsChanged"
        @close="showVst3Browser=false" />
     <MelorixPublishedLibrary v-if="showPublishedLibrary" @close="showPublishedLibrary=false" />
     <MelorixKontaktAudioCapture :key="captureSession" :open="showKontaktAudioCapture"
