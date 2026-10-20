@@ -34,6 +34,7 @@ public:
   phase=0.;
   return AudioEffect::setActive(state);
  }
+ tresult PLUGIN_API setProcessing(TBool /*state*/) override { return kResultOk; }
  tresult PLUGIN_API process(ProcessData& data) override {
   if(data.numOutputs<1||!data.outputs||data.outputs[0].numChannels<2||
      data.symbolicSampleSize!=kSample32)return kResultFalse;
