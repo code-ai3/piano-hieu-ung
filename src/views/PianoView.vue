@@ -11,6 +11,7 @@ import type { VelocityVisualMode } from '@/util/velocity-effects'
 import type { VideoFormat, PortraitKeyboard } from '@/util/video-format'
 import { SplendidGrandPiano, renderOffline } from 'smplr'
 import { ExpressiveAudioMaster, expressedVelocity } from '@/util/melorix-expressive-audio'
+import {exportMidiProgram} from '@/util/melorix-midi-program-export'
 import type { ExpressionMode } from '@/util/melorix-expressive-audio'
 import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
@@ -1880,8 +1881,9 @@ function downloadEditedMidi() {
     track.name = part.name
     track.channel = trackMidiChannel(kontaktChannelForTrack(part.id))
     const chosen=assignedTrackPresets.value[part.id]
-    if(chosen&&isInstrumentPreset(chosen))track.instrument.number=instrumentPreset(chosen).program
-    // MIDI cannot embed a WAV. Personal sounds stay only inside the browser.
+    const explicitPresetProgram=chosen&&isInstrumentPreset(chosen)?instrumentPreset(chosen).program:undefined
+    track.instrument.number=exportMidiProgram(importedMidiPrograms.value[part.id],explicitPresetProgram)
+    // MIDI cannot embed a WAV or NKI. Retain the original GM program for those tracks.
     for (const note of allNotes.value) {
       if (note.trackId !== part.id) continue
       track.addNote({ midi: note.midi, time: note.time, duration: note.duration, velocity: note.velocity })
