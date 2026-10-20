@@ -31,7 +31,7 @@ public:
  tresult PLUGIN_API resizeView(IPlugView* view,ViewRect* size) override;
  void detach(){owner_=nullptr;}
 private:
- ~HostFrame() override=default;
+ ~HostFrame()=default;
  std::atomic<uint32> refs_{1};
  EditorWindow* owner_{nullptr};
 };
