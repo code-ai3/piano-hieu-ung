@@ -9,6 +9,7 @@ on:
       - feature/melorix-native-vst3-host
       - feature/melorix-vst3-stage3-track-instances
       - feature/melorix-vst3-stage3b-native-editor
+      - feature/melorix-vst3-stage3c-audio-routing
     paths:
       - .github/workflows/melorix-desktop-windows.yml
       - desktop/**
