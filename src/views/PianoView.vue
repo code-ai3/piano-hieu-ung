@@ -947,7 +947,13 @@ function loadTrack(idx: number) {
   lastScheduledIdx = 0
   playState.value = 'idle'
   uploadError.value = ''
-  void loadMidi(playlist.value[idx].file).then(ok => { if (ok) void play() })
+  useOriginalAudio.value=true
+  pauseOriginalAudio()
+  void loadMidi(playlist.value[idx].file).then(ok=>{
+   if(!ok)return
+   if(hasOriginalAudio.value)ensureOriginalAudioPlayer()
+   void play()
+  })
 }
 
 function nextTrack() {
@@ -1216,7 +1222,7 @@ const midiPlaybackPlan=computed(()=>mergeOverlappingMidiNotes(notes.value.map(n=
 const AUDIO_LOOKAHEAD_SECONDS=.35
 function scheduleUpcomingAudio() {
  const ctx=audioCtx.value
- if(!ctx||midiBridge.externalOnly||ctx.state!=='running')return
+ if(originalAudioActive()||!ctx||midiBridge.externalOnly||ctx.state!=='running')return
  const targetTime=currentTime.value/speed.value
  for(let i=lastScheduledIdx;i<notes.value.length;i++){
   const n=notes.value[i]
@@ -1230,6 +1236,7 @@ function scheduleUpcomingAudio() {
  }
 }
 function scheduleAll() {
+ if(originalAudioActive())return
  scheduleUpcomingAudio()
  // Web MIDI is scheduled separately once at Play/seek/repeat; do not resend each animation frame.
  if(exporting.value)return
@@ -1251,7 +1258,11 @@ async function play() {
   pianoLoading = true
   const request=++playRequest
   try {
-    if(!midiBridge.externalOnly){
+    if(originalAudioActive()){
+      const original=ensureOriginalAudioPlayer()
+      original.currentTime=Math.max(0,currentTime.value/Math.max(.25,speed.value))
+      await original.play()
+    }else if(!midiBridge.externalOnly){
       const ctx=await prepareAudioContext()
       preloadGmForEnabledTracks()
       void erhuWebSampler.init()
@@ -1272,6 +1283,7 @@ async function play() {
 }
 
 function resetPiano() {
+  pauseOriginalAudio()
   midiBridge.stopAll()
   stopPianoAudition()
   stopChordAudition()
@@ -1285,12 +1297,14 @@ function resetPiano() {
   pianoLoaded.value = false; initPianoPromise = null
 }
 
-function pause() { playRequest++; midiBridge.stopAll(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
+function pause() { playRequest++; pauseOriginalAudio(); midiBridge.stopAll(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
 function stop() {
   playRequest++
   playState.value = 'idle'; currentTime.value = 0
   lastScheduledIdx = 0; pianoLoading = false
-  resetPiano(); if(!midiBridge.externalOnly)void initPiano().catch(e=>console.warn('Piano preload:',e))
+  resetPiano()
+  if(originalAudioPlayer){try{originalAudioPlayer.currentTime=0}catch{}}
+  if(!midiBridge.externalOnly&&!originalAudioActive())void initPiano().catch(e=>console.warn('Piano preload:',e))
 }
 function togglePlay() { playState.value === 'playing' ? pause() : play() }
 async function testWebSound(){
@@ -1852,11 +1866,26 @@ function fmtTime(s: number) {
 // ---- RAF 循环 ----
 function loop() {
   if (playState.value === 'playing') {
-    currentTime.value += (performance.now() - lastFrameTime) / 1000
-    scheduleUpcomingAudio()
-    if (currentTime.value >= duration.value) {
-      if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; midiBridge.stopAll(); stopSynthVoices(synthScheduledVoices); piano?.stop(); scheduleAll() }
-      else { nextTrack() }
+    if(originalAudioActive()&&originalAudioPlayer){
+      // Keep MIDI falling-note visuals locked to the unmodified original recording.
+      currentTime.value=originalAudioPlayer.currentTime*speed.value
+      if(originalAudioPlayer.ended){
+        if(repeat.value){
+          originalAudioPlayer.currentTime=0
+          currentTime.value=0
+          void originalAudioPlayer.play().catch(error=>{
+            console.warn('Cannot repeat original recording:',error)
+            stop()
+          })
+        }else nextTrack()
+      }
+    }else{
+      currentTime.value += (performance.now() - lastFrameTime) / 1000
+      scheduleUpcomingAudio()
+      if (currentTime.value >= duration.value) {
+        if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; midiBridge.stopAll(); stopSynthVoices(synthScheduledVoices); piano?.stop(); scheduleAll() }
+        else { nextTrack() }
+      }
     }
   }
   lastFrameTime = performance.now()
@@ -1941,6 +1970,15 @@ onUnmounted(() => {
   previewResizeObserver = null
   cancelAnimationFrame(rafId)
   resetPiano()
+  originalAudioPlayer?.pause()
+  if(originalAudioPlayer){
+   originalAudioPlayer.removeAttribute('src')
+   originalAudioPlayer.load()
+   originalAudioPlayer=null
+  }
+  for(const entry of playlist.value){
+   if(entry.originalAudioUrl)URL.revokeObjectURL(entry.originalAudioUrl)
+  }
 })
 
 // The timeline is a responsive overview; MIDI playback and export retain every note.
