@@ -87,7 +87,7 @@ int wmain(int argc,wchar_t* argv[]){
  bool initialized=false;
  bool audioProcessor=false;
  for(const auto& info:classes) {
-  const bool effect=info.category()==Steinberg::Vst::kVstAudioEffectClass;
+  const bool effect=info.category()==kVstAudioEffectClass;
   if(!first)std::cout<<',';
   first=false;
   std::cout<<"{\"name\":"<<escape(info.name())
