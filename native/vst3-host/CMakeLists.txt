@@ -22,6 +22,13 @@ add_executable(melorix-vst3-probe
 target_compile_features(melorix-vst3-probe PRIVATE cxx_std_17)
 target_compile_definitions(melorix-vst3-probe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_link_libraries(melorix-vst3-probe PRIVATE sdk_hosting ole32)
+# Optional real Steinberg ADelay example plugin. It is a genuine VST3 DLL,
+# unlike the fake directory fixture used in GĐ1, and belongs only to CI.
+option(MELORIX_BUILD_VST3_TEST_PLUGIN "Build Steinberg ADelay for loader QA" OFF)
+if(MELORIX_BUILD_VST3_TEST_PLUGIN)
+ add_subdirectory("${VST3_SDK_ROOT}/public.sdk/samples/vst/adelay"
+                  "${CMAKE_CURRENT_BINARY_DIR}/vst3-sample-adelay")
+endif()
 if(MSVC)
  target_compile_options(melorix-vst3-probe PRIVATE /W4 /EHsc /utf-8)
 endif()
