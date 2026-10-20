@@ -6,6 +6,7 @@ import type {InstrumentPreset} from './melorix-instruments'
 import {ExpressiveAudioMaster,expressedVelocity} from './melorix-expressive-audio'
 import type {ExpressionMode} from './melorix-expressive-audio'
 import {samplePitchRate} from './melorix-local-wav'
+import {nearestErhuSample} from './melorix-erhu-sample-cache'
 
 export type MixConfig={
  notes:readonly MidiNoteEvent[]
@@ -14,6 +15,7 @@ export type MixConfig={
  presets:Readonly<Record<number,string>>
  volumes:Readonly<Record<number,number>>
  wavSamples:ReadonlyMap<string,{buffer:AudioBuffer,root:number}>
+ erhuSamples:ReadonlyMap<number,AudioBuffer>
  seconds:number
  tempo:number
  expression:ExpressionMode
@@ -24,6 +26,7 @@ const scheduler={schedule(event:any,callback:(event:any)=>void){callback(event);
 const clamp=(x:number,min:number,max:number)=>Math.max(min,Math.min(max,x))
 export function mixVoiceType(preset:string|undefined,gmKey:string){
  if(preset?.startsWith('user:'))return 'wav'
+ if(preset==='library:erhu-hmoob-nplog')return 'erhu'
  if(preset&&isInstrumentPreset(preset)&&preset!=='piano')return 'synth'
  return (preset===undefined||preset==='piano')&&gmKey==='acoustic_grand_piano'?'piano':'gm'
 }
@@ -73,6 +76,15 @@ export async function renderMultiTrackAudio(opts:MixConfig):Promise<MixResult>{
    if(kind==='wav'){
     const sample=opts.wavSamples.get(preset)
     if(sample){for(const n of notes)playWav(ctx,sample.buffer,sample.root,n,noteVelocity(n),gain);return}
+   }
+   if(kind==='erhu'&&opts.erhuSamples.size){
+    const roots=[...opts.erhuSamples.keys()]
+    for(const n of notes){
+     const root=nearestErhuSample(n.midi,roots)
+     const sample=root===null?undefined:opts.erhuSamples.get(root)
+     if(root!==null&&sample)playWav(ctx,sample,root,n,noteVelocity(n),gain)
+    }
+    return
    }
    if(kind==='synth'){
     for(const n of notes)playSynthVoice(ctx,n.midi,noteVelocity(n),Math.max(.005,n.time),n.duration,preset as InstrumentPreset,gain)
