@@ -267,6 +267,40 @@ void audition(int id,const std::string& args){
   +std::to_string(rendered.peak)+",\"wavBase64\":"
   +escape(rendered.wavBase64)+"}");
 }
+void startLive(int id){
+ const auto it=instances.find(id);
+ if(it==instances.end()){fail("Assign a VST3 instrument before starting Windows audio");return;}
+ liveOutput.stop();liveOutputTrack=-1;
+ std::string why;
+ if(!liveOutput.start(it->second->component.get(),why)){fail(why);return;}
+ liveOutputTrack=id;
+ reply("{\"schema\":3,\"ok\":true,\"operation\":\"live-start\",\"track\":"
+  +std::to_string(id)+",\"audioConnected\":true,\"driver\":\"wasapi-shared\","
+  "\"sampleRate\":"+std::to_string(liveOutput.rate())+"}");
+}
+void stopLive(){
+ liveOutput.stop();liveOutputTrack=-1;
+ reply("{\"schema\":3,\"ok\":true,\"operation\":\"live-stop\",\"audioConnected\":false}");
+}
+void sendLiveNote(const std::string& cmd){
+ const auto first=cmd.find('\t'),second=first==std::string::npos?std::string::npos:cmd.find('\t',first+1);
+ if(first==std::string::npos||second==std::string::npos||
+    cmd.find('\t',second+1)!=std::string::npos){
+  fail("LIVE_NOTE requires track, pitch and velocity");return;
+ }
+ int track=0,pitch=0,velocity=0;
+ if(!parseTrack(cmd.substr(0,first),track)||!parseTrack(cmd.substr(first+1,second-first-1),pitch)||
+    !parseTrack(cmd.substr(second+1),velocity)||
+    track!=liveOutputTrack||pitch>127||velocity>127){
+  fail("Live VST3 note does not match an active track or MIDI pitch/velocity");return;
+ }
+ if(!liveOutput.send(velocity>0,pitch,velocity)){
+  fail("WASAPI VST3 stream not ready to receive MIDI notes");return;
+ }
+ reply("{\"schema\":3,\"ok\":true,\"operation\":\"live-note\",\"track\":"
+  +std::to_string(track)+",\"pitch\":"+std::to_string(pitch)+
+  ",\"noteOn\":"+(velocity>0?"true":"false")+"}");
+}
 void unload(int id){
  if(id==liveOutputTrack){liveOutput.stop();liveOutputTrack=-1;}
  const auto removed=instances.erase(id);
@@ -286,6 +320,13 @@ void process(const std::string& line){
   reply("{\"schema\":3,\"ok\":true,\"operation\":\"quit\"}");
   return;
  }
+ if(line=="LIVE_STOP"){stopLive();return;}
+ if(line.rfind("LIVE_START\t",0)==0){
+  int id{};
+  if(!parseTrack(line.substr(11),id)){fail("Invalid WASAPI live track ID");return;}
+  startLive(id);return;
+ }
+ if(line.rfind("LIVE_NOTE\t",0)==0){sendLiveNote(line.substr(10));return;}
  if(line.rfind("AUDITION\t",0)==0){
   const auto split=line.find('\t',9);
   if(split==std::string::npos){fail("AUDITION requires track/pitch/velocity/duration");return;}
