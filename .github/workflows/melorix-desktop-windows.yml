@@ -1,0 +1,70 @@
+name: MELORIX Windows Desktop
+
+on:
+  push:
+    branches:
+      - feature/melorix-desktop-electron
+    paths:
+      - .github/workflows/melorix-desktop-windows.yml
+      - desktop/**
+      - electron-builder.yml
+      - package.json
+      - tests/melorix-desktop.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-windows-x64:
+    name: Build Portable and Setup (Windows x64)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout MELORIX source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install existing web dependencies
+        run: npm ci
+
+      - name: Install temporary desktop packaging tool
+        # Keep package-lock intact; the app runtime version is pinned by electron-builder.yml.
+        run: npm install --no-save --package-lock=false electron-builder@26.0.12
+
+      - name: Run MELORIX tests, TypeScript and Vite build
+        run: npm run build
+
+      - name: Package two Windows executables
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run desktop:build:win
+
+      - name: Verify Portable and Setup artifacts
+        run: |
+          $portable = @(Get-ChildItem -Path release -Filter 'MELORIX-Portable-*.exe' -ErrorAction SilentlyContinue)
+          $setup = @(Get-ChildItem -Path release -Filter 'MELORIX-Setup-*.exe' -ErrorAction SilentlyContinue)
+          if ($portable.Count -ne 1) { throw "Expected 1 portable EXE, got $($portable.Count)" }
+          if ($setup.Count -ne 1) { throw "Expected 1 setup EXE, got $($setup.Count)" }
+          foreach ($file in @($portable[0], $setup[0])) {
+            if ($file.Length -lt 20000000) { throw "Unexpectedly small EXE: $($file.Name)" }
+            Write-Host "$($file.Name) - $([Math]::Round($file.Length / 1MB, 1)) MB"
+            Get-FileHash -Algorithm SHA256 -Path $file.FullName | Format-List
+          }
+
+      - name: Upload downloadable Windows builds
+        uses: actions/upload-artifact@v4
+        with:
+          name: MELORIX-Windows-x64
+          path: release/*.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
