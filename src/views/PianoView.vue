@@ -2560,7 +2560,7 @@ watch(() => currentTime.value, (t) => {
           <span>{{ kontaktMidiLive ? 'Kontakt MIDI' : 'Kết nối Kontakt' }}</span>
         </button>
         <button v-if="hasNativeVst3Scanner" type="button" class="mx-kontakt-live-action"
-          title="Quét VST3 đang cài trong Windows; giai đoạn này chưa nạp plugin"
+          title="Quản lý VST3 theo track trên Windows — chưa nối âm thanh"
           @click="showVst3Browser=true">
           <i class="fas fa-puzzle-piece" aria-hidden="true"></i>
           <span>Nhạc cụ VST3</span>
@@ -2653,7 +2653,9 @@ watch(() => currentTime.value, (t) => {
 
     <MelorixMidiConnector v-if="showMidiConnector" :playing="playState === 'playing'"
        @kontakt-enabled="activateKontaktOnly" @close="showMidiConnector = false" />
-     <MelorixVst3Browser v-if="showVst3Browser" @close="showVst3Browser=false" />
+     <MelorixVst3Browser v-if="showVst3Browser"
+       :tracks="midiParts.map(part=>({id:part.id,label:part.name}))"
+       @close="showVst3Browser=false" />
     <MelorixPublishedLibrary v-if="showPublishedLibrary" @close="showPublishedLibrary=false" />
     <MelorixKontaktAudioCapture :key="captureSession" :open="showKontaktAudioCapture"
      :playing="playState === 'playing'" :busy="exporting" :can-play="notes.length > 0"
