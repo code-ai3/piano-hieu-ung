@@ -11,6 +11,7 @@ import type { VelocityVisualMode } from '@/util/velocity-effects'
 import type { VideoFormat, PortraitKeyboard } from '@/util/video-format'
 import { SplendidGrandPiano, renderOffline } from 'smplr'
 import { ExpressiveAudioMaster, expressedVelocity } from '@/util/melorix-expressive-audio'
+import {exportMidiProgram} from '@/util/melorix-midi-program-export'
 import type { ExpressionMode } from '@/util/melorix-expressive-audio'
 import Btn from '@/components/Btn.vue'
 import Modal from '@/components/Model.vue'
@@ -246,7 +247,8 @@ function gmVoiceForId(trackId:number){
   channel:part?.channel,
   name:part?.name,
   instrument:part?.instrument,
-  libraryId:choice?.startsWith('library:')?choice.slice(8):undefined
+  libraryId:choice?.startsWith('library:')?choice.slice(8):undefined,
+  forcePiano:choice==='piano'
  })
 }
 function getGmEngine(ctx:AudioContext):GmWebAudio{
@@ -1880,8 +1882,9 @@ function downloadEditedMidi() {
     track.name = part.name
     track.channel = trackMidiChannel(kontaktChannelForTrack(part.id))
     const chosen=assignedTrackPresets.value[part.id]
-    if(chosen&&isInstrumentPreset(chosen))track.instrument.number=instrumentPreset(chosen).program
-    // MIDI cannot embed a WAV. Personal sounds stay only inside the browser.
+    const explicitPresetProgram=chosen&&isInstrumentPreset(chosen)?instrumentPreset(chosen).program:undefined
+    track.instrument.number=exportMidiProgram(importedMidiPrograms.value[part.id],explicitPresetProgram)
+    // MIDI cannot embed a WAV or NKI. Retain the original GM program for those tracks.
     for (const note of allNotes.value) {
       if (note.trackId !== part.id) continue
       track.addNote({ midi: note.midi, time: note.time, duration: note.duration, velocity: note.velocity })
@@ -2263,7 +2266,7 @@ watch(() => currentTime.value, (t) => {
               <input v-model.number="kontaktAudioOffset" type="number" step="0.1" min="-300" max="300" aria-label="Độ lệch âm thanh Kontakt (giây)">
               <small>+ làm tiếng bắt đầu trễ; − cắt đoạn đầu âm thanh thu. Thường để 0 nếu đã thu từ lúc MELORIX phát bài.</small>
             </label>
-            <p v-if="!kontaktAudioBuffer">Chưa có bản thu Kontakt. MP4 hiện sẽ dùng piano mặc định.</p>
+            <p v-if="!kontaktAudioBuffer" role="note">Lưu ý: khi chưa có bản thu Kontakt, âm thanh MP4 hiện vẫn chỉ là Piano, không phải bản phối GM/Drums đang nghe trên web. Volume từng track và các chế độ biểu cảm chưa áp dụng vào MP4.</p>
             <button type="button" @click="openKontaktAudioCapture">{{ kontaktAudioBuffer ? 'Thay / nghe lại bản thu Kontakt' : 'Thu hoặc nhập âm thanh Kontakt' }}</button>
           </div>
           <p class="text-xs text-black/60 dark:text-white/60 m-0">{{ t('piano.exportHint') }}</p>

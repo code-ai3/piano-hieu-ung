@@ -1,0 +1,28 @@
+name: MELORIX Web QA
+
+on:
+  push:
+    branches:
+      - fix/melorix-web-audit-round1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-web:
+    name: MIDI / audio regressions, TypeScript and Vite build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Test and build web only (NO Windows EXE)
+        run: npm run build
