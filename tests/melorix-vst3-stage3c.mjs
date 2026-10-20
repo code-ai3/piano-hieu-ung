@@ -7,6 +7,7 @@ const preload=readFileSync(new URL('../desktop/preload.cjs',import.meta.url),'ut
 const player=readFileSync(new URL('../src/util/melorix-vst3-preview.ts',import.meta.url),'utf8')
 const ui=readFileSync(new URL('../src/components/MelorixVst3Browser.vue',import.meta.url),'utf8')
 const piano=readFileSync(new URL('../src/views/PianoView.vue',import.meta.url),'utf8')
+const wasapi=readFileSync(new URL('../native/vst3-host/wasapi-live.hpp',import.meta.url),'utf8')
 for(const marker of [
  'component->queryInterface(IAudioProcessor::iid',
  'component->getBusCount(kAudio,kOutput)',
@@ -45,4 +46,27 @@ assert.ok(piano.includes('@bindings-change="onVst3BindingsChanged"'))
 assert.ok(piano.includes('void refreshVst3PianoBindings()'))
 assert.ok(piano.includes('void vst3KeyPreview.dispose()'))
 
-console.log('PASS: native 32-bit PCM output from real VST3, no disk writes, secure Electron bridge and truthful audition UI')
+for(const marker of [
+ 'MMDeviceEnumerator','GetDefaultAudioEndpoint(eRender,eConsole',
+ 'IAudioClient','IAudioRenderClient','AUDCLNT_SHAREMODE_SHARED',
+ 'KSDATAFORMAT_SUBTYPE_IEEE_FLOAT','processor->setupProcessing(setup)',
+ 'setup.processMode=kRealtime','processor->setProcessing(true)',
+ 'processor->process(pd)','processor->setProcessing(false)',
+ 'Event::kNoteOnEvent','Event::kNoteOffEvent',
+ 'GetCurrentPadding','ReleaseBuffer(frames','CoInitializeEx(nullptr,COINIT_MULTITHREADED)',
+])assert.ok(wasapi.includes(marker),'Missing actual WASAPI native VST3 audio output: '+marker)
+assert.ok(!wasapi.includes('std::sin('),'WASAPI host must play plugin output rather than synthesized substitute')
+assert.ok(session.includes('liveOutput.start(it->second->component.get(),why)'))
+assert.ok(session.includes('liveOutput.send(velocity>0,pitch,velocity)'))
+assert.ok(session.includes('Stop the WASAPI stream before rendering a separate offline VST3 preview'))
+assert.ok(preload.includes("ipcRenderer.invoke('melorix:vst3:live-note'"))
+assert.ok(main.includes("ipcMain.handle('melorix:vst3:live-start'"))
+assert.ok(main.includes("ipcMain.handle('melorix:vst3:live-stop'"))
+assert.ok(main.includes("ipcMain.handle('melorix:vst3:live-note'"))
+assert.ok(ui.includes('Bật WASAPI (thử)'))
+assert.ok(ui.includes("'live-change'"))
+assert.ok(piano.includes('vst3LiveTrackId.value===targetTrack'))
+assert.ok(piano.includes('sendLiveVst3Note(targetTrack,midi,95)'))
+assert.ok(piano.includes('sendLiveVst3Note(vst3LiveTrackId.value,activeVst3KeyPitch,0)'))
+assert.ok(piano.includes('@live-change="onVst3LiveChanged"'))
+console.log('PASS: Stage3C plugin PCM offline + experimental WASAPI live note-on/off in Piano Roll, gated per track')
