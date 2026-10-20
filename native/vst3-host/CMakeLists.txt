@@ -35,6 +35,7 @@ if(MELORIX_BUILD_VST3_TEST_PLUGIN)
  # In the full SDK, this helper is defined in samples/vst/CMakeLists.txt.
  # We build only the isolated ADelay target, not the full demo catalogue.
  function(smtg_target_setup_as_vst3_example target)
+  smtg_target_configure_version_file(${target})
   target_compile_features(${target} PUBLIC cxx_std_17)
   target_link_libraries(${target} PRIVATE sdk)
  endfunction()
