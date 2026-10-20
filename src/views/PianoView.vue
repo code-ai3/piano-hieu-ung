@@ -171,6 +171,32 @@ type CatalogInstrumentId=`library:${string}`
 type TrackInstrument=InstrumentPreset|LocalInstrumentId|CatalogInstrumentId
 const newTrackPreset=ref<TrackInstrument>('piano')
 const assignedTrackPresets=ref<Record<number,TrackInstrument>>({})
+const trackVolumeLevels=ref<Record<number,number>>({})
+const trackGainNodes=new Map<number,GainNode>()
+function trackVolumePercent(id:number){return trackVolumeLevels.value[id]??100}
+function trackOutput(ctx:AudioContext,id:number):GainNode{
+ let node=trackGainNodes.get(id)
+ if(!node){
+  node=ctx.createGain()
+  node.gain.value=trackVolumePercent(id)/100
+  node.connect(ctx.destination)
+  trackGainNodes.set(id,node)
+ }
+ return node
+}
+function setTrackVolume(id:number,event:Event){
+ if(exporting.value||!midiParts.value.some(p=>p.id===id))return
+ const raw=Number((event.target as HTMLInputElement).value)
+ if(!Number.isFinite(raw))return
+ const volume=Math.max(0,Math.min(100,Math.round(raw)))
+ trackVolumeLevels.value={...trackVolumeLevels.value,[id]:volume}
+ const node=trackGainNodes.get(id)
+ if(node&&audioCtx.value)node.gain.setTargetAtTime(volume/100,audioCtx.value.currentTime,.012)
+}
+function clearTrackAudioOutputs(){
+ for(const node of trackGainNodes.values()){try{node.disconnect()}catch{}}
+ trackGainNodes.clear()
+}
 const importedMidiPrograms=ref<Record<number,number>>({})
 let gmEngine:GmWebAudio|null=null
 const gmAudioNotice=ref('')
@@ -186,12 +212,12 @@ function gmVoiceForId(trackId:number){
  })
 }
 function getGmEngine(ctx:AudioContext):GmWebAudio{
- if(!gmEngine)gmEngine=new GmWebAudio(ctx)
+ if(!gmEngine)gmEngine=new GmWebAudio(ctx,id=>id<0?ctx.destination:trackOutput(ctx,id))
  return gmEngine
 }
 function playGmVoice(ctx:AudioContext,trackId:number,midi:number,velocity:number,when:number,duration:number,voices:Set<SynthVoice>){
  const engine=getGmEngine(ctx)
- const voice=engine.play(gmVoiceForId(trackId),midi,velocity,when,duration)
+ const voice=engine.play(gmVoiceForId(trackId),midi,velocity,when,duration,trackId)
  voices.add(voice)
 }
 async function prepareAudioContext():Promise<AudioContext>{
@@ -207,22 +233,20 @@ function preloadGmForEnabledTracks(){
  for(const part of midiParts.value){
   if(!part.enabled)continue
   const choice=assignedTrackPresets.value[part.id]
-  if(choice===undefined || choice.startsWith('library:'))engine.preload(gmVoiceForId(part.id))
+  if(choice===undefined || choice.startsWith('library:') || choice==='piano')engine.preload(gmVoiceForId(part.id),part.id)
  }
 }
-function playTrackVoice(ctx:AudioContext,trackId:number,midi:number,velocity:number,when:number,duration:number,voices:Set<SynthVoice>,stopId?:string){
+function playTrackVoice(ctx:AudioContext,trackId:number,midi:number,velocity:number,when:number,duration:number,voices:Set<SynthVoice>,_stopId?:string){
  const preset=trackPreset(trackId)
  const chosen=assignedTrackPresets.value[trackId]
  if(chosen===undefined || (isPublishedTrackInstrument(preset) && !(preset==='library:erhu-hmoob-nplog' && erhuWebSampler.ready))){
   playGmVoice(ctx,trackId,midi,velocity,when,duration,voices)
   return
  }
- if(preset==='piano' && piano && pianoLoaded.value){
-  piano.start({note:midiNoteName(midi),velocity,time:when,duration,stopId})
- }else if(preset==='piano'){
+ if(preset==='piano'){
   playGmVoice(ctx,trackId,midi,velocity,when,duration,voices)
  }else{
-  routedNote(ctx,midi,velocity,when,duration,preset,voices)
+  routedNote(ctx,midi,velocity,when,duration,preset,voices,trackId)
  }
 }
 
@@ -847,6 +871,8 @@ function processMidi(midi: Midi) {
   midiBridge.stopAll()
   pianoRollTrackId.value = null
   assignedTrackPresets.value={}
+  clearTrackAudioOutputs()
+  trackVolumeLevels.value={}
   importedMidiPrograms.value=Object.fromEntries(midi.tracks.map((track,index)=>[index,
    typeof track.instrument?.number==='number'?track.instrument.number:0]))
   instrumentPreviewTrackId.value=null
@@ -967,18 +993,18 @@ function stopSynthVoices(set:Set<SynthVoice>){
  set.clear()
 }
 function routedNote(ctx:AudioContext,midi:number,velocity:number,when:number,duration:number,
- preset:TrackInstrument,set:Set<SynthVoice>){
+ preset:TrackInstrument,set:Set<SynthVoice>,trackId:number){
  let voice:SynthVoice
  if(isPublishedTrackInstrument(preset)){
    if(preset!=='library:erhu-hmoob-nplog'||!erhuWebSampler.ready)return
    let samplerVoice:SynthVoice|null=null
    samplerVoice=erhuWebSampler.play(ctx,midi,velocity,when,duration,()=>{
     if(samplerVoice)set.delete(samplerVoice)
-   })
+   },trackOutput(ctx,trackId))
    if(samplerVoice)set.add(samplerVoice)
    return
   }
- if(isInstrumentPreset(preset))voice=playSynthVoice(ctx,midi,velocity,when,duration,preset)
+ if(isInstrumentPreset(preset))voice=playSynthVoice(ctx,midi,velocity,when,duration,preset,trackOutput(ctx,trackId))
  else{
   const one=localSamples.value.find(s=>s.id===preset)
   const buffer=localSampleBuffers.get(preset)
@@ -995,7 +1021,7 @@ function routedNote(ctx:AudioContext,midi:number,velocity:number,when:number,dur
   gain.gain.linearRampToValueAtTime(level,start+.012)
   gain.gain.setValueAtTime(level,start+length)
   gain.gain.linearRampToValueAtTime(.0001,start+length+.10)
-  source.connect(gain);gain.connect(ctx.destination)
+  source.connect(gain);gain.connect(trackOutput(ctx,trackId))
   source.onended=()=>{set.delete(voice);try{source.disconnect();gain.disconnect()}catch{}}
   source.start(start)
   source.stop(start+length+.12)
@@ -1078,6 +1104,7 @@ function resetPiano() {
   stopChordAudition()
   stopSynthVoices(synthScheduledVoices)
   gmEngine?.stop();gmEngine=null
+  clearTrackAudioOutputs()
   piano?.stop(); piano = null
   audioCtx.value?.close(); audioCtx.value = null
   pianoLoaded.value = false; initPianoPromise = null
@@ -1941,6 +1968,14 @@ watch(() => currentTime.value, (t) => {
               <span>{{ part.noteCount }} nốt</span>
               <input type="color" :value="part.color" :disabled="exporting" :aria-label="'Màu ' + part.name" @input="onPartColorInput(part.id, $event)">
             </div>
+            <label class="mx-track-volume" :class="{ 'mx-track-volume-zero': trackVolumePercent(part.id) === 0 }">
+              <i class="fas fa-volume-down" aria-hidden="true"></i>
+              <input type="range" min="0" max="100" step="1"
+                :aria-label="'Âm lượng track ' + part.name"
+                :value="trackVolumePercent(part.id)" :disabled="exporting"
+                @input="setTrackVolume(part.id,$event)">
+              <output>{{ trackVolumePercent(part.id) }}%</output>
+            </label>
             <div class="mx-track-side-minimap mx-editable-track" :aria-label="'Nhấp đúp để chỉnh từng nốt trong ' + part.name" :title="'Nhấp đúp để chỉnh Piano Roll: ' + part.name" role="button" tabindex="0" @dblclick.stop="openPianoRoll(part.id)" @keydown.enter="openPianoRoll(part.id)">
               <span v-for="(bar,idx) in part.bars" :key="idx" class="mx-track-side-mini-note" :style="{ left: bar.left + '%', width: bar.width + '%', backgroundColor: part.color }"></span>
             </div>
