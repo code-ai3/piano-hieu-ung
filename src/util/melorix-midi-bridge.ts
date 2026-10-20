@@ -1,4 +1,4 @@
-import {availableMidiOutputs,sendMidiNote,midiNoteOn,midiNoteOff,panicMidi} from './melorix-web-midi'
+import {availableMidiOutputs,sendMidiNote,midiNoteOn,midiNoteOff,midiControlChange,midiVolume,panicMidi} from './melorix-web-midi'
 import type {MidiAccessPort,MidiOutputPort} from './melorix-web-midi'
 
 // A single optional Web MIDI output shared by the UI and the Piano Roll.
@@ -42,6 +42,14 @@ export const midiBridge={
    if(access)access.onstatechange=null
    access=await browser.requestMIDIAccess({sysex:false})
    access.onstatechange=refreshPorts
+   // Refresh native Windows MIDI output handles after requesting the port list.
+   // Old MIDIPort objects may be stale when loopMIDI is restarted.
+   if(selectedId){
+    output=access.outputs.get(selectedId)??null
+    if(!output||output.state==='disconnected'){
+     output=null;selectedId='';playback=false;externalOnly=false
+    }
+   }
    status=midiBridge.outputs.length?'Đã cấp quyền MIDI. Hãy chọn cổng đầu ra.'
     :'Chưa có cổng MIDI đầu ra. Giai đoạn 2 sẽ thiết lập cổng ảo để Kontakt 8 nhận MIDI.'
   }catch(error){
@@ -63,6 +71,11 @@ export const midiBridge={
  },
  setPlayback(enabled:boolean){playback=enabled&&output!==null;if(!playback){externalOnly=false;panic()}publish()},
  setExternalOnly(enabled:boolean){externalOnly=enabled&&output!==null;if(externalOnly)playback=true;publish()},
+ setChannelVolume(channel:number,percent:number){
+  if(!output||!playback)return
+  try{output.send(midiControlChange(7,midiVolume(percent),channel))}
+  catch(error){console.warn('Kontakt CC7 volume:',error);status='Không gửi được Volume đến Kontakt.';publish()}
+ },
  test(note:number,channel:number){
   if(!output)return
   try{

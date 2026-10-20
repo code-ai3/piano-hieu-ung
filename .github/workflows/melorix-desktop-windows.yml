@@ -5,6 +5,7 @@ on:
     branches:
       - feature/melorix-desktop-electron
       - feature/melorix-expressive-playback
+      - feature/melorix-desktop-kontakt-live
     paths:
       - .github/workflows/melorix-desktop-windows.yml
       - desktop/**
@@ -12,6 +13,7 @@ on:
       - package.json
       - tests/melorix-desktop.mjs
       - tests/melorix-expressive-audio.mjs
+      - tests/melorix-desktop-kontakt-live.mjs
       - src/**
   workflow_dispatch:
 

@@ -12,6 +12,13 @@ export function trackMidiChannel(trackChannel:number):number {
 export function midiNoteOn(note:number,velocity:number,channel:number):number[]{
  return [0x90|midiChannel(channel),midiByte(note),Math.max(1,midiByte(velocity))]
 }
+export function midiControlChange(controller:number,value:number,channel:number):number[]{
+ return [0xb0|midiChannel(channel),midiByte(controller),midiByte(value)]
+}
+export function midiVolume(value:number):number{
+ // Map a MELORIX track fader (0-100%) to MIDI CC7 (0-127).
+ return midiByte((Number.isFinite(value)?Math.max(0,Math.min(100,value)):100)*127/100)
+}
 export function midiNoteOff(note:number,channel:number):number[]{
  return [0x80|midiChannel(channel),midiByte(note),0]
 }
