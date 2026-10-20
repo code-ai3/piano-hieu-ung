@@ -199,6 +199,22 @@ app.whenReady().then(() => {
     if(!validTrackId(trackId))throw new Error('Track MIDI không hợp lệ')
     return getVst3Session().request('UNLOAD\t'+trackId)
   })
+  ipcMain.handle('melorix:vst3:editor-open',async(event,trackId)=>{
+    if(!trustedNativeSender(event))throw new Error('Nguồn mở editor VST3 không hợp lệ')
+    if(!validTrackId(trackId))throw new Error('Track không hợp lệ')
+    const win=BrowserWindow.fromWebContents(event.sender)
+    if(!win||win.isDestroyed())throw new Error('Cửa sổ MELORIX đã đóng')
+    const handle=win.getNativeWindowHandle()
+    if(!Buffer.isBuffer(handle)||handle.length<8)throw new Error('Không nhận diện được HWND của MELORIX')
+    // HWND of real Electron parent, never accepted from untrusted renderer.
+    const owner=handle.readBigUInt64LE(0).toString(16)
+    return getVst3Session().request('EDITOR_OPEN\t'+trackId+'\t'+owner)
+  })
+  ipcMain.handle('melorix:vst3:editor-close',async(event,trackId)=>{
+    if(!trustedNativeSender(event))throw new Error('Nguồn đóng editor VST3 không hợp lệ')
+    if(!validTrackId(trackId))throw new Error('Track không hợp lệ')
+    return getVst3Session().request('EDITOR_CLOSE\t'+trackId)
+  })
   ipcMain.handle('melorix:vst3:tracks',async(event)=>{
     if(!trustedNativeSender(event))throw new Error('Nguồn gọi VST3 không được phép')
     return getVst3Session().request('LIST')
