@@ -5,7 +5,7 @@
 #include "public.sdk/source/vst/hosting/hostclasses.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
-#include "pluginterfaces/vst/ivsttypes.h"
+#include "pluginterfaces/vst/vsttypes.h"
 #include "pluginterfaces/base/ipluginbase.h"
 #include <windows.h>
 #include <objbase.h>
