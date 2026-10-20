@@ -209,3 +209,29 @@
  .mx-original-audio-toggle{max-width:113px;padding:5px 4px;font-size:9px}
  .mx-original-audio-toggle i{display:none}
 }
+
+/* MELORIX Desktop: visible Kontakt MIDI routing without changing the piano editor layout. */
+.mx-kontakt-live-action{
+ display:inline-flex;align-items:center;justify-content:center;gap:6px;
+ flex:0 0 auto;max-width:160px;padding:7px 9px;border:1px solid #bc8252;
+ border-radius:6px;background:#4c382943;color:#dbab7c;font-size:11px;
+ font-weight:650;white-space:nowrap;cursor:pointer;
+}
+.mx-kontakt-live-action:hover,.mx-kontakt-quick-button:hover:not(:disabled){
+ border-color:#ffc58f;background:#7e4b2b;color:#fff6e8;
+}
+.mx-kontakt-live-action.mx-kontakt-live-connected{
+ background:#17614833;color:#80dec1;border-color:#4fa689;
+}
+.mx-kontakt-live-action:focus-visible,.mx-kontakt-quick-button:focus-visible{
+ outline:2px solid #ffc58f;outline-offset:2px;
+}
+.mx-kontakt-quick-button{
+ width:100%;font-weight:700!important;border-color:#d29154!important;
+ background:#89502c!important;color:#fff2e3!important;
+ padding:11px 12px!important;
+}
+@media(max-width:650px){
+ .mx-kontakt-live-action{max-width:44px;padding:7px 11px}
+ .mx-kontakt-live-action span{display:none}
+}
