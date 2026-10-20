@@ -27,8 +27,11 @@ export function gmProgram(program:number):number{
  return Number.isFinite(program)&&program>=0&&program<=127?Math.floor(program):0
 }
 export function gmVoiceForTrack(params:{
- program?:number; channel?:number; name?:string; instrument?:string; libraryId?:string
+ program?:number; channel?:number; name?:string; instrument?:string; libraryId?:string; forcePiano?:boolean
 }):GMVoice{
+ // Explicitly choosing Piano in the track menu must win over original MIDI
+ // program and channel (otherwise a Bass track can keep playing Bass).
+ if(params.forcePiano)return {key:'acoustic_grand_piano',percussion:false,program:0}
  const name=(params.name??'').toLowerCase()
  const timbre=(params.instrument??'').toLowerCase()
  const id=(params.libraryId??'').toLowerCase()
