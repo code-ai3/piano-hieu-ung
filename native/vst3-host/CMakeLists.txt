@@ -51,7 +51,7 @@ add_executable(melorix-vst3-session
 )
 target_compile_features(melorix-vst3-session PRIVATE cxx_std_17)
 target_compile_definitions(melorix-vst3-session PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_link_libraries(melorix-vst3-session PRIVATE sdk_hosting ole32)
+target_link_libraries(melorix-vst3-session PRIVATE sdk_hosting ole32 uuid)
 set_target_properties(melorix-vst3-session PROPERTIES
  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
