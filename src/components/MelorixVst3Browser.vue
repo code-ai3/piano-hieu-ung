@@ -2,12 +2,12 @@
 import {onMounted,onUnmounted,ref} from 'vue'
 import {Vst3PreviewPlayer} from '@/util/melorix-vst3-preview'
 
-const emit=defineEmits<{(event:'close'):void;(event:'bindings-change',ids:number[]):void}>()
+const emit=defineEmits<{(event:'close'):void;(event:'bindings-change',ids:number[]):void;(event:'live-change',id:number|null):void}>()
 const props=defineProps<{tracks:{id:number;label:string}[]}>()
 type InstalledVst3={name:string;path:string;hasBinary:boolean}
 type ScannerResult={schema:1;engine:'discovery-only';plugins:InstalledVst3[]}
-type LoadedTrack={track:number;plugin:string;path:string;componentInitialized:boolean;editorOpened?:boolean}
-type TrackStatus={schema:3;ok:true;tracks:LoadedTrack[];audioConnected:false;editorOpened:false}
+type LoadedTrack={track:number;plugin:string;path:string;componentInitialized:boolean;editorOpened?:boolean;liveAudio?:boolean}
+type TrackStatus={schema:3;ok:true;tracks:LoadedTrack[];audioConnected:boolean;editorOpened:false;liveTrack?:number}
 type NativeApi={
  environment:'desktop'
  scanVst3:()=>Promise<ScannerResult>
@@ -17,6 +17,9 @@ type NativeApi={
  openVst3Editor:(id:number)=>Promise<unknown>
  closeVst3Editor:(id:number)=>Promise<unknown>
  auditionVst3Note:(track:number,pitch:number,velocity:number,durationMs:number)=>Promise<{audioBase64:string;peak:number;nonzeroSamples:number;track:number;format:'wav-f32';source:'vst3-process'}>
+ startLiveVst3Track:(id:number)=>Promise<unknown>
+ stopLiveVst3:()=>Promise<unknown>
+ sendLiveVst3Note:(id:number,pitch:number,velocity:number)=>Promise<unknown>
 }
 const api=(window as Window&{melorixDesktop?:NativeApi}).melorixDesktop
 const scanning=ref(false)
@@ -28,6 +31,7 @@ const selectedPluginPath=ref('')
 const binding=ref(false)
 const hearingTrack=ref<number|null>(null)
 const auditionPeak=ref<number|null>(null)
+const liveBusy=ref(false)
 const preview=new Vst3PreviewPlayer()
 async function hearRealVst3(track:number){
  if(!api?.auditionVst3Note||hearingTrack.value!==null)return
@@ -42,6 +46,16 @@ async function hearRealVst3(track:number){
 }
 
 const routingError=ref('')
+async function toggleLive(slot:LoadedTrack){
+ if(!api?.startLiveVst3Track||!api?.stopLiveVst3||liveBusy.value)return
+ liveBusy.value=true;routingError.value=''
+ try{
+  if(slot.liveAudio)await api.stopLiveVst3()
+  else await api.startLiveVst3Track(slot.track)
+  await refreshBindings()
+ }catch(error){routingError.value=error instanceof Error?error.message:String(error)}
+ finally{liveBusy.value=false}
+}
 const loaded=ref<LoadedTrack[]>([])
 async function refreshBindings(){
  if(!api?.listVst3Tracks)return
@@ -50,6 +64,7 @@ async function refreshBindings(){
   if(!Array.isArray(snapshot.tracks))throw Error('Danh sách track VST3 không hợp lệ')
   loaded.value=snapshot.tracks.filter(entry=>entry.componentInitialized)
   emit('bindings-change',loaded.value.map(x=>x.track))
+  emit('live-change',snapshot.audioConnected?snapshot.liveTrack??null:null)
  }catch(error){routingError.value=error instanceof Error?error.message:String(error)}
 }
 async function bindToTrack(){
@@ -115,7 +130,7 @@ onMounted(()=>{
     <button type="button" aria-label="Đóng trình quản lý VST3" @click="emit('close')">✕</button>
    </header>
    <p class="mx-vst3-development" role="note">
-    Giai đoạn 3A — Có thể nạp và giữ một VST3 instance cho từng track trong tiến trình native riêng.
+    Giai đoạn 3C thử nghiệm — VST3 theo track, nghe thử PCM và có thể bật tiếng live qua thiết bị Windows WASAPI.
     Có thể mở cửa sổ giao diện gốc của plugin ngay từ track MELORIX, nếu VST3 cung cấp Windows editor.
     <strong>Chưa kết nối âm thanh Kontakt hoặc chọn NKI được kiểm chứng</strong>; cửa sổ editor là native do chính plugin vẽ, không phải bản giả lập.
    </p>
@@ -128,7 +143,7 @@ onMounted(()=>{
    </div>
    <section v-if="api?.bindVst3Track" class="mx-vst3-assign-panel" aria-label="Gán nhạc cụ VST3 cho track">
      <strong>Gắn plugin vào track MIDI</strong>
-     <p>Chỉ chọn plugin đã quét từ máy. Nút Nghe thử dùng PCM thực từ chính VST3 theo track; hiện là nghe thử offline, chưa phải âm thanh realtime khi Play.</p>
+     <p>Chỉ chọn plugin đã quét từ máy. Nút Nghe thử dùng PCM thật từ VST3. Bật WASAPI cho một track để bấm phím Piano Roll nghe live, chưa phát toàn bộ bản phối khi Play và chưa hỗ trợ ASIO.</p>
      <div class="mx-vst3-assign-row">
        <select v-model="selectedTrackId" :disabled="binding||!props.tracks.length" aria-label="Chọn track MIDI">
          <option v-for="part in props.tracks" :key="part.id" :value="part.id">{{ part.label }}</option>
@@ -145,9 +160,10 @@ onMounted(()=>{
      <p v-if="routingError" class="mx-vst3-error" role="alert">{{ routingError }}</p>
      <p v-if="auditionPeak!==null" role="status">Nguồn nghe thử: plugin VST3 thật · PCM float32 không nén · peak {{ auditionPeak.toFixed(3) }}. Đây là nghe thử offline, chưa phát liên tục từ Piano Roll.</p>
      <div v-for="slot in loaded" :key="slot.track" class="mx-vst3-loaded-row">
-       <span>Track {{ slot.track }} — {{ slot.plugin }} <small>{{ slot.editorOpened?'Editor native đang mở · ':'Đã khởi tạo · ' }}chưa nối audio</small></span>
+       <span>Track {{ slot.track }} — {{ slot.plugin }} <small>{{ slot.editorOpened?'Editor native đang mở · ':'Đã khởi tạo · ' }}{{slot.liveAudio?'WASAPI live đang bật':'WASAPI chưa bật'}}</small></span>
        <div class="mx-vst3-loaded-actions">
-         <button type="button" :disabled="binding||hearingTrack!==null" @click="hearRealVst3(slot.track)">{{ hearingTrack===slot.track?'Đang render…':'Nghe thử C4 từ VST3' }}</button>
+         <button type="button" :disabled="binding||liveBusy" @click="toggleLive(slot)">{{liveBusy?'Đang kết nối…':slot.liveAudio?'Tắt WASAPI':'Bật WASAPI (thử)'}}</button>
+          <button type="button" :disabled="binding||hearingTrack!==null" @click="hearRealVst3(slot.track)">{{ hearingTrack===slot.track?'Đang render…':'Nghe thử C4 từ VST3' }}</button>
          <button type="button" :disabled="binding" @click="toggleEditor(slot)">
            {{ slot.editorOpened?'Đóng giao diện':'Mở giao diện VST3' }}
          </button>
