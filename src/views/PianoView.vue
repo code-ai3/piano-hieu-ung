@@ -9,7 +9,8 @@ import type { ExportLength } from '@/util/export-timing'
 import { velocityVisualStrength, velocityParticleCount } from '@/util/velocity-effects'
 import type { VelocityVisualMode } from '@/util/velocity-effects'
 import type { VideoFormat, PortraitKeyboard } from '@/util/video-format'
-import { SplendidGrandPiano, renderOffline } from 'smplr'
+import { SplendidGrandPiano } from 'smplr'
+import { renderMultiTrackAudio } from '@/util/melorix-offline-mix'
 import { ExpressiveAudioMaster, expressedVelocity } from '@/util/melorix-expressive-audio'
 import {exportMidiProgram} from '@/util/melorix-midi-program-export'
 import type { ExpressionMode } from '@/util/melorix-expressive-audio'
@@ -653,6 +654,7 @@ const exportEta = ref(0)   // 剩余秒数
 const exportLength = ref<ExportLength>('preview15')
 const selectedExportSeconds = computed(() => exportDurationSeconds(duration.value, exportLength.value))
 const exportPhase = ref<'preparing' | 'rendering'>('preparing')
+const exportAudioNotice=ref('')
 
 async function exportVideo() {
   if (exporting.value) return
@@ -665,6 +667,7 @@ async function exportVideo() {
   exportProgress.value = 0
   exportEta.value = 0
   exportPhase.value = 'preparing'
+  exportAudioNotice.value=''
   let fileWriter: FileSystemWritableFileStream | null = null
   try {
     const { width: w, height: h, fps } = formatDimensions.value
@@ -698,19 +701,26 @@ async function exportVideo() {
       }
       audioBuf=alignKontaktAudio(kontaktAudioBuffer.value,exportSeconds,kontaktAudioOffset.value)
     }else{
-      const result = await renderOffline(async (ctx) => {
-        const safeStorage = { fetch: (url: string) => fetch(url.replace('#', '%23')) }
-        const offPiano = SplendidGrandPiano(ctx, {
-          volume: 100, baseUrl: '/samples/sfzinstruments-splendid-grand-piano/samples',
-          storage: safeStorage as any,
-          scheduler: { schedule(e: any, cb: any) { cb(e); return () => {} }, stop() {} },
-        } as any)
-        await offPiano.load
-        for (const n of notes.value) {
-          offPiano.start({ note: n.name, velocity: n.velocity * 127, time: n.time })
-        }
-      }, { duration: exportSeconds })
-      audioBuf=result.audioBuffer
+      const wavSamples=new Map<string,{buffer:AudioBuffer,root:number}>()
+      for(const sample of localSamples.value){
+        const buffer=localSampleBuffers.get(sample.id)
+        if(buffer)wavSamples.set(sample.id,{buffer,root:sample.rootMidi})
+      }
+      const mix=await renderMultiTrackAudio({
+        notes:notes.value,
+        parts:midiParts.value,
+        programs:importedMidiPrograms.value,
+        presets:assignedTrackPresets.value,
+        volumes:trackVolumeLevels.value,
+        wavSamples,
+        seconds:exportSeconds,
+        tempo:midiTempo.value,
+        expression:expressionMode.value
+      })
+      audioBuf=mix.audioBuffer
+      exportAudioNotice.value=mix.fallbacks.length
+        ?'Đã xuất bản phối đa track; các nhạc cụ dùng tiếng tổng hợp dự phòng: '+mix.fallbacks.join(', ')
+        :'Đã dựng âm thanh đa track theo nhạc cụ, Volume và biểu cảm đang chọn.'
     }
 
     // mediabunny output：流式写盘用 StreamTarget，否则用 BufferTarget
@@ -2266,7 +2276,8 @@ watch(() => currentTime.value, (t) => {
               <input v-model.number="kontaktAudioOffset" type="number" step="0.1" min="-300" max="300" aria-label="Độ lệch âm thanh Kontakt (giây)">
               <small>+ làm tiếng bắt đầu trễ; − cắt đoạn đầu âm thanh thu. Thường để 0 nếu đã thu từ lúc MELORIX phát bài.</small>
             </label>
-            <p v-if="!kontaktAudioBuffer" role="note">Lưu ý: khi chưa có bản thu Kontakt, âm thanh MP4 hiện vẫn chỉ là Piano, không phải bản phối GM/Drums đang nghe trên web. Volume từng track và các chế độ biểu cảm chưa áp dụng vào MP4.</p>
+            <p v-if="!kontaktAudioBuffer" role="note">MP4 dùng bản phối đa nhạc cụ (Piano, GM, trống, Synth, WAV cá nhân), giữ Volume và biểu cảm. NKI chưa có mẫu web sẽ dùng GM thay thế; nếu tải GM thất bại sẽ dùng tiếng dự phòng.</p>
+             <p v-if="exportAudioNotice" role="status">{{ exportAudioNotice }}</p>
             <button type="button" @click="openKontaktAudioCapture">{{ kontaktAudioBuffer ? 'Thay / nghe lại bản thu Kontakt' : 'Thu hoặc nhập âm thanh Kontakt' }}</button>
           </div>
           <p class="text-xs text-black/60 dark:text-white/60 m-0">{{ t('piano.exportHint') }}</p>
