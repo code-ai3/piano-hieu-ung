@@ -17,6 +17,10 @@ set(SMTG_CREATE_MODULE_INFO OFF CACHE BOOL "" FORCE)
 # Uses the SDK's official hosting module (Module::create), not an invented
 # factory ABI. MIT license; do not bundle Kontakt/NKI or load paid plugins in CI.
 add_subdirectory("${VST3_SDK_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/steinberg")
+# SDK CMake project variables are scoped in a subdirectory; make them
+# available to the isolated test-only plugin targets.
+set(SDK_ROOT "${VST3_SDK_ROOT}")
+set(vstsdk_VERSION 3.8.1)
 add_executable(melorix-vst3-probe
  probe.cpp
  "${VST3_SDK_ROOT}/public.sdk/source/vst/hosting/module_win32.cpp"
