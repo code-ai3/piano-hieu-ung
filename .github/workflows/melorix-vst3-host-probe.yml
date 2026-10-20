@@ -46,13 +46,41 @@ jobs:
       - name: Configure official SDK hosting module
         run: |
           $sdk = Join-Path $env:RUNNER_TEMP 'vst3sdk'
-          cmake -S native/vst3-host -B native/vst3-host-build -G Ninja "-DVST3_SDK_ROOT=$sdk" -DCMAKE_BUILD_TYPE=Release -DSMTG_CREATE_PLUGIN_LINK=OFF -DMELORIX_BUILD_VST3_TEST_PLUGIN=ON
+          cmake -S native/vst3-host -B native/vst3-host-build -G Ninja "-DVST3_SDK_ROOT=$sdk" -DCMAKE_BUILD_TYPE=Release -DSMTG_CREATE_PLUGIN_LINK=OFF -DMELORIX_BUILD_VST3_TEST_PLUGIN=ON -DMELORIX_BUILD_VST3_TEST_SYNTH=ON
           if ($LASTEXITCODE -ne 0) { throw 'VST3 SDK CMake failed' }
 
       - name: Compile MELORIX native plugin loader
         run: |
           cmake --build native/vst3-host-build --target melorix-vst3-probe --config Release --parallel 4
           if ($LASTEXITCODE -ne 0) { throw 'VST3 loader compilation failed' }
+
+      - name: Compile native VST3 PCM renderer and QA synth plugin
+        run: |
+          cmake --build native/vst3-host-build --target melorix-vst3-render melorix-test-synth --config Release --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'Native VST3 renderer or QA instrument compilation failed' }
+
+      - name: Prove MIDI Note On-Off was rendered by real VST3 into WAV PCM
+        run: |
+          $exe='native/vst3-host-build/bin/melorix-vst3-render.exe'
+          if (!(Test-Path $exe)) { throw 'Missing stage 2B native renderer' }
+          $plugins=@(Get-ChildItem -Path native/vst3-host-build -Recurse |
+            Where-Object { $_.Name -eq 'melorix-test-synth.vst3' -and $_.PSIsContainer })
+          if (!$plugins.Count) { throw 'Missing compiled MIDI VST3 QA instrument' }
+          $module=$plugins[0].FullName
+          $wav=Join-Path $env:RUNNER_TEMP 'MELORIX-VST3-MIDI-real-PCM.wav'
+          $report=& $exe --render $module $wav
+          if ($LASTEXITCODE -ne 0) { throw "Native MIDI to VST3 PCM render failed: $LASTEXITCODE" }
+          $data=$report | ConvertFrom-Json
+          if (!$data.vst3Process -or $data.midiEvents -ne 2 -or
+              $data.nonzeroSamples -lt 1000 -or $data.peak -lt 0.02 -or
+              $data.tailPeak -gt 0.0001 -or $data.frames -ne 44100) {
+            throw 'VST3 plugin process did not produce the expected audible PCM note and silence after MIDI Note Off'
+          }
+          $audio=[IO.File]::ReadAllBytes($wav)
+          if ($audio.Length -ne (44 + 44100*2*2)) { throw 'WAV PCM size mismatch' }
+          if ([Text.Encoding]::ASCII.GetString($audio,0,4) -ne 'RIFF') { throw 'Not WAV audio' }
+          Write-Host ('PASS: MIDI -> genuine VST3 process() -> stereo PCM 44.1kHz, peak '+$data.peak)
+          $global:LASTEXITCODE = 0
 
       - name: Build genuine Steinberg ADelay VST3 test effect
         run: |
