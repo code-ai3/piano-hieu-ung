@@ -2,7 +2,8 @@
 
 // MELORIX Desktop: secure, locally served Vue/Vite application.
 // No remote site or Node APIs are exposed to the renderer.
-const { app, BrowserWindow, protocol, session, shell } = require('electron')
+const { app, BrowserWindow, protocol, session, shell, ipcMain } = require('electron')
+const { execFile } = require('node:child_process')
 const path = require('node:path')
 const { readFile } = require('node:fs/promises')
 
@@ -119,6 +120,7 @@ function createWindow() {
     icon: path.join(app.getAppPath(), 'dist', 'favicon.ico'),
     title: 'MELORIX — MIDI Studio',
     webPreferences: {
+      preload: path.join(app.getAppPath(), 'desktop', 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
@@ -146,6 +148,28 @@ app.setAppUserModelId('vn.lunor.melorix')
 
 app.whenReady().then(() => {
   protocol.handle('melorix', handleLocalAsset)
+  ipcMain.handle('melorix:vst3:scan', async (event) => {
+    // Only the main-frame MELORIX origin may access native plugin discovery.
+    if (!event.senderFrame || !isTrustedAppUrl(event.senderFrame.url)) {
+      throw new Error('Không được phép truy cập danh sách VST3')
+    }
+    const exe=path.join(process.resourcesPath,'vst3','melorix-vst3-scan.exe')
+    return await new Promise((resolve,reject)=>{
+      execFile(exe,[],{
+        windowsHide:true,timeout:20000,maxBuffer:2*1024*1024,
+      },(error,stdout)=>{
+        if(error){reject(new Error('Không thể quét VST3 đã cài: '+error.message));return}
+        try{
+          const result=JSON.parse(stdout)
+          if(result.schema!==1||result.engine!=='discovery-only'||!Array.isArray(result.plugins)){
+            reject(new Error('Kết quả quét VST3 không hợp lệ'));return
+          }
+          // Do not imply discovery means the VST3 plugin has been loaded.
+          resolve(result)
+        }catch(parseError){reject(new Error('Không đọc được kết quả VST3: '+parseError.message))}
+      })
+    })
+  })
   // Ask only for unsandboxed MIDI device access; Kontakt is still an external app.
   // SysEx and other unrelated permissions are intentionally not granted.
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
