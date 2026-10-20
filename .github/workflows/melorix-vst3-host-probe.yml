@@ -64,8 +64,8 @@ jobs:
           $exe='native/vst3-host-build/bin/melorix-vst3-render.exe'
           if (!(Test-Path $exe)) { throw 'Missing stage 2B native renderer' }
           $plugins=@(Get-ChildItem -Path native/vst3-host-build -Recurse |
-            Where-Object { $_.Name -eq 'melorix-test-synth.vst3' -and $_.PSIsContainer })
-          if (!$plugins.Count) { throw 'Missing compiled MIDI VST3 QA instrument' }
+            Where-Object { $_.Name -eq 'melorix-test-synth.vst3' -and !$_.PSIsContainer -and $_.Length -gt 20000 })
+          if (!$plugins.Count) { throw 'Missing real standalone MIDI VST3 test DLL' }
           $module=$plugins[0].FullName
           $wav=Join-Path $env:RUNNER_TEMP 'MELORIX-VST3-MIDI-real-PCM.wav'
           $report=& $exe --render $module $wav
@@ -102,7 +102,7 @@ jobs:
         run: |
           $exe='native/vst3-host-build/bin/melorix-vst3-probe.exe'
           $plugins=@(Get-ChildItem -Path native/vst3-host-build -Recurse |
-            Where-Object { $_.Name -eq 'adelay.vst3' -and $_.PSIsContainer })
+            Where-Object { $_.Name -eq 'adelay.vst3' -and !$_.PSIsContainer -and $_.Length -gt 20000 })
           if (!$plugins.Count) { throw 'Missing ADelay VST3 bundle from Steinberg SDK' }
           $module=$plugins[0].FullName
           $inspect=& $exe --inspect $module
