@@ -17,7 +17,7 @@ export class Vst3PreviewPlayer {
   if(!this.ctx)this.ctx=new AudioContext()
   if(this.ctx.state!=='running')await this.ctx.resume()
  }
- async play(api:Vst3PreviewApi,track:number,pitch:number,velocity=100,durationMs=550):Promise<Vst3AuditionResult>{
+ async play(api:Vst3PreviewApi,track:number,pitch:number,velocity=100,durationMs=550,volume=1):Promise<Vst3AuditionResult>{
   const request=++this.generation
   await this.warmup()
   const result=await api.auditionVst3Note(track,pitch,velocity,durationMs)
@@ -33,8 +33,11 @@ export class Vst3PreviewPlayer {
   this.stop(false)
   const node=this.ctx!.createBufferSource()
   node.buffer=audio
-  node.connect(this.ctx!.destination)
-  node.onended=()=>{if(this.source===node)this.source=null;try{node.disconnect()}catch{}}
+  const gain=this.ctx!.createGain()
+  gain.gain.value=Math.min(1,Math.max(0,volume))
+  node.connect(gain)
+  gain.connect(this.ctx!.destination)
+  node.onended=()=>{if(this.source===node)this.source=null;try{node.disconnect();gain.disconnect()}catch{}}
   this.source=node
   node.start()
   return result
