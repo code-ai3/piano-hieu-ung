@@ -68,6 +68,7 @@ int wmain(int argc,wchar_t* argv[]){
  if(FAILED(comStatus)){failure("Windows COM could not initialize");return 4;}
  // The Steinberg loader calls module entry points and GetPluginFactory and
  // properly unloads the module when the shared pointer leaves scope.
+ bool initialized=false;
  {
  std::string error;
  auto module=VST3::Hosting::Module::create(source,error);
@@ -85,7 +86,6 @@ int wmain(int argc,wchar_t* argv[]){
           <<",\"classes\":[";
  bool first=true;
  bool foundComponent=false;
- bool initialized=false;
  bool audioProcessor=false;
  for(const auto& info:classes) {
   const bool effect=info.category()==kVstAudioEffectClass;
