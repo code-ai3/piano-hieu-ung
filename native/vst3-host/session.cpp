@@ -84,7 +84,9 @@ struct Loaded {
  // Deliberately own Module BEFORE IComponent and release component first:
  // no plugin factory or DLL object may survive a module unload.
  std::shared_ptr<VST3::Hosting::Module> module;
- IComponent* component{nullptr};
+ // The SDK factory returns an owning IPtr. NEVER assign its temporary to a
+ // raw pointer: the temporary would release the instance immediately.
+ Steinberg::IPtr<IComponent> component;
  HostApplication* context{nullptr};
  bool initialized{false};
  std::string pluginName;
@@ -92,8 +94,7 @@ struct Loaded {
  ~Loaded(){
   if(component){
    if(initialized)component->terminate();
-   component->release();
-   component=nullptr;
+   component=nullptr; // release IPtr while the owning VST3 module is still loaded
   }
   if(context){context->release();context=nullptr;}
   module.reset();
