@@ -18,7 +18,7 @@ for(const marker of [
  'instances.erase(id)',
  'instances.clear()',
  'if(initialized)component->terminate()',
- 'component->release()',
+ 'component=nullptr;',
  'module.reset()',
  'factory.classInfos()',
  'if(instances.size()>=32',
@@ -29,7 +29,7 @@ for(const marker of [
  'parsePluginPath(raw,path)',
  'std::getline(std::cin,line)',
 ])assert.ok(native.includes(marker),'Missing real persistent VST3 component lifecycle: '+marker)
-assert.ok(native.indexOf('component->release()')<native.indexOf('module.reset()'),
+assert.ok(native.indexOf('component=nullptr')<native.indexOf('module.reset()'),
  'VST3 component must be released before its DLL is unloaded')
 assert.ok(!native.includes('IAudioProcessor::process('),
  'Stage3A session must not masquerade as a live audio engine')
