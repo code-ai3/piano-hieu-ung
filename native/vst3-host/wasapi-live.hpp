@@ -237,6 +237,7 @@ private:
   if(device)device->Release();
   if(enumerator)enumerator->Release();
   if(!notified)notify(false,"Cannot run native WASAPI VST3 audio");
+  stopping_=true; // report device/plugin shutdown instead of stale connected status
   CoUninitialize();
  }
 };
