@@ -25,7 +25,7 @@ class Vst3Session {
   child.stdout.setEncoding('utf8')
   child.stdout.on('data',chunk=>{
    this.buffer+=chunk
-   if(this.buffer.length>1024*1024){this.failAll(new Error('Phản hồi VST3 quá lớn'));return}
+   if(this.buffer.length>8*1024*1024){this.failAll(new Error('Phản hồi VST3 quá lớn'));return}
    while(this.buffer.includes('\n')){
     const pos=this.buffer.indexOf('\n')
     const raw=this.buffer.slice(0,pos).trim()
@@ -67,7 +67,7 @@ class Vst3Session {
   if(this.current||!this.pending.length||!this.child)return
   const job=this.pending.shift()
   this.current=job
-  job.timeout=setTimeout(()=>this.failAll(new Error('VST3 không phản hồi trong 15 giây')),15000)
+  job.timeout=setTimeout(()=>this.failAll(new Error('VST3 không phản hồi trong 30 giây')),30000)
   this.child.stdin.write(job.command+'\n',error=>{
    if(error)this.failAll(new Error('Không gửi được lệnh VST3: '+error.message))
   })
