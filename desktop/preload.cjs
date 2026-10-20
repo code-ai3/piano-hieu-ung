@@ -5,4 +5,7 @@ const {contextBridge,ipcRenderer}=require('electron')
 contextBridge.exposeInMainWorld('melorixDesktop',Object.freeze({
   environment:'desktop',
   scanVst3:()=>ipcRenderer.invoke('melorix:vst3:scan'),
+  bindVst3Track:(trackId,pluginPath)=>ipcRenderer.invoke('melorix:vst3:bind',trackId,pluginPath),
+  unbindVst3Track:(trackId)=>ipcRenderer.invoke('melorix:vst3:unbind',trackId),
+  listVst3Tracks:()=>ipcRenderer.invoke('melorix:vst3:tracks'),
 }))
