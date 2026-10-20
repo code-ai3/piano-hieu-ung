@@ -4,12 +4,15 @@ on:
   push:
     branches:
       - feature/melorix-desktop-electron
+      - feature/melorix-expressive-playback
     paths:
       - .github/workflows/melorix-desktop-windows.yml
       - desktop/**
       - electron-builder.yml
       - package.json
       - tests/melorix-desktop.mjs
+      - tests/melorix-expressive-audio.mjs
+      - src/**
   workflow_dispatch:
 
 permissions:

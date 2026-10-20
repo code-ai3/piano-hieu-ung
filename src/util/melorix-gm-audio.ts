@@ -52,24 +52,52 @@ export function gmVoiceForTrack(params:{
  return {key:GM_SOUNDFONT_NAMES[chosen]||'acoustic_grand_piano',percussion:false,program:chosen}
 }
 function clamp(value:number,min:number,max:number){return Number.isFinite(value)?Math.max(min,Math.min(max,value)):min}
+// Offline fallback is only used while recorded GM soundfont samples are unavailable.
+// Two partials, velocity-controlled brightness and instrument-specific envelopes feel
+// less like a flat beep while preserving exact MIDI pitch and onset.
 function fallbackTone(ctx:AudioContext,note:number,velocity:number,when:number,duration:number,program:number,destination:AudioNode=ctx.destination):SynthVoice{
  const t=Math.max(ctx.currentTime+.005,when)
  const length=clamp(duration,.06,12)
- const amp=ctx.createGain()
- const peak=.09*clamp(velocity/127,.01,1)
+ const power=clamp(velocity/127,.01,1)
  const bass=program>=32&&program<=39
- const strings=(program>=40&&program<=55)||(program>=88&&program<=95)
- const source=ctx.createOscillator()
- source.type=bass?'sawtooth':strings?'triangle':'sine'
- source.frequency.setValueAtTime(440*Math.pow(2,(clamp(note,0,127)-69)/12),t)
+ const pluck=(program>=24&&program<=31)||program===46
+ const strings=(program>=40&&program<=51)||(program>=88&&program<=95)
+ const wind=program>=56&&program<=79
+ const attack=strings ? 0.075 : wind ? 0.027 : 0.007
+ const release=strings ? 0.27 : wind ? 0.18 : pluck ? 0.09 : 0.14
+ const sustain=pluck ? 0.20 : bass ? 0.46 : strings ? 0.72 : 0.62
+ const peak=(bass ? 0.07 : 0.055)*Math.pow(power,.75)
+ const hz=440*Math.pow(2,(clamp(note,0,127)-69)/12)
+ const amp=ctx.createGain()
+ const filter=ctx.createBiquadFilter()
+ filter.type='lowpass'
+ const cutoff=clamp((bass?650:strings?1950:pluck?2650:wind?2100:3150)+power*3100,500,10000)
+ filter.frequency.setValueAtTime(cutoff,t)
+ if(pluck)filter.frequency.exponentialRampToValueAtTime(Math.max(500,cutoff*.34),t+length+.06)
  amp.gain.setValueAtTime(.0001,t)
- amp.gain.linearRampToValueAtTime(peak,t+(strings?.08:.008))
- amp.gain.setValueAtTime(peak*.5,t+length)
- amp.gain.exponentialRampToValueAtTime(.0001,t+length+.10)
- source.connect(amp);amp.connect(destination)
- source.start(t);source.stop(t+length+.13)
- source.onended=()=>{try{source.disconnect();amp.disconnect()}catch{}}
- return {stop:()=>{try{source.stop(Math.max(ctx.currentTime+.002,t+.001))}catch{}}}
+ amp.gain.linearRampToValueAtTime(peak,t+Math.min(attack,length*.3))
+ amp.gain.exponentialRampToValueAtTime(Math.max(.0001,peak*sustain),t+Math.min(length*.65,attack+.22))
+ amp.gain.setValueAtTime(Math.max(.0001,peak*sustain),t+length)
+ amp.gain.exponentialRampToValueAtTime(.0001,t+length+release)
+ filter.connect(amp);amp.connect(destination)
+ const oscs:OscillatorNode[]=[]
+ const make=(wave:OscillatorType,mix:number,detune=0)=>{
+  const osc=ctx.createOscillator(),voiceGain=ctx.createGain()
+  osc.type=wave
+  osc.frequency.setValueAtTime(hz,t)
+  osc.detune.value=detune
+  voiceGain.gain.value=mix
+  osc.connect(voiceGain);voiceGain.connect(filter)
+  osc.onended=()=>{try{osc.disconnect();voiceGain.disconnect()}catch{}}
+  osc.start(t);osc.stop(t+length+release+.025)
+  oscs.push(osc)
+ }
+ make(bass?'sawtooth':strings?'sawtooth':pluck?'triangle':wind?'triangle':'sine',.78)
+ make(bass?'sine':strings?'triangle':pluck?'sine':wind?'sine':'triangle',.22,strings?2.5:0)
+ return {stop:()=>{
+  const at=Math.max(ctx.currentTime+.002,t+.001)
+  for(const osc of oscs){try{osc.stop(at)}catch{}}
+ }}
 }
 function fallbackDrum(ctx:AudioContext,note:number,velocity:number,when:number,destination:AudioNode=ctx.destination):SynthVoice{
  const t=Math.max(ctx.currentTime+.005,when)
