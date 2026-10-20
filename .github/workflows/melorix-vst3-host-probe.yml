@@ -149,6 +149,27 @@ jobs:
           }
           Write-Host 'PASS: VST3 without native editor fails safely, component remains loaded'
 
+      - name: Verify real VST3 IPlugView native editor attaches to Win32 HWND
+        run: |
+          $exe='native/vst3-host-build/bin/melorix-vst3-session.exe'
+          $plugins=@(Get-ChildItem native/vst3-host-build -Recurse |
+            Where-Object { $_.Name -eq 'melorix-test-synth.vst3' -and !$_.PSIsContainer -and $_.Length -gt 20000 })
+          if (!$plugins.Count) { throw 'No native GUI test VST3' }
+          $module=$plugins[0].FullName
+          $cmds=@("LOAD`t8`t$module","EDITOR_OPEN`t8`t0",'LIST',
+            "EDITOR_CLOSE`t8",'LIST',"UNLOAD`t8",'QUIT')
+          $raw=@($cmds | & $exe)
+          if ($LASTEXITCODE -ne 0) { throw "Native IPlugView session crashed: $LASTEXITCODE" }
+          $state=@($raw | ForEach-Object { $_ | ConvertFrom-Json })
+          if ($state.Count -ne 7 -or !$state[0].componentInitialized -or
+              !$state[1].editorOpened -or !$state[2].tracks[0].editorOpened -or
+              $state[3].editorOpened -ne $false -or
+              $state[4].tracks[0].editorOpened -ne $false) {
+            throw 'Actual native VST3 editor did not attach and detach its HWND'
+          }
+          Write-Host 'PASS: Real Steinberg SDK IPlugView attached to HWND, visible state reported, removed on close, plugin instance preserved'
+          $global:LASTEXITCODE=0
+
       - name: Build genuine Steinberg ADelay VST3 test effect
         run: |
           cmake --build native/vst3-host-build --target adelay --config Release --parallel 4
