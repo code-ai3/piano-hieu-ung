@@ -2266,7 +2266,7 @@ watch(() => currentTime.value, (t) => {
               <input v-model.number="kontaktAudioOffset" type="number" step="0.1" min="-300" max="300" aria-label="Độ lệch âm thanh Kontakt (giây)">
               <small>+ làm tiếng bắt đầu trễ; − cắt đoạn đầu âm thanh thu. Thường để 0 nếu đã thu từ lúc MELORIX phát bài.</small>
             </label>
-            <p v-if="!kontaktAudioBuffer">Chưa có bản thu Kontakt. MP4 hiện sẽ dùng piano mặc định.</p>
+            <p v-if="!kontaktAudioBuffer" role="note">Lưu ý: khi chưa có bản thu Kontakt, âm thanh MP4 hiện vẫn chỉ là Piano, không phải bản phối GM/Drums đang nghe trên web. Volume từng track và các chế độ biểu cảm chưa áp dụng vào MP4.</p>
             <button type="button" @click="openKontaktAudioCapture">{{ kontaktAudioBuffer ? 'Thay / nghe lại bản thu Kontakt' : 'Thu hoặc nhập âm thanh Kontakt' }}</button>
           </div>
           <p class="text-xs text-black/60 dark:text-white/60 m-0">{{ t('piano.exportHint') }}</p>
