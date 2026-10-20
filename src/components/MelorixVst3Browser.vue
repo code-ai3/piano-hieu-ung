@@ -163,7 +163,7 @@ onMounted(()=>{
        <span>Track {{ slot.track }} — {{ slot.plugin }} <small>{{ slot.editorOpened?'Editor native đang mở · ':'Đã khởi tạo · ' }}{{slot.liveAudio?'WASAPI live đang bật':'WASAPI chưa bật'}}</small></span>
        <div class="mx-vst3-loaded-actions">
          <button type="button" :disabled="binding||liveBusy" @click="toggleLive(slot)">{{liveBusy?'Đang kết nối…':slot.liveAudio?'Tắt WASAPI':'Bật WASAPI (thử)'}}</button>
-          <button type="button" :disabled="binding||hearingTrack!==null" @click="hearRealVst3(slot.track)">{{ hearingTrack===slot.track?'Đang render…':'Nghe thử C4 từ VST3' }}</button>
+          <button type="button" :disabled="binding||hearingTrack!==null||!!slot.liveAudio" title="Tắt WASAPI trước khi render đoạn WAV riêng" @click="hearRealVst3(slot.track)">{{ hearingTrack===slot.track?'Đang render…':'Nghe thử C4 từ VST3' }}</button>
          <button type="button" :disabled="binding" @click="toggleEditor(slot)">
            {{ slot.editorOpened?'Đóng giao diện':'Mở giao diện VST3' }}
          </button>
