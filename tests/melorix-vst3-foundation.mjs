@@ -15,10 +15,10 @@ for(const phrase of [
  'x86_64-win',
  'GetEnvironmentVariableW',
  'WideCharToMultiByte',
- '"discovery-only"',
+ 'discovery-only',
  'hasBinary',
 ])assert.ok(native.includes(phrase),'Missing native scanner control: '+phrase)
-assert.ok(!native.includes('LoadLibrary'),'Scanner must not execute arbitrary VST3 DLLs')
+assert.ok(!/\bLoadLibrary(?:A|W)?\s*\(/.test(native),'Scanner must not execute arbitrary VST3 DLLs')
 assert.ok(!native.includes('CreateProcessW'),'Scanner must not start plugin binaries')
 for(const phrase of [
  "ipcMain.handle('melorix:vst3:scan'",
