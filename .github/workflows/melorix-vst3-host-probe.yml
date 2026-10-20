@@ -1,0 +1,73 @@
+name: MELORIX VST3 Native Loader Probe
+
+on:
+  push:
+    branches:
+      - feature/melorix-vst3-host-stage2-loader
+    paths:
+      - .github/workflows/melorix-vst3-host-probe.yml
+      - native/vst3-host/**
+      - tests/melorix-vst3-stage2.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-native-vst3:
+    name: Build real Steinberg SDK VST3 loader (Windows x64)
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate source restrictions before loading any plugin
+        run: node tests/melorix-vst3-stage2.mjs
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Obtain pinned MIT VST3 SDK (recursive; no Kontakt/NKI)
+        run: |
+          $sdk = Join-Path $env:RUNNER_TEMP 'vst3sdk'
+          git clone --recursive --filter=blob:none https://github.com/steinbergmedia/vst3sdk.git $sdk
+          if ($LASTEXITCODE -ne 0) { throw 'VST3 SDK clone failed' }
+          git -C $sdk checkout 3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned VST3 SDK checkout failed' }
+          git -C $sdk submodule update --init --recursive
+          if ($LASTEXITCODE -ne 0) { throw 'VST3 SDK submodules missing' }
+          Write-Host "SDK pin:" (git -C $sdk rev-parse HEAD)
+
+      - name: Configure official SDK hosting module
+        run: |
+          $sdk = Join-Path $env:RUNNER_TEMP 'vst3sdk'
+          cmake -S native/vst3-host -B native/vst3-host-build -G "Visual Studio 17 2022" -A x64 "-DVST3_SDK_ROOT=$sdk" -DSMTG_CREATE_PLUGIN_LINK=OFF
+          if ($LASTEXITCODE -ne 0) { throw 'VST3 SDK CMake failed' }
+
+      - name: Compile MELORIX native plugin loader
+        run: |
+          cmake --build native/vst3-host-build --target melorix-vst3-probe --config Release --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'VST3 loader compilation failed' }
+
+      - name: Verify isolated host rejects an invalid VST3 path
+        run: |
+          $exe = 'native/vst3-host-build/bin/Release/melorix-vst3-probe.exe'
+          if (!(Test-Path $exe)) { throw 'Missing built native loader' }
+          $output = & $exe --inspect 'Z:\NoSuchPlugin\Kontakt.vst3'
+          if ($LASTEXITCODE -ne 3) { throw "Incorrect invalid-plugin exit: $LASTEXITCODE" }
+          $message = $output | ConvertFrom-Json
+          if ($message.ok -ne $false -or $message.schema -ne 2) { throw 'Invalid error JSON contract' }
+          Write-Host 'PASS: SDK loader compiled; invalid VST3 is not launched'
+
+      - name: Upload host probe for engineering QA (not MELORIX release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MELORIX-VST3-loader-probe-x64-NOT-RELEASE
+          path: native/vst3-host-build/bin/Release/melorix-vst3-probe.exe
+          retention-days: 7
+          if-no-files-found: error
