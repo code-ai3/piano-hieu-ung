@@ -97,6 +97,33 @@ async function onFileUpload(e: Event) {
   }
 }
 
+function attachOriginalAudioToCurrentMidi(event:Event){
+ const input=event.target as HTMLInputElement
+ const file=input.files?.[0]
+ input.value=''
+ if(!file||exporting.value)return
+ if(!file.type.startsWith('audio/')&&!/\.(wav|mp3|m4a|aac|flac|ogg|aiff?)$/i.test(file.name)){
+  uploadError.value='Hãy chọn bản thu âm gốc WAV, MP3 hoặc định dạng âm thanh trình duyệt đọc được.'
+  return
+ }
+ const track=currentTrack.value
+ if(!track)return
+ const wasPlaying=playState.value==='playing'
+ stop()
+ const old=track.originalAudioUrl
+ if(originalAudioPlayer){
+  originalAudioPlayer.pause()
+  originalAudioPlayer.removeAttribute('src')
+  originalAudioPlayer.load()
+ }
+ track.originalAudioUrl=URL.createObjectURL(file)
+ if(old)URL.revokeObjectURL(old)
+ useOriginalAudio.value=true
+ duration.value=allNotes.value.reduce((max,n)=>Math.max(max,n.time+n.duration),0)
+ uploadError.value=''
+ ensureOriginalAudioPlayer()
+ if(wasPlaying)void play()
+}
 async function handleAudioUpload(file: File) {
   converting.value = true
   try {
@@ -2087,6 +2114,11 @@ watch(() => currentTime.value, (t) => {
           <label><i class="fas fa-wave-square mr-2"></i> Nhập âm thanh
             <input type="file" class="hidden" accept="audio/*" :disabled="loadingMidi || converting || exporting" @change="onFileUpload($event); closeMenus()">
           </label>
+          <label title="Gắn một bản thu âm gốc vào MIDI đang mở, giữ nguyên track và nốt">
+            <i class="fas fa-link mr-2"></i> Gắn bản thu gốc vào MIDI
+            <input type="file" class="hidden" accept="audio/*,.wav,.mp3,.flac,.m4a"
+              :disabled="loadingMidi || converting || exporting" @change="attachOriginalAudioToCurrentMidi($event); closeMenus()">
+          </label>
           <button type="button" @click="showPlaylist = !showPlaylist"><i class="fas fa-folder-open mr-2"></i> Thư viện bài nhạc</button>
           <button type="button" :disabled="exporting || !allNotes.length" @click="downloadEditedMidi"><i class="fas fa-save mr-2"></i> Lưu MIDI đã chỉnh (.mid)</button>
           <button type="button" :disabled="exporting" @click="showExport = true"><i class="fas fa-file-video mr-2"></i> Xuất video MP4</button>
@@ -2479,7 +2511,7 @@ watch(() => currentTime.value, (t) => {
         <!-- 当前曲目 -->
         <span class="text-xs text-black/50 dark:text-white/50 truncate flex-1 min-w-0">{{ currentTrack?.name || '--' }}</span>
          <label v-if="hasOriginalAudio" class="mx-original-audio-toggle"
-           title="Bật: nghe bản thu gốc không qua GM. Tắt: nghe MIDI dựng lại. Chỉnh nốt không làm thay đổi bản thu gốc.">
+           title="Bản thu gốc không chịu Mute/Volume của từng track. Sửa nốt MIDI không đổi bản thu. Tắt để nghe MIDI dựng lại.">
            <input type="checkbox" v-model="useOriginalAudio" :disabled="exporting" @change="onOriginalAudioModeChange">
            <i class="fas fa-wave-square" aria-hidden="true"></i>
            <span>{{ useOriginalAudio ? 'Bản thu gốc' : 'Âm thanh MIDI' }}</span>
