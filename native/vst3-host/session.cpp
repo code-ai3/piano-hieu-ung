@@ -11,6 +11,7 @@
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
 #include "editor-win32.hpp"
+#include "track-preview.hpp"
 #include <windows.h>
 #include <objbase.h>
 #include <filesystem>
@@ -233,6 +234,35 @@ void closeEditor(int id){
  reply("{\"schema\":3,\"ok\":true,\"operation\":\"editor-close\",\"track\":"
   +std::to_string(id)+",\"editorOpened\":false}");
 }
+void audition(int id,const std::string& args){
+ const auto it=instances.find(id);
+ if(it==instances.end()){fail("Track has no loaded VST3 instance");return;}
+ const auto a=args.find('\t'),b=a==std::string::npos?std::string::npos:args.find('\t',a+1);
+ if(a==std::string::npos||b==std::string::npos||args.find('\t',b+1)!=std::string::npos){
+  fail("AUDITION requires MIDI pitch, velocity and duration in milliseconds");return;
+ }
+ int pitch=0,velocity=0,duration=0;
+ auto valid=[](const std::string& value,int& dest){
+  if(value.empty()||value.size()>5||
+     !std::all_of(value.begin(),value.end(),[](unsigned char c){return c>='0'&&c<='9';}))return false;
+  try{dest=std::stoi(value);return true;}catch(...){return false;}
+ };
+ if(!valid(args.substr(0,a),pitch)||!valid(args.substr(a+1,b-a-1),velocity)||
+    !valid(args.substr(b+1),duration)){
+  fail("Invalid VST3 audition numeric parameters");return;
+ }
+ const auto rendered=MelorixPreview::render(it->second->component.get(),pitch,velocity,duration);
+ if(!rendered.ok){fail(rendered.message);return;}
+ // One JSON reply, VST3 samples stay in memory and go to the renderer as
+ // lossless float32 WAV. No files are written to the user's C: drive.
+ reply("{\"schema\":3,\"ok\":true,\"operation\":\"audition\",\"track\":"
+  +std::to_string(id)+",\"realVst3Pcm\":true,\"audioDevice\":\"electron-web-audio\","
+  "\"sampleRate\":44100,\"channels\":2,\"format\":\"wav-f32\","
+  "\"frames\":"+std::to_string(rendered.frames)+",\"nonzeroSamples\":"
+  +std::to_string(rendered.nonzero)+",\"peak\":"
+  +std::to_string(rendered.peak)+",\"wavBase64\":"
+  +escape(rendered.wavBase64)+"}");
+}
 void unload(int id){
  const auto removed=instances.erase(id);
  reply("{\"schema\":3,\"ok\":true,\"operation\":\"unload\",\"track\":"
@@ -249,6 +279,13 @@ void process(const std::string& line){
   instances.clear();
   reply("{\"schema\":3,\"ok\":true,\"operation\":\"quit\"}");
   return;
+ }
+ if(line.rfind("AUDITION\t",0)==0){
+  const auto split=line.find('\t',9);
+  if(split==std::string::npos){fail("AUDITION requires track/pitch/velocity/duration");return;}
+  int id{};
+  if(!parseTrack(line.substr(9,split-9),id)){fail("Invalid MIDI track ID");return;}
+  audition(id,line.substr(split+1));return;
  }
  if(line.rfind("EDITOR_OPEN\t",0)==0){
   const auto split=line.find('\t',12);
