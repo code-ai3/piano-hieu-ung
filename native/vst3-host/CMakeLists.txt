@@ -13,6 +13,9 @@ set(SMTG_ENABLE_VST3_PLUGIN_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SMTG_CREATE_PLUGIN_LINK OFF CACHE BOOL "" FORCE)
 set(SMTG_RUN_VST_VALIDATOR OFF CACHE BOOL "" FORCE)
 set(SMTG_CREATE_MODULE_INFO OFF CACHE BOOL "" FORCE)
+# Single-file Windows .vst3 DLLs avoid bundle paths that differ between Ninja
+# and Visual Studio generators. Host loading still uses official Module::create.
+set(SMTG_CREATE_BUNDLE_FOR_WINDOWS OFF CACHE BOOL "" FORCE)
 
 # Uses the SDK's official hosting module (Module::create), not an invented
 # factory ABI. MIT license; do not bundle Kontakt/NKI or load paid plugins in CI.
