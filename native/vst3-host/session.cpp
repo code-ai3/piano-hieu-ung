@@ -10,7 +10,7 @@
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
-#include "native/vst3-host/editor-win32.hpp"
+#include "editor-win32.hpp"
 #include <windows.h>
 #include <objbase.h>
 #include <filesystem>
