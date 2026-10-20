@@ -11,6 +11,7 @@ files:
   - dist/**/*
   - desktop/main.cjs
   - desktop/preload.cjs
+  - desktop/vst3-session.cjs
   - package.json
   - "!node_modules/**/*"
   - "!**/*.map"
@@ -18,6 +19,8 @@ files:
 extraResources:
   - from: native/bin/melorix-vst3-scan.exe
     to: vst3/melorix-vst3-scan.exe
+  - from: native/bin/melorix-vst3-session.exe
+    to: vst3/melorix-vst3-session.exe
 
 win:
   icon: desktop/melorix.ico
