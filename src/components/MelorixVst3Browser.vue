@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import {onMounted,ref} from 'vue'
+import {onMounted,onUnmounted,ref} from 'vue'
+import {Vst3PreviewPlayer} from '@/util/melorix-vst3-preview'
 
 const emit=defineEmits<{(event:'close'):void}>()
 const props=defineProps<{tracks:{id:number;label:string}[]}>()
@@ -15,6 +16,7 @@ type NativeApi={
  listVst3Tracks:()=>Promise<TrackStatus>
  openVst3Editor:(id:number)=>Promise<unknown>
  closeVst3Editor:(id:number)=>Promise<unknown>
+ auditionVst3Note:(track:number,pitch:number,velocity:number,durationMs:number)=>Promise<{audioBase64:string;peak:number;nonzeroSamples:number;track:number;format:'wav-f32';source:'vst3-process'}>
 }
 const api=(window as Window&{melorixDesktop?:NativeApi}).melorixDesktop
 const scanning=ref(false)
@@ -24,6 +26,21 @@ const scanned=ref(false)
 const selectedTrackId=ref<number|null>(null)
 const selectedPluginPath=ref('')
 const binding=ref(false)
+const hearingTrack=ref<number|null>(null)
+const auditionPeak=ref<number|null>(null)
+const preview=new Vst3PreviewPlayer()
+async function hearRealVst3(track:number){
+ if(!api?.auditionVst3Note||hearingTrack.value!==null)return
+ hearingTrack.value=track;routingError.value='';auditionPeak.value=null
+ try{
+  await preview.warmup()
+  const result=await preview.play(api,track,60,105,650)
+  auditionPeak.value=result.peak
+  if(result.nonzeroSamples===0)routingError.value='Plugin đã xử lý nốt nhưng chưa trả âm thanh. Kiểm tra nhạc cụ/NKI trong plugin.'
+ }catch(error){routingError.value=error instanceof Error?error.message:String(error)}
+ finally{hearingTrack.value=null}
+}
+
 const routingError=ref('')
 const loaded=ref<LoadedTrack[]>([])
 async function refreshBindings(){
@@ -78,6 +95,7 @@ async function scanInstalled(){
  }catch(cause){error.value=cause instanceof Error?cause.message:String(cause)}
  finally{scanning.value=false}
 }
+onUnmounted(()=>{void preview.dispose()})
 onMounted(()=>{
  selectedTrackId.value=props.tracks[0]?.id??null
  void scanInstalled()
@@ -109,7 +127,7 @@ onMounted(()=>{
    </div>
    <section v-if="api?.bindVst3Track" class="mx-vst3-assign-panel" aria-label="Gán nhạc cụ VST3 cho track">
      <strong>Gắn plugin vào track MIDI</strong>
-     <p>Chỉ chọn plugin đã quét từ máy. MELORIX chưa đưa tiếng VST3 vào thanh phát và chưa mở cửa sổ Kontakt.</p>
+     <p>Chỉ chọn plugin đã quét từ máy. Nút Nghe thử dùng PCM thực từ chính VST3 theo track; hiện là nghe thử offline, chưa phải âm thanh realtime khi Play.</p>
      <div class="mx-vst3-assign-row">
        <select v-model="selectedTrackId" :disabled="binding||!props.tracks.length" aria-label="Chọn track MIDI">
          <option v-for="part in props.tracks" :key="part.id" :value="part.id">{{ part.label }}</option>
@@ -124,9 +142,11 @@ onMounted(()=>{
      </div>
      <p v-if="!props.tracks.length">Chưa có track MIDI. Tạo hoặc nhập track trước khi gắn plugin.</p>
      <p v-if="routingError" class="mx-vst3-error" role="alert">{{ routingError }}</p>
+     <p v-if="auditionPeak!==null" role="status">Nguồn nghe thử: plugin VST3 thật · PCM float32 không nén · peak {{ auditionPeak.toFixed(3) }}. Đây là nghe thử offline, chưa phát liên tục từ Piano Roll.</p>
      <div v-for="slot in loaded" :key="slot.track" class="mx-vst3-loaded-row">
        <span>Track {{ slot.track }} — {{ slot.plugin }} <small>{{ slot.editorOpened?'Editor native đang mở · ':'Đã khởi tạo · ' }}chưa nối audio</small></span>
        <div class="mx-vst3-loaded-actions">
+         <button type="button" :disabled="binding||hearingTrack!==null" @click="hearRealVst3(slot.track)">{{ hearingTrack===slot.track?'Đang render…':'Nghe thử C4 từ VST3' }}</button>
          <button type="button" :disabled="binding" @click="toggleEditor(slot)">
            {{ slot.editorOpened?'Đóng giao diện':'Mở giao diện VST3' }}
          </button>
