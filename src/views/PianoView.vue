@@ -925,6 +925,9 @@ function processMidi(midi: Midi) {
   midiBridge.stopAll()
   pianoRollTrackId.value = null
   assignedTrackPresets.value={}
+  // Do not retain GM instruments routed to disconnected buses from the previous MIDI.
+  gmEngine?.stop();gmEngine=null
+  stopPianoTrackSamples()
   clearTrackAudioOutputs()
   trackVolumeLevels.value={}
   importedMidiPrograms.value=Object.fromEntries(midi.tracks.map((track,index)=>[index,
@@ -941,6 +944,9 @@ function processMidi(midi: Midi) {
   lastScheduledIdx = 0
   keyState.value = {}
   updateNoteRange()
+  // Start loading bundled piano recordings as soon as the MIDI has been parsed,
+  // not only after the first Play click. No AudioContext resume is required here.
+  if(audioCtx.value)preloadGmForEnabledTracks()
 }
 function openPianoRoll(id: number) {
   if (exporting.value || !midiParts.value.some(part => part.id === id)) return
