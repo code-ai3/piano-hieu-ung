@@ -10,4 +10,5 @@ contextBridge.exposeInMainWorld('melorixDesktop',Object.freeze({
   listVst3Tracks:()=>ipcRenderer.invoke('melorix:vst3:tracks'),
   openVst3Editor:(trackId)=>ipcRenderer.invoke('melorix:vst3:editor-open',trackId),
   closeVst3Editor:(trackId)=>ipcRenderer.invoke('melorix:vst3:editor-close',trackId),
+  auditionVst3Note:(trackId,pitch,velocity,durationMs)=>ipcRenderer.invoke('melorix:vst3:audition',trackId,pitch,velocity,durationMs),
 }))
