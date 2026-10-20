@@ -199,6 +199,23 @@ app.whenReady().then(() => {
     if(!validTrackId(trackId))throw new Error('Track MIDI không hợp lệ')
     return getVst3Session().request('UNLOAD\t'+trackId)
   })
+  ipcMain.handle('melorix:vst3:live-start',async(event,trackId)=>{
+    if(!trustedNativeSender(event))throw new Error('Nguồn gọi WASAPI không hợp lệ')
+    if(!validTrackId(trackId))throw new Error('Track MIDI không hợp lệ')
+    return getVst3Session().request('LIVE_START\t'+trackId)
+  })
+  ipcMain.handle('melorix:vst3:live-stop',async(event)=>{
+    if(!trustedNativeSender(event))throw new Error('Nguồn gọi WASAPI không hợp lệ')
+    return getVst3Session().request('LIVE_STOP')
+  })
+  ipcMain.handle('melorix:vst3:live-note',async(event,trackId,pitch,velocity)=>{
+    if(!trustedNativeSender(event))throw new Error('Nguồn gọi WASAPI không hợp lệ')
+    if(!validTrackId(trackId)||!Number.isInteger(pitch)||pitch<0||pitch>127||
+        !Number.isInteger(velocity)||velocity<0||velocity>127){
+      throw new Error('Dữ liệu note MIDI không hợp lệ')
+    }
+    return getVst3Session().request('LIVE_NOTE\t'+trackId+'\t'+pitch+'\t'+velocity)
+  })
   ipcMain.handle('melorix:vst3:audition',async(event,trackId,pitch,velocity,durationMs)=>{
     if(!trustedNativeSender(event))throw new Error('Nguồn gọi VST3 không được phép')
     if(!validTrackId(trackId)||!Number.isInteger(pitch)||pitch<0||pitch>127||
