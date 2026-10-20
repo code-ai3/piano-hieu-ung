@@ -6,6 +6,7 @@ const main=readFileSync(new URL('../desktop/main.cjs',import.meta.url),'utf8')
 const preload=readFileSync(new URL('../desktop/preload.cjs',import.meta.url),'utf8')
 const player=readFileSync(new URL('../src/util/melorix-vst3-preview.ts',import.meta.url),'utf8')
 const ui=readFileSync(new URL('../src/components/MelorixVst3Browser.vue',import.meta.url),'utf8')
+const piano=readFileSync(new URL('../src/views/PianoView.vue',import.meta.url),'utf8')
 for(const marker of [
  'component->queryInterface(IAudioProcessor::iid',
  'component->getBusCount(kAudio,kOutput)',
@@ -36,4 +37,12 @@ assert.ok(player.includes('decodeAudioData('))
 assert.ok(player.includes('source:\'vst3-process\''))
 assert.ok(ui.includes('Nghe thử C4 từ VST3'))
 assert.ok(ui.includes('nghe thử offline'))
+assert.ok(ui.includes("'bindings-change'"))
+assert.ok(ui.includes("emit('bindings-change',loaded.value.map"))
+assert.ok(piano.includes('vst3AssignedTrackIds.value.has(targetTrack)'))
+assert.ok(piano.includes('vst3KeyPreview.play(vst3Api,targetTrack,midi,95,500,trackVolumePercent(targetTrack)/100)'))
+assert.ok(piano.includes('@bindings-change="onVst3BindingsChanged"'))
+assert.ok(piano.includes('void refreshVst3PianoBindings()'))
+assert.ok(piano.includes('void vst3KeyPreview.dispose()'))
+
 console.log('PASS: native 32-bit PCM output from real VST3, no disk writes, secure Electron bridge and truthful audition UI')
