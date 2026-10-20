@@ -51,9 +51,13 @@ type NoteEvent = MidiNoteEvent
 
 // ---- 状态 ----
 const playState = ref<'idle' | 'playing' | 'paused'>('idle')
-type Vst3TrackPreviewApi=Vst3PreviewApi&{listVst3Tracks:()=>Promise<{tracks:{track:number;componentInitialized:boolean}[]}>}
+type Vst3TrackPreviewApi=Vst3PreviewApi&{listVst3Tracks:()=>Promise<{audioConnected:boolean;liveTrack?:number;tracks:{track:number;componentInitialized:boolean}[]}>;sendLiveVst3Note:(track:number,pitch:number,velocity:number)=>Promise<unknown>}
 const vst3Api=(window as Window&{melorixDesktop?:Vst3TrackPreviewApi}).melorixDesktop
 const vst3AssignedTrackIds=ref<Set<number>>(new Set())
+const vst3LiveTrackId=ref<number|null>(null)
+let activeVst3KeyPitch:number|null=null
+let activeVst3ChordPitches:number[]=[]
+function onVst3LiveChanged(id:number|null){vst3LiveTrackId.value=id}
 const vst3KeyPreview=new Vst3PreviewPlayer()
 function onVst3BindingsChanged(ids:number[]){vst3AssignedTrackIds.value=new Set(ids)}
 async function refreshVst3PianoBindings(){
@@ -61,6 +65,7 @@ async function refreshVst3PianoBindings(){
  try{
   const snapshot=await vst3Api.listVst3Tracks()
   onVst3BindingsChanged(snapshot.tracks.filter(t=>t.componentInitialized).map(t=>t.track))
+  onVst3LiveChanged(snapshot.audioConnected?snapshot.liveTrack??null:null)
  }catch(error){console.warn('Cannot read assigned VST3 instruments:',error)}
 }
 const currentTime = ref(0)
@@ -1406,6 +1411,11 @@ function stopPianoAudition() {
  // A fast piano key release must not discard a pending PCM audition that
  // is still being rendered by the plugin. Stop the current sounding buffer.
  vst3KeyPreview.stop(false)
+ if(activeVst3KeyPitch!==null&&vst3LiveTrackId.value!==null&&vst3Api){
+  void vst3Api.sendLiveVst3Note(vst3LiveTrackId.value,activeVst3KeyPitch,0)
+   .catch(error=>console.warn('VST3 Note Off:',error))
+ }
+ activeVst3KeyPitch=null
  midiBridge.auditionStop()
  auditionRequest++
  stopSynthVoices(synthKeyVoices)
@@ -1416,6 +1426,12 @@ async function startPianoAudition(midi: number) {
  stopChordAudition()
  stopPianoAudition()
  const targetTrack=pianoRollTrackId.value
+ if(vst3Api && targetTrack!==null && vst3LiveTrackId.value===targetTrack){
+  activeVst3KeyPitch=midi
+  void vst3Api.sendLiveVst3Note(targetTrack,midi,95)
+    .catch(error=>{uploadError.value=error instanceof Error?error.message:String(error)})
+  return
+ }
  if(vst3Api && targetTrack!==null && vst3AssignedTrackIds.value.has(targetTrack)){
   uploadError.value=''
   void vst3KeyPreview.play(vst3Api,targetTrack,midi,95,500,trackVolumePercent(targetTrack)/100)
@@ -1440,6 +1456,12 @@ const CHORD_STOP_ID='melorix-editor-chord'
 let chordRequest=0
 let chordStopTimer:ReturnType<typeof setTimeout>|null=null
 function stopChordAudition(){
+ if(activeVst3ChordPitches.length&&vst3LiveTrackId.value!==null&&vst3Api){
+  for(const pitch of activeVst3ChordPitches){
+   void vst3Api.sendLiveVst3Note(vst3LiveTrackId.value,pitch,0).catch(error=>console.warn('VST3 chord off:',error))
+  }
+ }
+ activeVst3ChordPitches=[]
  chordRequest++
  midiBridge.auditionStop()
  stopSynthVoices(synthChordVoices)
@@ -1451,6 +1473,17 @@ async function startChordAudition(pitches:number[]){
  stopChordAudition()
  stopPianoAudition()
  const request=chordRequest
+ if(vst3Api&&vst3LiveTrackId.value===pianoRollTrackId.value){
+  const track=vst3LiveTrackId.value
+  if(track!==null){
+   activeVst3ChordPitches=pitches.slice()
+   for(const pitch of pitches){
+    void vst3Api.sendLiveVst3Note(track,pitch,95).catch(error=>{uploadError.value=String(error)})
+   }
+   chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
+   return
+  }
+ }
  midiBridge.auditionStart(pitches,trackMidiChannel(kontaktChannelForTrack(pianoRollTrackId.value??-1)))
  chordStopTimer=setTimeout(()=>{if(request===chordRequest)stopChordAudition()},1200)
  if(midiBridge.externalOnly)return
@@ -2684,7 +2717,7 @@ watch(() => currentTime.value, (t) => {
        @kontakt-enabled="activateKontaktOnly" @close="showMidiConnector = false" />
      <MelorixVst3Browser v-if="showVst3Browser"
        :tracks="midiParts.map(part=>({id:part.id,label:part.name}))"
-       @bindings-change="onVst3BindingsChanged"
+       @bindings-change="onVst3BindingsChanged" @live-change="onVst3LiveChanged"
        @close="showVst3Browser=false" />
     <MelorixPublishedLibrary v-if="showPublishedLibrary" @close="showPublishedLibrary=false" />
     <MelorixKontaktAudioCapture :key="captureSession" :open="showKontaktAudioCapture"
