@@ -97,6 +97,33 @@ async function onFileUpload(e: Event) {
   }
 }
 
+function attachOriginalAudioToCurrentMidi(event:Event){
+ const input=event.target as HTMLInputElement
+ const file=input.files?.[0]
+ input.value=''
+ if(!file||exporting.value)return
+ if(!file.type.startsWith('audio/')&&!/\.(wav|mp3|m4a|aac|flac|ogg|aiff?)$/i.test(file.name)){
+  uploadError.value='Hãy chọn bản thu âm gốc WAV, MP3 hoặc định dạng âm thanh trình duyệt đọc được.'
+  return
+ }
+ const track=currentTrack.value
+ if(!track)return
+ const wasPlaying=playState.value==='playing'
+ stop()
+ const old=track.originalAudioUrl
+ if(originalAudioPlayer){
+  originalAudioPlayer.pause()
+  originalAudioPlayer.removeAttribute('src')
+  originalAudioPlayer.load()
+ }
+ track.originalAudioUrl=URL.createObjectURL(file)
+ if(old)URL.revokeObjectURL(old)
+ useOriginalAudio.value=true
+ duration.value=allNotes.value.reduce((max,n)=>Math.max(max,n.time+n.duration),0)
+ uploadError.value=''
+ ensureOriginalAudioPlayer()
+ if(wasPlaying)void play()
+}
 async function handleAudioUpload(file: File) {
   converting.value = true
   try {
@@ -109,7 +136,10 @@ async function handleAudioUpload(file: File) {
     const blob = new Blob([bytes as BlobPart], { type: 'audio/midi' })
     const url = URL.createObjectURL(blob)
     const name = file.name.replace(/\.[^.]+$/, '')
-    playlist.value.push({ name: `${t('piano.aiTranscriptionLabel')} ${name}`, file: url })
+    // Keep the original local audio separately; MIDI is only a transcription.
+    // Playback and video export can now use the actual imported sound.
+    const originalAudioUrl=URL.createObjectURL(file)
+    playlist.value.push({ name: `${t('piano.aiTranscriptionLabel')} ${name}`, file: url, originalAudioUrl })
     loadTrack(playlist.value.length - 1)
   } catch (e: any) {
     console.error(e)
@@ -618,7 +648,7 @@ function hash(n: number) {
 }
 
 // ---- 播放列表 ----
-interface Track { name: string; file: string }
+interface Track { name: string; file: string; originalAudioUrl?: string }
 const playlist = ref<Track[]>([
   { name: 'Canon', file: '/midi/canon.mid' },
   { name: 'Kiss The Rain', file: '/midi/Kiss%20The%20Rain.mid' },
@@ -628,6 +658,60 @@ const currentTrackIdx = ref(0)
 const showPlaylist = ref(false)
 
 const currentTrack = computed(() => playlist.value[currentTrackIdx.value])
+const useOriginalAudio=ref(true)
+const hasOriginalAudio=computed(()=>Boolean(currentTrack.value?.originalAudioUrl))
+let originalAudioPlayer:HTMLAudioElement|null=null
+function originalAudioActive(){return hasOriginalAudio.value&&useOriginalAudio.value}
+function ensureOriginalAudioPlayer():HTMLAudioElement{
+ const url=currentTrack.value?.originalAudioUrl
+ if(!url)throw new Error('Bài này không có bản thu âm gốc')
+ if(!originalAudioPlayer){
+  originalAudioPlayer=new Audio()
+  originalAudioPlayer.preload='auto'
+  originalAudioPlayer.addEventListener('loadedmetadata',()=>{
+   if(!originalAudioActive())return
+   const length=originalAudioPlayer?.duration
+   if(length&&Number.isFinite(length))duration.value=Math.max(duration.value,length)
+  })
+ }
+ if(originalAudioPlayer.src!==url){
+  originalAudioPlayer.pause()
+  originalAudioPlayer.src=url
+  originalAudioPlayer.load()
+ }
+ // The browser preserves pitch when playbackRate differs from 1, where supported.
+ originalAudioPlayer.preservesPitch=true
+ originalAudioPlayer.playbackRate=1/Math.max(.25,speed.value)
+ return originalAudioPlayer
+}
+function pauseOriginalAudio(){originalAudioPlayer?.pause()}
+function onOriginalAudioModeChange(){
+ if(exporting.value)return
+ const wasPlaying=playState.value==='playing'
+ pauseOriginalAudio()
+ resetPiano()
+ playState.value='idle'
+ currentTime.value=0
+ lastScheduledIdx=0
+ keyState.value={}
+ // MIDI mode uses the edited MIDI duration; original mode uses the longer
+ // source recording if it contains tails or silence beyond the notes.
+ duration.value=allNotes.value.reduce((max,n)=>Math.max(max,n.time+n.duration),0)
+ if(originalAudioActive()){
+  const source=ensureOriginalAudioPlayer()
+  if(Number.isFinite(source.duration))duration.value=Math.max(duration.value,source.duration)
+ }
+ if(wasPlaying)void play()
+}
+watch(speed,()=>{if(originalAudioPlayer)originalAudioPlayer.playbackRate=1/Math.max(.25,speed.value)})
+async function decodeOriginalAudio(url:string):Promise<AudioBuffer>{
+ const response=await fetch(url)
+ if(!response.ok)throw new Error('Không đọc được bản thu âm gốc')
+ const content=await response.arrayBuffer()
+ const context=new AudioContext()
+ try{return await context.decodeAudioData(content)}
+ finally{void context.close()}
+}
 const repeat = ref(false)
 const isFullscreen = ref(false)
 watch([videoFormat, isFullscreen], () => { void nextTick(fitPreviewCanvas) })
@@ -738,6 +822,10 @@ async function exportVideo() {
         throw new Error('Kontakt audio sync offset must be between -300 and 300 seconds')
       }
       audioBuf=alignKontaktAudio(kontaktAudioBuffer.value,exportSeconds,kontaktAudioOffset.value)
+    }else if(originalAudioActive()&&currentTrack.value?.originalAudioUrl){
+      const original=await decodeOriginalAudio(currentTrack.value.originalAudioUrl)
+      audioBuf=alignKontaktAudio(original,exportSeconds,0)
+      exportAudioNotice.value='Xuất âm thanh bản thu gốc; nốt MIDI chỉ dùng cho hình nốt rơi.'
     }else{
       const wavSamples=new Map<string,{buffer:AudioBuffer,root:number}>()
       for(const sample of localSamples.value){
@@ -772,7 +860,7 @@ async function exportVideo() {
 
     const vs = new VideoSampleSource({ codec: 'avc', bitrate: 8_000_000 })
     output.addVideoTrack(vs)
-    const as = new AudioSampleSource({ codec: 'aac', bitrate: 128000 })
+    const as = new AudioSampleSource({ codec: 'aac', bitrate: 256000 })
     output.addAudioTrack(as)
     await output.start()
 
@@ -897,7 +985,13 @@ function loadTrack(idx: number) {
   lastScheduledIdx = 0
   playState.value = 'idle'
   uploadError.value = ''
-  void loadMidi(playlist.value[idx].file).then(ok => { if (ok) void play() })
+  useOriginalAudio.value=true
+  pauseOriginalAudio()
+  void loadMidi(playlist.value[idx].file).then(ok=>{
+   if(!ok)return
+   if(hasOriginalAudio.value)ensureOriginalAudioPlayer()
+   void play()
+  })
 }
 
 function nextTrack() {
@@ -1166,7 +1260,7 @@ const midiPlaybackPlan=computed(()=>mergeOverlappingMidiNotes(notes.value.map(n=
 const AUDIO_LOOKAHEAD_SECONDS=.35
 function scheduleUpcomingAudio() {
  const ctx=audioCtx.value
- if(!ctx||midiBridge.externalOnly||ctx.state!=='running')return
+ if(originalAudioActive()||!ctx||midiBridge.externalOnly||ctx.state!=='running')return
  const targetTime=currentTime.value/speed.value
  for(let i=lastScheduledIdx;i<notes.value.length;i++){
   const n=notes.value[i]
@@ -1180,6 +1274,7 @@ function scheduleUpcomingAudio() {
  }
 }
 function scheduleAll() {
+ if(originalAudioActive())return
  scheduleUpcomingAudio()
  // Web MIDI is scheduled separately once at Play/seek/repeat; do not resend each animation frame.
  if(exporting.value)return
@@ -1201,7 +1296,11 @@ async function play() {
   pianoLoading = true
   const request=++playRequest
   try {
-    if(!midiBridge.externalOnly){
+    if(originalAudioActive()){
+      const original=ensureOriginalAudioPlayer()
+      original.currentTime=Math.max(0,currentTime.value/Math.max(.25,speed.value))
+      await original.play()
+    }else if(!midiBridge.externalOnly){
       const ctx=await prepareAudioContext()
       preloadGmForEnabledTracks()
       void erhuWebSampler.init()
@@ -1222,6 +1321,7 @@ async function play() {
 }
 
 function resetPiano() {
+  pauseOriginalAudio()
   midiBridge.stopAll()
   stopPianoAudition()
   stopChordAudition()
@@ -1235,12 +1335,14 @@ function resetPiano() {
   pianoLoaded.value = false; initPianoPromise = null
 }
 
-function pause() { playRequest++; midiBridge.stopAll(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
+function pause() { playRequest++; pauseOriginalAudio(); midiBridge.stopAll(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
 function stop() {
   playRequest++
   playState.value = 'idle'; currentTime.value = 0
   lastScheduledIdx = 0; pianoLoading = false
-  resetPiano(); if(!midiBridge.externalOnly)void initPiano().catch(e=>console.warn('Piano preload:',e))
+  resetPiano()
+  if(originalAudioPlayer){try{originalAudioPlayer.currentTime=0}catch{}}
+  if(!midiBridge.externalOnly&&!originalAudioActive())void initPiano().catch(e=>console.warn('Piano preload:',e))
 }
 function togglePlay() { playState.value === 'playing' ? pause() : play() }
 async function testWebSound(){
@@ -1802,11 +1904,26 @@ function fmtTime(s: number) {
 // ---- RAF 循环 ----
 function loop() {
   if (playState.value === 'playing') {
-    currentTime.value += (performance.now() - lastFrameTime) / 1000
-    scheduleUpcomingAudio()
-    if (currentTime.value >= duration.value) {
-      if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; midiBridge.stopAll(); stopSynthVoices(synthScheduledVoices); piano?.stop(); scheduleAll() }
-      else { nextTrack() }
+    if(originalAudioActive()&&originalAudioPlayer){
+      // Keep MIDI falling-note visuals locked to the unmodified original recording.
+      currentTime.value=originalAudioPlayer.currentTime*speed.value
+      if(originalAudioPlayer.ended){
+        if(repeat.value){
+          originalAudioPlayer.currentTime=0
+          currentTime.value=0
+          void originalAudioPlayer.play().catch(error=>{
+            console.warn('Cannot repeat original recording:',error)
+            stop()
+          })
+        }else nextTrack()
+      }
+    }else{
+      currentTime.value += (performance.now() - lastFrameTime) / 1000
+      scheduleUpcomingAudio()
+      if (currentTime.value >= duration.value) {
+        if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; midiBridge.stopAll(); stopSynthVoices(synthScheduledVoices); piano?.stop(); scheduleAll() }
+        else { nextTrack() }
+      }
     }
   }
   lastFrameTime = performance.now()
@@ -1891,6 +2008,15 @@ onUnmounted(() => {
   previewResizeObserver = null
   cancelAnimationFrame(rafId)
   resetPiano()
+  originalAudioPlayer?.pause()
+  if(originalAudioPlayer){
+   originalAudioPlayer.removeAttribute('src')
+   originalAudioPlayer.load()
+   originalAudioPlayer=null
+  }
+  for(const entry of playlist.value){
+   if(entry.originalAudioUrl)URL.revokeObjectURL(entry.originalAudioUrl)
+  }
 })
 
 // The timeline is a responsive overview; MIDI playback and export retain every note.
@@ -1994,6 +2120,11 @@ watch(() => currentTime.value, (t) => {
           </label>
           <label><i class="fas fa-wave-square mr-2"></i> Nhập âm thanh
             <input type="file" class="hidden" accept="audio/*" :disabled="loadingMidi || converting || exporting" @change="onFileUpload($event); closeMenus()">
+          </label>
+          <label title="Gắn một bản thu âm gốc vào MIDI đang mở, giữ nguyên track và nốt">
+            <i class="fas fa-link mr-2"></i> Gắn bản thu gốc vào MIDI
+            <input type="file" class="hidden" accept="audio/*,.wav,.mp3,.flac,.m4a"
+              :disabled="loadingMidi || converting || exporting" @change="attachOriginalAudioToCurrentMidi($event); closeMenus()">
           </label>
           <button type="button" @click="showPlaylist = !showPlaylist"><i class="fas fa-folder-open mr-2"></i> Thư viện bài nhạc</button>
           <button type="button" :disabled="exporting || !allNotes.length" @click="downloadEditedMidi"><i class="fas fa-save mr-2"></i> Lưu MIDI đã chỉnh (.mid)</button>
@@ -2340,7 +2471,8 @@ watch(() => currentTime.value, (t) => {
               <input v-model.number="kontaktAudioOffset" type="number" step="0.1" min="-300" max="300" aria-label="Độ lệch âm thanh Kontakt (giây)">
               <small>+ làm tiếng bắt đầu trễ; − cắt đoạn đầu âm thanh thu. Thường để 0 nếu đã thu từ lúc MELORIX phát bài.</small>
             </label>
-            <p v-if="!kontaktAudioBuffer" role="note">MP4 dùng bản phối đa nhạc cụ (Piano, GM, trống, Synth, WAV cá nhân), giữ Volume và biểu cảm. NKI chưa có mẫu web sẽ dùng GM thay thế; nếu tải GM thất bại sẽ dùng tiếng dự phòng.</p>
+            <p v-if="hasOriginalAudio && useOriginalAudio && !useKontaktAudio" role="note">Đang giữ bản thu âm gốc khi xuất MP4. Bản thu không bị thay bằng GM và không thay đổi khi sửa nốt MIDI.</p>
+            <p v-else-if="!kontaktAudioBuffer || !useKontaktAudio" role="note">MP4 dựng lại âm thanh từ MIDI bằng Piano/GM/Drums/Synth. MIDI không chứa âm sắc và hiệu ứng trong bản thu gốc.</p>
              <p v-if="exportAudioNotice" role="status">{{ exportAudioNotice }}</p>
             <button type="button" @click="openKontaktAudioCapture">{{ kontaktAudioBuffer ? 'Thay / nghe lại bản thu Kontakt' : 'Thu hoặc nhập âm thanh Kontakt' }}</button>
           </div>
@@ -2385,6 +2517,12 @@ watch(() => currentTime.value, (t) => {
         </button>
         <!-- 当前曲目 -->
         <span class="text-xs text-black/50 dark:text-white/50 truncate flex-1 min-w-0">{{ currentTrack?.name || '--' }}</span>
+         <label v-if="hasOriginalAudio" class="mx-original-audio-toggle"
+           title="Bản thu gốc không chịu Mute/Volume của từng track. Sửa nốt MIDI không đổi bản thu. Tắt để nghe MIDI dựng lại.">
+           <input type="checkbox" v-model="useOriginalAudio" :disabled="exporting" @change="onOriginalAudioModeChange">
+           <i class="fas fa-wave-square" aria-hidden="true"></i>
+           <span>{{ useOriginalAudio ? 'Bản thu gốc' : 'Âm thanh MIDI' }}</span>
+         </label>
         <!-- 单曲循环 -->
         <button @click="repeat = !repeat" class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border border-[rgba(255,255,255,0.5)] shadow-glass-light transition-all duration-300 hover:-translate-y-px hover:shadow-glass-hover-light active:translate-y-0 dark:shadow-none"
           :class="repeat
