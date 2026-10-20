@@ -33,7 +33,7 @@ export class ErhuWebSampler {
   await this.init()
   if(!this.ready)throw Error('Không giải mã được bộ WAV Erhu')
  }
- play(ctx:AudioContext,note:number,velocity:number,when:number,duration:number,onEnd:()=>void):Voice|null{
+ play(ctx:AudioContext,note:number,velocity:number,when:number,duration:number,onEnd:()=>void,destination:AudioNode=ctx.destination):Voice|null{
   const root=nearestErhuSample(note,[...this.bank.keys()])
   if(root===null)return null
   const sample=this.bank.get(root)
@@ -48,7 +48,7 @@ export class ErhuWebSampler {
   gain.gain.linearRampToValueAtTime(level,t+.012)
   gain.gain.setValueAtTime(level,t+length)
   gain.gain.linearRampToValueAtTime(.0001,t+length+.1)
-  source.connect(gain);gain.connect(ctx.destination)
+  source.connect(gain);gain.connect(destination)
   source.onended=()=>{onEnd();try{source.disconnect();gain.disconnect()}catch{}}
   source.start(t)
   source.stop(t+length+.12)
