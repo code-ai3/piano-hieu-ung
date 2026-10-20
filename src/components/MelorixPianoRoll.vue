@@ -2,6 +2,7 @@
 import { computed, ref, watch, nextTick, onUnmounted } from 'vue'
 import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
 import { midiNoteName, snapMidiTime } from '@/util/midi-edit'
+import { midiDrawRange } from '@/util/melorix-note-draw'
 import { playheadLeft, rulerSeekTime } from '@/util/piano-roll-playhead'
 import { cloneNotes, sameNotes, copyMidiNotes, pasteMidiNotes, moveMidiNotes, selectMidiInBox } from '@/util/piano-roll-selection'
 import { midiGridStep, quantizeMidiNotes } from '@/util/piano-roll-quantize'
@@ -55,7 +56,7 @@ const humanizeAmount=ref(12)
 const velocityDrawing=ref(false)
 const velocityWindow=ref<HTMLElement|null>(null)
 let humanizeSeed=0
-const tool=ref<'select'|'draw'|'erase'>('select')
+const tool=ref<'select'|'draw'|'erase'>('draw')
 const draft=ref<MidiNoteEvent[]>([])
 const selected=ref(-1)
 const selectedIndices=ref<number[]>([])
@@ -125,9 +126,69 @@ function gridPointer(e:PointerEvent){
  const el=gridRef.value
  if(!el)return {x:0,y:0}
  const rect=el.getBoundingClientRect()
- return {x:Math.max(KEY_W,e.clientX-rect.left),y:Math.max(0,e.clientY-rect.top)}
+ return {x:Math.max(KEY_W,Math.min(gridWidth.value,e.clientX-rect.left)),
+  y:Math.max(0,Math.min(ROW*(HIGH-LOW+1)-1,e.clientY-rect.top))}
 }
 const gridRef=ref<HTMLElement|null>(null)
+// Draw into draft reactively; one commit on pointerup preserves undo as one action.
+let drawing:{index:number;anchorSeconds:number;startClientX:number;pointerId:number;before:MidiNoteEvent[]}|null=null
+function beginNoteDraw(e:PointerEvent){
+ if(props.disabled||drawing||(e.pointerType==='mouse'&&e.button!==0))return
+ const point=gridPointer(e)
+ if(point.x<=KEY_W)return
+ e.preventDefault()
+ rollRoot.value?.focus({preventScroll:true})
+ const anchorSeconds=Math.max(0,(point.x-KEY_W)/pixelsPerSecond.value)
+ const pitch=snapToCurrentScale(yToMidi(point.y))
+ const range=midiDrawRange(anchorSeconds,anchorSeconds,snap.value)
+ const before=cloneNotes(draft.value)
+ const index=draft.value.length
+ draft.value.push({
+  trackId:props.part.id,midi:pitch,name:midiNoteName(pitch),
+  time:range.time,duration:range.duration,velocity:95/127
+ })
+ setSelection([index])
+ drawing={index,anchorSeconds,startClientX:e.clientX,pointerId:e.pointerId,before}
+ window.addEventListener('pointermove',moveNoteDraw)
+ window.addEventListener('pointerup',finishNoteDraw)
+ window.addEventListener('pointercancel',cancelNoteDraw)
+}
+function moveNoteDraw(e:PointerEvent){
+ const state=drawing
+ if(!state||state.pointerId!==e.pointerId)return
+ const point=gridPointer(e)
+ const currentSeconds=Math.max(0,(point.x-KEY_W)/pixelsPerSecond.value)
+ const moved=Math.abs(e.clientX-state.startClientX)>3
+ const range=midiDrawRange(state.anchorSeconds,currentSeconds,snap.value,moved)
+ const original=draft.value[state.index]
+ if(original)draft.value[state.index]={...original,...range}
+}
+function clearNoteDrawListeners(){
+ window.removeEventListener('pointermove',moveNoteDraw)
+ window.removeEventListener('pointerup',finishNoteDraw)
+ window.removeEventListener('pointercancel',cancelNoteDraw)
+}
+function finishNoteDraw(e:PointerEvent){
+ const state=drawing
+ if(!state||state.pointerId!==e.pointerId)return
+ moveNoteDraw(e)
+ drawing=null
+ clearNoteDrawListeners()
+ commit(state.before)
+}
+function cancelNoteDraw(e?:PointerEvent){
+ if(!drawing||(e&&drawing.pointerId!==e.pointerId))return
+ draft.value=cloneNotes(drawing.before)
+ setSelection([])
+ drawing=null
+ clearNoteDrawListeners()
+}
+function gridDown(e:PointerEvent){
+ const target=e.target as HTMLElement
+ if(target.closest('.mx-roll-note,.mx-roll-keys'))return
+ if(tool.value==='draw')beginNoteDraw(e)
+ else if(tool.value==='select')startMarquee(e)
+}
 function startMarquee(e:PointerEvent){
  if(props.disabled||e.button!==0)return
  e.preventDefault()
@@ -372,7 +433,7 @@ function removeNote(index:number){
  commit(before)
 }
 function onGridDouble(e:MouseEvent){
- if(props.disabled)return
+ if(props.disabled||tool.value!=='select')return
  const grid=e.currentTarget as HTMLElement;const r=grid.getBoundingClientRect()
  const time=snapAt(e.clientX-r.left), pitch=snapToCurrentScale(yToMidi(e.clientY-r.top))
  const before=cloneNotes(draft.value)
@@ -380,8 +441,15 @@ function onGridDouble(e:MouseEvent){
  setSelection([draft.value.length-1])
  commit(before)
 }
-function noteDown(e:PointerEvent,index:number){if(tool.value==='erase'){removeNote(index);return}startDrag(e,index,'move')}
-function noteDbl(e:MouseEvent,index:number){e.stopPropagation();removeNote(index)}
+function noteDown(e:PointerEvent,index:number){
+ if(e.pointerType==='mouse'&&e.button!==0)return
+ if(tool.value==='erase'){e.preventDefault();removeNote(index);return}
+ startDrag(e,index,'move')
+}
+function noteDbl(e:MouseEvent,index:number){
+ e.stopPropagation()
+ if(tool.value==='erase')removeNote(index)
+}
 function pitchAtPointer(e:PointerEvent):number|null{
  const area=scroll.value
  if(!area)return null
@@ -421,8 +489,8 @@ function onKeyLostCapture(e:PointerEvent){
  if(auditionPointerId===e.pointerId)stopKeyAudition()
 }
 function keyLabel(midi:number){return midiNoteName(midi)}
-watch(()=>props.disabled,disabled=>{if(disabled){stopKeyAudition();if(painting){draft.value=painting.before;painting=null}}})
-onUnmounted(()=>{stopDrag();painting=null;window.removeEventListener('pointermove',moveVelocityDraw);window.removeEventListener('pointerup',endVelocityDraw);window.removeEventListener('pointercancel',endVelocityDraw);window.removeEventListener('pointermove',moveMarquee);window.removeEventListener('pointerup',stopMarquee);stopKeyAudition()})
+watch(()=>props.disabled,disabled=>{if(disabled){stopKeyAudition();cancelNoteDraw();if(painting){draft.value=painting.before;painting=null}}})
+onUnmounted(()=>{stopDrag();cancelNoteDraw();painting=null;window.removeEventListener('pointermove',moveVelocityDraw);window.removeEventListener('pointerup',endVelocityDraw);window.removeEventListener('pointercancel',endVelocityDraw);window.removeEventListener('pointermove',moveMarquee);window.removeEventListener('pointerup',stopMarquee);stopKeyAudition()})
 </script>
 
 <template>
@@ -433,7 +501,7 @@ onUnmounted(()=>{stopDrag();painting=null;window.removeEventListener('pointermov
       <span class="mx-roll-stats">{{ draft.length }} nốt · {{ Math.round(bpm) }} BPM</span>
       <span class="mx-roll-grow"></span>
       <label>Công cụ <select v-model="tool" :disabled="disabled">
-        <option value="select">Di chuyển / Chỉnh</option><option value="erase">Xóa nốt</option>
+        <option value="draw">Vẽ nốt</option><option value="select">Chọn / Di chuyển</option><option value="erase">Xóa nốt</option>
       </select></label>
       <label>Snap <select v-model.number="snapDivision">
         <option :value="0">Tắt</option><option :value="4">1/4</option><option :value="8">1/8</option>
@@ -445,6 +513,16 @@ onUnmounted(()=>{stopDrag();painting=null;window.removeEventListener('pointermov
     </div>
     <div class="mx-roll-editbar mx-roll-editbar-compact" aria-label="Công cụ soạn MIDI">
       <strong class="mx-roll-selection-count" :title="selectionCount + ' nốt được chọn'">{{ selectionCount }} chọn</strong>
+       <button type="button" class="mx-roll-tool" :class="{ 'mx-roll-tool-active': tool==='draw' }"
+         :aria-pressed="tool==='draw'" title="Vẽ: kéo trên ô trống để tạo nốt có độ dài theo Snap"
+         :disabled="disabled" @click="tool='draw'"><i class="fas fa-pencil-alt"></i> Vẽ</button>
+       <button type="button" class="mx-roll-tool" :class="{ 'mx-roll-tool-active': tool==='select' }"
+         :aria-pressed="tool==='select'" title="Chọn: bấm nốt hoặc kéo chọn nhiều nốt"
+         :disabled="disabled" @click="tool='select'"><i class="fas fa-mouse-pointer"></i> Chọn</button>
+       <button type="button" class="mx-roll-tool" :class="{ 'mx-roll-tool-active': tool==='erase' }"
+         :aria-pressed="tool==='erase'" title="Xóa: bấm vào nốt để xóa (Ctrl+Z hoàn tác)"
+         :disabled="disabled" @click="tool='erase'"><i class="fas fa-eraser"></i> Xóa</button>
+       <span class="mx-roll-separator"></span>
       <button type="button" title="Chọn tất cả · Ctrl+A" aria-label="Chọn tất cả" :disabled="disabled || !draft.length" @click="setSelection(draft.map((_,i)=>i))"><i class="fas fa-object-group"></i></button>
       <button type="button" title="Sao chép · Ctrl+C" aria-label="Sao chép" :disabled="disabled || !selectionCount" @click="copySelection"><i class="fas fa-copy"></i></button>
       <button type="button" title="Dán · Ctrl+V" aria-label="Dán" :disabled="disabled || !clipboard.length" @click="pasteSelection()"><i class="fas fa-paste"></i></button>
@@ -539,7 +617,7 @@ onUnmounted(()=>{stopDrag();painting=null;window.removeEventListener('pointermov
       </div>
     </div>
     <div ref="scroll" class="mx-roll-scroll" @scroll="syncScroll">
-      <div ref="gridRef" class="mx-roll-grid" @pointerdown.self="startMarquee" :style="{ width: gridWidth + 'px', height: ROW * (HIGH - LOW + 1) + 'px', backgroundSize: (snap ? Math.max(8, snap * pixelsPerSecond) : 60 / Math.max(20, bpm) * pixelsPerSecond) + 'px ' + ROW + 'px', backgroundPositionX: KEY_W + 'px' }" @dblclick.self="onGridDouble">
+      <div ref="gridRef" class="mx-roll-grid" :class="{ 'mx-roll-grid-draw':tool==='draw', 'mx-roll-grid-erase':tool==='erase' }" @pointerdown="gridDown" :style="{ width: gridWidth + 'px', height: ROW * (HIGH - LOW + 1) + 'px', backgroundSize: (snap ? Math.max(8, snap * pixelsPerSecond) : 60 / Math.max(20, bpm) * pixelsPerSecond) + 'px ' + ROW + 'px', backgroundPositionX: KEY_W + 'px' }" @dblclick.self="onGridDouble">
         <div class="mx-roll-keys" role="group" aria-label="Bàn phím Piano để nghe thử nốt"
           @pointerdown.stop="onKeyPointerDown" @pointermove.stop="onKeyPointerMove"
           @pointerup.stop="onKeyPointerUp" @pointercancel.stop="onKeyPointerUp"
@@ -554,9 +632,9 @@ onUnmounted(()=>{stopDrag();painting=null;window.removeEventListener('pointermov
         <div v-for="(note, i) in draft" :key="i" class="mx-roll-note" :class="{ selected: selectedIndices.includes(i), sounding: playing && currentTime >= note.time && currentTime < note.time + note.duration, 'off-scale': scaleHighlight && !isPitchInScale(note.midi,scaleRoot,scaleMode) }"
           :title="note.name + ' · ' + note.time.toFixed(2) + 's · Velocity ' + Math.round(note.velocity * 127)"
           :style="{ left: KEY_W + note.time * pixelsPerSecond + 'px', top: (HIGH - note.midi) * ROW + 1 + 'px', width: Math.max(5, note.duration * pixelsPerSecond) + 'px', height: ROW - 2 + 'px', backgroundColor: part.color }"
-          @pointerdown.stop="noteDown($event, i)" @dblclick.stop="noteDbl($event, i)">
+          @pointerdown.stop="noteDown($event, i)" @dblclick.stop="noteDbl($event, i)" @contextmenu.prevent.stop="removeNote(i)">
           <span class="mx-roll-note-label">{{ note.name }}</span>
-          <span class="mx-roll-resize" title="Kéo để đổi độ dài" @pointerdown.stop="startDrag($event, i, 'resize')"></span>
+          <span class="mx-roll-resize" title="Kéo để đổi độ dài" @pointerdown.stop="tool==='erase'?removeNote(i):startDrag($event, i, 'resize')"></span>
         </div>
         <div v-if="marquee" class="mx-roll-marquee" :style="{
           left: Math.min(marquee.x1,marquee.x2)+'px', top: Math.min(marquee.y1,marquee.y2)+'px',
@@ -579,6 +657,6 @@ onUnmounted(()=>{stopDrag();painting=null;window.removeEventListener('pointermov
           @pointerdown.prevent="velocityBarDown($event, i)"></span>
       </div>
     </div>
-    <div class="mx-roll-hint">Nhấp đúp thêm nốt · Kéo để sửa · Ctrl+Z hoàn tác · Nhịp / Velocity / Scale / Hợp âm: mở công cụ nâng cao</div>
+    <div class="mx-roll-hint">Vẽ: kéo trên lưới để tạo nốt · Chọn: kéo nốt/đổi độ dài · Xóa: Delete, chuột phải hoặc thùng rác · Ctrl+Z hoàn tác</div>
   </section>
 </template>
