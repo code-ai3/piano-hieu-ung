@@ -256,3 +256,5 @@
 .mx-track-add-choices button:hover:not(:disabled){background:#654528;border-color:#d49b57}
 .mx-track-add-choices button:disabled{opacity:.45;cursor:not-allowed}
 .mx-track-add-choices small{color:#9cadc2;font-size:10px;line-height:1.5}
+
+.mx-track-native-state{font-size:9px!important;color:#f7ba77;border:1px solid #936d42;border-radius:4px;padding:2px 5px;background:#322a25;white-space:nowrap}
