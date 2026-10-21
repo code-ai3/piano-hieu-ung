@@ -28,5 +28,7 @@ for(const token of [
 ])assert.ok(view.includes(token),token)
 const menu=view.match(/<summary>Nhạc cụ<\/summary><div class="mx-menu-pop"[^>]*>([\s\S]*?)<\/div><\/details>/)?.[1]
 assert.ok(menu)
-assert.equal((menu.match(/<button /g)||[]).length,2,'Keep the two-item instrument menu unchanged')
+assert.equal((menu.match(/<button /g)||[]).length,3,'Keep GM library and add native Instrument Track beside MIDI Track')
+assert.match(menu,/Thêm Instrument Track VST3/)
+assert.match(menu,/Thêm MIDI Track \/ nhạc cụ web/)
 console.log('PASS: 128 GM programs, percussion channel/name, sample fallback, track and audition routing')

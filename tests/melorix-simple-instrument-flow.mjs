@@ -5,8 +5,9 @@ const library=readFileSync(new URL('../src/components/MelorixPublishedLibrary.vu
 const manifest=JSON.parse(readFileSync(new URL('../public/instruments/catalog.json',import.meta.url),'utf8'))
 const menu=piano.match(/<summary>Nhạc cụ<\/summary><div class="mx-menu-pop"[^>]*>([\s\S]*?)<\/div><\/details>/)?.[1]
 assert.ok(menu,'Instrument menu must exist')
-assert.equal((menu.match(/<button /g)||[]).length,2,'Instrument menu should only have Add Track and View Library')
-assert.match(menu,/Thêm track/)
+assert.equal((menu.match(/<button /g)||[]).length,3,'Instrument menu should include Instrument Track, MIDI Track and View Library')
+assert.match(menu,/Thêm Instrument Track VST3/)
+assert.match(menu,/Thêm MIDI Track \/ nhạc cụ web/)
 assert.match(menu,/Xem thư viện nhạc cụ/)
 assert.ok(!menu.includes('openMidiConnector'),'No MIDI connection button in ordinary instrument menu')
 assert.ok(!menu.includes('openKontaktRouter'),'No multi-route config in ordinary instrument menu')
