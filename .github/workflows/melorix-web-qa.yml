@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/melorix-web-audit-round1
+      - fix/melorix-web-silence-after-stop-5a
       - feature/melorix-mp4-multitrack-audio
       - feature/melorix-track-select-delete
       - feature/melorix-piano-roll-draw-delete
