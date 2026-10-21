@@ -194,6 +194,7 @@ const showVst3Browser=ref(false)
 const showNativeInstrumentCreator=ref(false)
 const nativeTrackBusy=ref(false)
 const showTrackAddMenu=ref(false)
+const newNativeTrackIds=ref<Set<number>>(new Set())
 const vst3QaBusy=ref(false)
 function onVst3DiagnosticChange(busy:boolean){vst3QaBusy.value=busy}
 // Only native Electron preload exposes the read-only local VST3 scanner.
@@ -555,6 +556,7 @@ async function createNativeInstrumentTracks(request:NativeInstrumentRequest){
   kontaktTrackChannels.value=channels
   assignedTrackPresets.value={...assignedTrackPresets.value,
    ...Object.fromEntries(batch.map(item=>[item.part.id,'piano' as TrackInstrument]))}
+  newNativeTrackIds.value=new Set([...newNativeTrackIds.value,...batch.map(item=>item.part.id)])
   onVst3BindingsChanged([...vst3AssignedTrackIds.value,...batch.map(item=>item.part.id)])
   selectedTrackId.value=batch[0]?.part.id??null
   lastScheduledIdx=0
@@ -627,6 +629,7 @@ function deleteMidiTrack(id:number){
  kontaktTrackNames.value=omitTrackSetting(kontaktTrackNames.value,id)
  trackVolumeLevels.value=omitTrackSetting(trackVolumeLevels.value,id)
  pedalByTrack.value=omitTrackSetting(pedalByTrack.value,id)
+ newNativeTrackIds.value=new Set([...newNativeTrackIds.value].filter(other=>other!==id))
  if(vst3AssignedTrackIds.value.has(id)&&vst3Api?.unbindVst3Track){
   onVst3BindingsChanged([...vst3AssignedTrackIds.value].filter(other=>other!==id))
   void vst3Api.unbindVst3Track(id).catch(error=>{uploadError.value='Không giải phóng được VST3: '+String(error)})
@@ -1175,6 +1178,7 @@ function processMidi(midi: Midi) {
   stopPianoTrackSamples()
   clearTrackAudioOutputs()
   trackVolumeLevels.value={}
+  newNativeTrackIds.value=new Set()
   vst3Pedal?.stop()
   pedalByTrack.value=Object.fromEntries(midi.tracks.map((track,id)=>[
     id,normalizePedalPoints((track.controlChanges[64]??[]).map(cc=>({time:cc.time,value:cc.value*127})))
@@ -1384,7 +1388,9 @@ function scheduleUpcomingAudio() {
   if(delay>AUDIO_LOOKAHEAD_SECONDS)break
   lastScheduledIdx=i+1
   // When resuming/starting mid-song do not retrigger older notes.
-  if(delay<-.035||vst3Song?.isPlayingTrack(n.trackId))continue
+  // A native-only Instrument Track must not secretly sound like the WebAudio GM piano.
+  // Only the one active WASAPI track is audible until the native multitrack mixer exists.
+  if(delay<-.035||vst3Song?.isPlayingTrack(n.trackId)||newNativeTrackIds.value.has(n.trackId))continue
   playTrackVoice(ctx,n.trackId,n.midi,n.velocity*127,
     ctx.currentTime+Math.max(.005,delay),n.duration*speed.value,synthScheduledVoices,undefined,n.time)
  }
@@ -2424,6 +2430,7 @@ watch(() => currentTime.value, (t) => {
                  @click.stop="openInstrumentEditorForTrack(part.id)">VST3 <i class="fas fa-external-link-alt"></i></button>
               <button type="button" class="mx-kontakt-route-trigger" :disabled="exporting" @click="openKontaktRouter">Ch {{ kontaktChannelForTrack(part.id) }}</button>
               <span>{{ part.noteCount }} nốt</span>
+              <span v-if="newNativeTrackIds.has(part.id)" class="mx-track-native-state" :title="vst3LiveTrackId===part.id?'VST3 đang phát':'Cần bật WASAPI cho track này'">{{vst3LiveTrackId===part.id?'VST3 live':'VST3 chờ'}}</span>
               <input type="color" :value="part.color" :disabled="exporting" :aria-label="'Màu ' + part.name" @input="onPartColorInput(part.id, $event)">
             </div>
             <label class="mx-track-volume" :class="{ 'mx-track-volume-zero': trackVolumePercent(part.id) === 0 }">
