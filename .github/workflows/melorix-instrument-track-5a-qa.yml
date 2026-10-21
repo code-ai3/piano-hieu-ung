@@ -17,6 +17,7 @@ on:
       - .github/workflows/melorix-instrument-track-5a-qa.yml
       - tests/melorix-instrument-track-create.mjs
       - tests/melorix-simple-instrument-flow.mjs
+      - tests/melorix-gm-audio.mjs
       - desktop/**
       - native/vst3-scan/**
       - native/vst3-host/**
