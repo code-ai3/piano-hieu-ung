@@ -21,7 +21,7 @@ const showPedalPreview=ref(false)
 const pedalUndo=ref<PedalPoint[]|null>(null)
 const pedalSuggestion=computed(()=>suggestAutoPedal(draft.value,pedalMode.value,props.bpm))
 const displayedPedal=computed(()=>showPedalPreview.value?pedalSuggestion.value:props.pedal)
-const pedalSegments=computed(()=>pedalIntervals(displayedPedal.value,Math.max(props.duration,...draft.value.map(n=>n.time+n.duration),0)+5))
+const pedalSegments=computed(()=>pedalIntervals(displayedPedal.value,Math.max(props.duration,draft.value.reduce((end,n)=>Math.max(end,n.time+n.duration),0))+5))
 function suggestPedal(){showPedalPreview.value=true}
 function applyPedal(){
  if(props.disabled||!pedalSuggestion.value.length)return
