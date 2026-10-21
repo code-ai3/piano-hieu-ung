@@ -66,10 +66,21 @@ public:
   const auto result=AudioEffect::initialize(context);
   if(result==kResultOk){
    addAudioOutput(STR16("Stereo Out"), SpeakerArr::kStereo);
+#ifdef MELORIX_TEST_MULTIBUS
+   // CI-only Kontakt-like second output requires two ProcessData bus buffers.
+   addAudioOutput(STR16("Aux Out"), SpeakerArr::kStereo, kAux, 0);
+#endif
    addEventInput(STR16("MIDI Event Input"),1);
   }
   return result;
  }
+ #ifdef MELORIX_TEST_MULTIBUS
+ tresult PLUGIN_API setBusArrangements(SpeakerArrangement* inputs,int32 nIn,
+    SpeakerArrangement* outputs,int32 nOut) override {
+  if(nIn!=0||nOut!=2)return kResultFalse;
+  return AudioEffect::setBusArrangements(inputs,nIn,outputs,nOut);
+ }
+#endif
  tresult PLUGIN_API canProcessSampleSize(int32 size) override {
   return size==kSample32?kResultOk:kResultFalse;
  }
@@ -82,6 +93,12 @@ public:
  tresult PLUGIN_API process(ProcessData& data) override {
   if(data.numOutputs<1||!data.outputs||data.outputs[0].numChannels<2||
      data.symbolicSampleSize!=kSample32)return kResultFalse;
+  #ifdef MELORIX_TEST_MULTIBUS
+  if(data.numOutputs!=2||data.outputs[1].numChannels!=2||
+     !data.outputs[1].channelBuffers32||
+     !data.outputs[1].channelBuffers32[0]||
+     !data.outputs[1].channelBuffers32[1])return kResultFalse;
+#endif
   const auto& bus=data.outputs[0];
   if(!bus.channelBuffers32||!bus.channelBuffers32[0]||!bus.channelBuffers32[1])return kResultFalse;
   int32 index=0;
@@ -111,7 +128,14 @@ public:
    bus.channelBuffers32[0][sample]=signal;
    bus.channelBuffers32[1][sample]=signal;
   }
-  data.outputs[0].silenceFlags=active?0:0;
+  #ifdef MELORIX_TEST_MULTIBUS
+  for(int32 i=0;i<data.numSamples;++i){
+   data.outputs[1].channelBuffers32[0][i]=0.f;
+   data.outputs[1].channelBuffers32[1][i]=0.f;
+  }
+  data.outputs[1].silenceFlags=0;
+#endif
+  data.outputs[0].silenceFlags=0;
   return kResultOk;
  }
 private:

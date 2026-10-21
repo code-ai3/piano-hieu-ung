@@ -8,7 +8,7 @@
 #include "public.sdk/source/vst/hosting/eventlist.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
-#include "pluginterfaces/vst/vstspeaker.h"
+#include "audio-bus-layout.hpp"
 #include <cstdint>
 #include <vector>
 #include <string>
@@ -72,10 +72,8 @@ inline Rendered render(IComponent* component,int pitch,int velocity,int duration
   if(component->getBusCount(kAudio,kOutput)<1||component->getBusCount(kEvent,kInput)<1){
    result.message="Selected VST3 has no stereo output or note-event input";break;
   }
-  SpeakerArrangement stereo=SpeakerArr::kStereo;
-  if(processor->setBusArrangements(nullptr,0,&stereo,1)!=kResultOk){
-   result.message="VST3 does not accept stereo output bus";break;
-  }
+  MelorixAudioBus::Buffers audioBuses;
+  if(!audioBuses.initialize(component,result.message))break;
   if(component->activateBus(kAudio,kOutput,0,true)!=kResultOk ||
      component->activateBus(kEvent,kInput,0,true)!=kResultOk){
    result.message="VST3 could not activate audio/MIDI buses";break;
@@ -110,13 +108,10 @@ inline Rendered render(IComponent* component,int pitch,int velocity,int duration
   push16(wav,8);push16(wav,32);
   for(char c:"data")if(c)wav.push_back(static_cast<uint8_t>(c));
   push32(wav,totalFrames*8);
-  float left[kBlock]{},right[kBlock]{};
-  float* channels[2]={left,right};
-  AudioBusBuffers bus{};
-  bus.numChannels=2;bus.channelBuffers32=channels;
   ProcessData data{};
   data.processMode=kOffline;data.symbolicSampleSize=kSample32;
-  data.numInputs=0;data.numOutputs=1;data.outputs=&bus;
+  data.numInputs=audioBuses.inputCount();data.inputs=audioBuses.inputBuses();
+  data.numOutputs=audioBuses.outputCount();data.outputs=audioBuses.outputBuses();
   EventList events(8);
   data.inputEvents=&events;
   bool good=true;
@@ -136,13 +131,12 @@ inline Rendered render(IComponent* component,int pitch,int velocity,int duration
     ev.noteOff.noteId=-1;ev.noteOff.velocity=0.f;
     events.addEvent(ev);
    }
-   std::fill_n(left,frames,0.f);std::fill_n(right,frames,0.f);
-   bus.silenceFlags=0;data.numSamples=frames;
+   audioBuses.clear(frames);data.numSamples=frames;
    if(processor->process(data)!=kResultOk){
     result.message="The VST3 plugin process() returned an error";good=false;break;
    }
    for(int i=0;i<frames;i++){
-    for(float value:{left[i],right[i]}){
+    for(float value:{audioBuses.left(i),audioBuses.right(i)}){
      if(!std::isfinite(value)){
       result.message="VST3 returned non-finite audio";good=false;break;
      }

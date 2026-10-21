@@ -12,6 +12,7 @@ on:
       - feature/melorix-vst3-stage3c-audio-routing
       - feature/melorix-vst3-stage3c1-full-midi-track
       - feature/melorix-vst3-stage3d-local-audio-qa
+      - fix/melorix-kontakt-multibus-output
     paths:
       - .github/workflows/melorix-desktop-windows.yml
       - desktop/**

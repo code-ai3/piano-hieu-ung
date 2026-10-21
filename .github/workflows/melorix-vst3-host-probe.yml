@@ -9,6 +9,7 @@ on:
       - feature/melorix-vst3-stage3c-audio-routing
       - feature/melorix-vst3-stage3c1-full-midi-track
       - feature/melorix-vst3-stage3d-local-audio-qa
+      - fix/melorix-kontakt-multibus-output
     paths:
       - .github/workflows/melorix-vst3-host-probe.yml
       - native/vst3-host/**
@@ -206,6 +207,26 @@ jobs:
             throw 'In-memory WAV float32 PCM is invalid'
           }
           Write-Host ('PASS: assigned real VST3 note -> native PCM float32 WAV in memory, peak '+$messages[1].peak)
+          $global:LASTEXITCODE=0
+
+      - name: Test native two-output VST3 like Kontakt without any licensed DLL
+        run: |
+          cmake --build native/vst3-host-build --target melorix-test-multibus --config Release --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'Multi-output fixture did not compile' }
+          $exe='native/vst3-host-build/bin/melorix-vst3-session.exe'
+          $plugins=@(Get-ChildItem native/vst3-host-build -Recurse |
+            Where-Object { $_.Name -eq 'melorix-test-multibus.vst3' -and !$_.PSIsContainer -and $_.Length -gt 20000 })
+          if (!$plugins.Count) { throw 'Missing strict two-output VST3 test fixture' }
+          $module=$plugins[0].FullName
+          $raw=@(@("LOAD`t12`t$module","AUDITION`t12`t60`t108`t500",'LIST',"UNLOAD`t12",'QUIT') | & $exe)
+          if ($LASTEXITCODE -ne 0) { throw 'Multi-output VST3 caused native session to crash' }
+          $res=@($raw | ForEach-Object { $_ | ConvertFrom-Json })
+          if ($res.Count -ne 5 -or !$res[0].componentInitialized -or
+              !$res[1].realVst3Pcm -or $res[1].peak -lt 0.02 -or
+              $res[1].nonzeroSamples -lt 2000 -or !$res[3].removed) {
+            throw 'Kontakt-style two-output VST3 failed PCM processing'
+          }
+          Write-Host 'PASS: actual 2-output Steinberg VST3 process() returned PCM; host no longer forces a single stereo bus'
           $global:LASTEXITCODE=0
 
       - name: Validate native WASAPI live MIDI controls without assuming CI sound hardware
