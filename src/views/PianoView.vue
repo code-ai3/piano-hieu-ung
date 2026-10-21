@@ -58,7 +58,7 @@ type NoteEvent = MidiNoteEvent
 
 // ---- 状态 ----
 const playState = ref<'idle' | 'playing' | 'paused'>('idle')
-type Vst3TrackPreviewApi=Vst3PreviewApi&{listVst3Tracks:()=>Promise<{audioConnected:boolean;liveTrack?:number;tracks:{track:number;componentInitialized:boolean}[]}>;scanVst3:()=>Promise<unknown>;bindVst3Track:(track:number,path:string)=>Promise<unknown>;unbindVst3Track:(track:number)=>Promise<unknown>;sendLiveVst3Note:(track:number,pitch:number,velocity:number)=>Promise<unknown>;sendLiveVst3Pedal?:(track:number,value:number)=>Promise<unknown>}
+type Vst3TrackPreviewApi=Vst3PreviewApi&{listVst3Tracks:()=>Promise<{audioConnected:boolean;liveTrack?:number;tracks:{track:number;componentInitialized:boolean}[]}>;scanVst3:()=>Promise<unknown>;openVst3Editor:(track:number)=>Promise<unknown>;bindVst3Track:(track:number,path:string)=>Promise<unknown>;unbindVst3Track:(track:number)=>Promise<unknown>;sendLiveVst3Note:(track:number,pitch:number,velocity:number)=>Promise<unknown>;sendLiveVst3Pedal?:(track:number,value:number)=>Promise<unknown>}
 const vst3Api=(window as Window&{melorixDesktop?:Vst3TrackPreviewApi}).melorixDesktop
 const vst3AssignedTrackIds=ref<Set<number>>(new Set())
 const vst3LiveTrackId=ref<number|null>(null)
@@ -526,6 +526,11 @@ async function importPersonalWav(){
   sampleImportError.value='Không giải mã được WAV này. Hãy thử file WAV PCM thông thường.'
  }finally{sampleImportBusy.value=false}
 }
+async function openInstrumentEditorForTrack(id:number){
+ if(!vst3Api?.openVst3Editor||!vst3AssignedTrackIds.value.has(id))return
+ try{await vst3Api.openVst3Editor(id)}
+ catch(error){uploadError.value='Không mở được VST3 cho track '+id+': '+(error instanceof Error?error.message:String(error))}
+}
 function openNativeInstrumentCreator(){
  showTrackAddMenu.value=false
  if(!hasNativeVst3Scanner){uploadError.value='Instrument Track VST3 cần MELORIX Desktop Windows';return}
@@ -622,6 +627,10 @@ function deleteMidiTrack(id:number){
  kontaktTrackNames.value=omitTrackSetting(kontaktTrackNames.value,id)
  trackVolumeLevels.value=omitTrackSetting(trackVolumeLevels.value,id)
  pedalByTrack.value=omitTrackSetting(pedalByTrack.value,id)
+ if(vst3AssignedTrackIds.value.has(id)&&vst3Api?.unbindVst3Track){
+  onVst3BindingsChanged([...vst3AssignedTrackIds.value].filter(other=>other!==id))
+  void vst3Api.unbindVst3Track(id).catch(error=>{uploadError.value='Không giải phóng được VST3: '+String(error)})
+ }
  duration.value=allNotes.value.reduce((max,n)=>Math.max(max,n.time+n.duration),0)
  playState.value='idle'
  currentTime.value=0
@@ -2410,6 +2419,9 @@ watch(() => currentTime.value, (t) => {
                 <span>{{ part.instrument || 'MIDI' }}</span>
                 <i class="fas fa-chevron-down" aria-hidden="true"></i>
               </button>
+              <button v-if="vst3AssignedTrackIds.has(part.id)" type="button" class="mx-kontakt-route-trigger"
+                 :disabled="exporting" :aria-label="'Mở plugin VST3 cho '+part.name"
+                 @click.stop="openInstrumentEditorForTrack(part.id)">VST3 <i class="fas fa-external-link-alt"></i></button>
               <button type="button" class="mx-kontakt-route-trigger" :disabled="exporting" @click="openKontaktRouter">Ch {{ kontaktChannelForTrack(part.id) }}</button>
               <span>{{ part.noteCount }} nốt</span>
               <input type="color" :value="part.color" :disabled="exporting" :aria-label="'Màu ' + part.name" @input="onPartColorInput(part.id, $event)">
