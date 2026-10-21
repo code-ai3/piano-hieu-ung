@@ -632,6 +632,20 @@ onUnmounted(()=>{stopDrag();cancelNoteDraw();painting=null;window.removeEventLis
       <button type="button" :disabled="disabled || !chordPitchPreview.length" title="Nghe hợp âm bằng tiếng Piano có sẵn" @click="previewChord"><i class="fas fa-volume-up"></i> Nghe</button>
       <button type="button" class="mx-roll-quant-apply" :disabled="disabled || !chordPitchPreview.length" title="Chèn hợp âm tại Playhead vào track đang mở; Ctrl+Z để hoàn tác" @click="insertChord"><i class="fas fa-plus"></i> Chèn</button>
     </div>
+    <div class="mx-roll-pedal-panel" aria-label="Auto Pedal — Sustain CC64">
+      <strong>Auto Pedal (CC64)</strong>
+      <label>Phong cách
+        <select v-model="pedalMode" :disabled="disabled" aria-label="Chế độ Auto Pedal">
+          <option value="light">Nhẹ nhàng</option>
+          <option value="natural">Tự nhiên</option>
+          <option value="deep">Ngân vang</option>
+        </select>
+      </label>
+      <button type="button" :disabled="disabled||!draft.length" @click="suggestPedal">Xem đề xuất</button>
+      <button type="button" :disabled="disabled||!pedalSuggestion.length" @click="applyPedal">Áp dụng CC64</button>
+      <button type="button" :disabled="disabled||pedalUndo===null" @click="undoPedal">Hoàn tác</button>
+      <span>{{showPedalPreview?'Đang xem thử — chưa thay MIDI':Math.floor(pedal.length/2)+' đoạn pedal đã lưu'}}</span>
+    </div>
     <div class="mx-roll-ruler" @click="seekOnRuler">
       <div :style="{ width: gridWidth + 'px', transform: 'translateX(-' + gridScrollLeft + 'px)' }">
         <span v-for="sec in ticks" :key="sec" :style="{ left: KEY_W + sec * pixelsPerSecond + 'px' }">{{ sec }}s</span>
