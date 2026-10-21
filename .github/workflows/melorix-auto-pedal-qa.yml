@@ -1,0 +1,37 @@
+name: MELORIX Auto Pedal 4A QA
+
+on:
+  push:
+    branches:
+      - feature/melorix-auto-pedal-three-modes
+    paths:
+      - .github/workflows/melorix-auto-pedal-qa.yml
+      - src/util/melorix-auto-pedal.ts
+      - src/components/MelorixPianoRoll.vue
+      - src/views/PianoView.vue
+      - src/assets/melorix-roll.css
+      - tests/melorix-auto-pedal.mjs
+      - package.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install existing dependencies
+        run: npm ci
+      - name: Validate all three Auto Pedal modes and safe MIDI suggestions
+        run: npm run test:auto-pedal
+      - name: Typecheck Piano Roll integration
+        run: npm run type-check
+      - name: Build web app without deployment
+        run: npm run build-only

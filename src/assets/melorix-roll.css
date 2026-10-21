@@ -235,3 +235,17 @@
  .mx-kontakt-live-action{max-width:44px;padding:7px 11px}
  .mx-kontakt-live-action span{display:none}
 }
+
+/* MELORIX Auto Pedal — independent per-track CC64 selector and lane. */
+.mx-roll-pedal-panel{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:7px 12px;background:#2b302c;color:#e2d0b2;border-top:1px solid #795f3d;font-size:12px}
+.mx-roll-pedal-panel strong{color:#f1b875;font-size:12px}
+.mx-roll-pedal-panel select,.mx-roll-pedal-panel button{background:#273747;color:#f6efe3;border:1px solid #857458;border-radius:6px;padding:5px 9px;cursor:pointer}
+.mx-roll-pedal-panel select:focus-visible,.mx-roll-pedal-panel button:focus-visible{outline:2px solid #f9c787;outline-offset:2px}
+.mx-roll-pedal-panel button:disabled{cursor:default;opacity:.45}
+.mx-roll-pedal-panel>span{font-size:11px;opacity:.8}
+.mx-roll-pedal-lane{height:38px;overflow:hidden;flex:0 0 38px;background:#233343;border-top:1px solid #617186;border-bottom:1px solid #617186}
+.mx-roll-pedal-timeline{height:38px;position:relative;will-change:transform}
+.mx-roll-pedal-label{position:absolute;left:9px;top:11px;color:#e8bc83;font-size:10px;font-weight:700}
+.mx-roll-pedal-segment{position:absolute;top:7px;height:23px;border-radius:3px;background:#c88d46;box-shadow:inset 0 0 0 1px #f2c58f88}
+.mx-roll-pedal-segment.preview{background:#f8b366;opacity:.7;outline:1px dashed #fff7de}
+@media(max-width:680px){.mx-roll-pedal-panel{gap:5px;padding:6px}.mx-roll-pedal-panel select,.mx-roll-pedal-panel button{padding:4px 5px}}
