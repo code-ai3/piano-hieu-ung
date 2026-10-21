@@ -7,7 +7,9 @@ export class Vst3PedalScheduler {
  private index=0
  private down=false
  private queue:Promise<void>=Promise.resolve()
- constructor(private port:SustainPort,private onError:(message:string)=>void=()=>{}){}
+ private port:SustainPort
+ private onError:(message:string)=>void
+ constructor(port:SustainPort,onError:(message:string)=>void=()=>{}){this.port=port;this.onError=onError}
  private send(track:number,value:number){
   this.queue=this.queue.then(async()=>{await this.port.sendLiveVst3Pedal(track,value)})
    .catch(e=>this.onError(e instanceof Error?e.message:String(e)))
