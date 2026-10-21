@@ -62,7 +62,7 @@ const vst3LiveTrackId=ref<number|null>(null)
 let activeVst3KeyPitch:number|null=null
 let activeVst3ChordPitches:number[]=[]
 const vst3Song=vst3Api?new Vst3SongScheduler(vst3Api,message=>{uploadError.value='VST3: '+message}):null
-function onVst3LiveChanged(id:number|null){if(id!==vst3LiveTrackId.value)vst3Song?.stop();vst3LiveTrackId.value=id}
+function onVst3LiveChanged(id:number|null){if(id!==vst3LiveTrackId.value){vst3Pedal?.stop();vst3Song?.stop()}vst3LiveTrackId.value=id}
 const vst3Pedal=vst3Api?.sendLiveVst3Pedal?new Vst3PedalScheduler({sendLiveVst3Pedal:vst3Api.sendLiveVst3Pedal},message=>{uploadError.value='VST3 Pedal: '+message}):null
 const vst3KeyPreview=new Vst3PreviewPlayer()
 function onVst3BindingsChanged(ids:number[]){vst3AssignedTrackIds.value=new Set(ids)}
@@ -1393,6 +1393,7 @@ async function play() {
 }
 
 function resetPiano() {
+  vst3Pedal?.stop()
   vst3Song?.stop()
   pauseOriginalAudio()
   midiBridge.stopAll()
@@ -1408,7 +1409,7 @@ function resetPiano() {
   pianoLoaded.value = false; initPianoPromise = null
 }
 
-function pause() { vst3Song?.stop(); playRequest++; pauseOriginalAudio(); midiBridge.stopAll(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
+function pause() { vst3Pedal?.stop(); vst3Song?.stop(); playRequest++; pauseOriginalAudio(); midiBridge.stopAll(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
 function stop() {
   playRequest++
   playState.value = 'idle'; currentTime.value = 0
