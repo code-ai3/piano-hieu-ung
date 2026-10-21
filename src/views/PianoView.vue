@@ -1125,6 +1125,7 @@ function processMidi(midi: Midi) {
   stopPianoTrackSamples()
   clearTrackAudioOutputs()
   trackVolumeLevels.value={}
+  vst3Pedal?.stop()
   pedalByTrack.value=Object.fromEntries(midi.tracks.map((track,id)=>[
     id,normalizePedalPoints((track.controlChanges[64]??[]).map(cc=>({time:cc.time,value:cc.value*127})))
   ]))
