@@ -11,12 +11,15 @@ on:
       - feature/melorix-vst3-stage3b-native-editor
       - feature/melorix-vst3-stage3c-audio-routing
       - feature/melorix-vst3-stage3c1-full-midi-track
+      - feature/melorix-vst3-stage3d-local-audio-qa
     paths:
       - .github/workflows/melorix-desktop-windows.yml
       - desktop/**
       - native/vst3-scan/**
       - native/vst3-host/**
       - tests/melorix-vst3-foundation.mjs
+      - tests/melorix-vst3-stage3.mjs
+      - tests/melorix-vst3-diagnostics.mjs
       - electron-builder.yml
       - package.json
       - tests/melorix-desktop.mjs
