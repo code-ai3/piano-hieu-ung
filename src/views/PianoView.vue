@@ -2041,7 +2041,7 @@ function loop() {
       vst3Song?.tick(currentTime.value/speed.value)
       scheduleUpcomingAudio()
       if (currentTime.value >= duration.value) {
-        if (repeat.value) {currentTime.value=0;lastScheduledIdx=0;vst3Song?.stop();if(vst3LiveTrackId.value!==null&&!midiBridge.externalOnly)vst3Song?.start(notes.value,vst3LiveTrackId.value,0);midiBridge.stopAll();stopSynthVoices(synthScheduledVoices);piano?.stop();scheduleAll();vst3Song?.tick(0)}
+        if (repeat.value) {currentTime.value=0;lastScheduledIdx=0;vst3Pedal?.stop();vst3Song?.stop();if(vst3LiveTrackId.value!==null&&!midiBridge.externalOnly)vst3Song?.start(notes.value,vst3LiveTrackId.value,0);midiBridge.stopAll();stopSynthVoices(synthScheduledVoices);piano?.stop();scheduleAll();vst3Song?.tick(0)}
         else { nextTrack() }
       }
     }
