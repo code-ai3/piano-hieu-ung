@@ -10,6 +10,7 @@ on:
       - desktop/**
       - package.json
       - tests/melorix-vst3-pedal.mjs
+      - tests/melorix-vst3-stage3c.mjs
   workflow_dispatch:
 permissions:
   contents: read
