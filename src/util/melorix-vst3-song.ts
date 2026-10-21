@@ -16,6 +16,11 @@ export class Vst3SongScheduler {
  private port:Vst3NotePort
  private onError:(message:string)=>void
  constructor(port:Vst3NotePort,onError:(message:string)=>void=()=>{}){this.port=port;this.onError=onError}
+ private sendPedal(track:number,value:number){
+  if(!this.port.sendLiveVst3Pedal){this.onError('Sustain CC64 chưa được kết nối vào VST3');return}
+  this.pending=this.pending.then(async()=>{await this.port.sendLiveVst3Pedal!(track,value)})
+   .catch(error=>{this.onError(error instanceof Error?error.message:String(error))})
+ }
  private send(track:number,pitch:number,velocity:number){
   // Serialize host commands to preserve note-off before restarting.
   this.pending=this.pending.then(async()=>{await this.port.sendLiveVst3Note(track,pitch,velocity)})
