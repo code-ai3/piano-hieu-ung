@@ -1167,6 +1167,7 @@ function updatePianoRollPedal(points:PedalPoint[]){
  const id=pianoRollTrackId.value
  if(id===null||exporting.value)return
  if(playState.value==='playing')pause()
+ vst3Pedal?.stop()
  vst3Song?.stop()
  midiBridge.stopAll()
  pedalByTrack.value={...pedalByTrack.value,[id]:normalizePedalPoints(points)}
@@ -1205,6 +1206,7 @@ function beginPianoRollResize(e: PointerEvent) {
   window.addEventListener('pointerup',stop)
 }
 function resetAfterTrackChange() {
+  vst3Pedal?.stop()
   vst3Song?.stop()
   playRequest++
   // Stop pending MIDI as well as Web Audio when switching track mixes.
@@ -2041,7 +2043,7 @@ function loop() {
       vst3Song?.tick(currentTime.value/speed.value)
       scheduleUpcomingAudio()
       if (currentTime.value >= duration.value) {
-        if (repeat.value) {currentTime.value=0;lastScheduledIdx=0;vst3Pedal?.stop();vst3Song?.stop();if(vst3LiveTrackId.value!==null&&!midiBridge.externalOnly){vst3Song?.start(notes.value,vst3LiveTrackId.value,0);vst3Pedal?.start(vst3LiveTrackId.value,pedalByTrack.value[vst3LiveTrackId.value]??[],0)}midiBridge.stopAll();stopSynthVoices(synthScheduledVoices);piano?.stop();scheduleAll();vst3Song?.tick(0)}
+        if (repeat.value) {currentTime.value=0;lastScheduledIdx=0;vst3Pedal?.stop();vst3Song?.stop();if(vst3LiveTrackId.value!==null&&!midiBridge.externalOnly){vst3Song?.start(notes.value,vst3LiveTrackId.value,0);vst3Pedal?.start(vst3LiveTrackId.value,pedalByTrack.value[vst3LiveTrackId.value]??[],0)}midiBridge.stopAll();stopSynthVoices(synthScheduledVoices);piano?.stop();scheduleAll();vst3Pedal?.tick(0);vst3Song?.tick(0)}
         else { nextTrack() }
       }
     }
