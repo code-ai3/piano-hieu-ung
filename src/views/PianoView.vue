@@ -1380,7 +1380,10 @@ async function play() {
     }
     if(request!==playRequest)return
     lastScheduledIdx = 0; lastFrameTime = performance.now()
-    if(vst3LiveTrackId.value!==null&&!originalAudioActive()&&!midiBridge.externalOnly)vst3Song?.start(notes.value,vst3LiveTrackId.value,currentTime.value/speed.value)
+    if(vst3LiveTrackId.value!==null&&!originalAudioActive()&&!midiBridge.externalOnly){
+      vst3Song?.start(notes.value,vst3LiveTrackId.value,currentTime.value/speed.value)
+      vst3Pedal?.start(vst3LiveTrackId.value,pedalByTrack.value[vst3LiveTrackId.value]??[],currentTime.value/speed.value)
+     }
     scheduleAll();vst3Song?.tick(currentTime.value/speed.value)
     playState.value = 'playing'
   } catch(error){
