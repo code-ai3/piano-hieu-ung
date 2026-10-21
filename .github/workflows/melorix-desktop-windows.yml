@@ -10,6 +10,7 @@ on:
       - feature/melorix-vst3-stage3-track-instances
       - feature/melorix-vst3-stage3b-native-editor
       - feature/melorix-vst3-stage3c-audio-routing
+      - feature/melorix-vst3-stage3c1-full-midi-track
     paths:
       - .github/workflows/melorix-desktop-windows.yml
       - desktop/**

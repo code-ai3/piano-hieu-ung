@@ -21,6 +21,7 @@ import MelorixPianoRoll from '@/components/MelorixPianoRoll.vue'
 import MelorixMidiConnector from '@/components/MelorixMidiConnector.vue'
 import MelorixVst3Browser from '@/components/MelorixVst3Browser.vue'
 import {Vst3PreviewPlayer} from '@/util/melorix-vst3-preview'
+import {Vst3SongScheduler} from '@/util/melorix-vst3-song'
 import type {Vst3PreviewApi} from '@/util/melorix-vst3-preview'
 import MelorixKontaktTrackRouter from '@/components/MelorixKontaktTrackRouter.vue'
 import MelorixKontaktAudioCapture from '@/components/MelorixKontaktAudioCapture.vue'
@@ -57,7 +58,8 @@ const vst3AssignedTrackIds=ref<Set<number>>(new Set())
 const vst3LiveTrackId=ref<number|null>(null)
 let activeVst3KeyPitch:number|null=null
 let activeVst3ChordPitches:number[]=[]
-function onVst3LiveChanged(id:number|null){vst3LiveTrackId.value=id}
+const vst3Song=vst3Api?new Vst3SongScheduler(vst3Api,message=>{uploadError.value='VST3: '+message}):null
+function onVst3LiveChanged(id:number|null){if(id!==vst3LiveTrackId.value)vst3Song?.stop();vst3LiveTrackId.value=id}
 const vst3KeyPreview=new Vst3PreviewPlayer()
 function onVst3BindingsChanged(ids:number[]){vst3AssignedTrackIds.value=new Set(ids)}
 async function refreshVst3PianoBindings(){
@@ -1114,6 +1116,7 @@ function processMidi(midi: Midi) {
   stopPianoTrackSamples()
   clearTrackAudioOutputs()
   trackVolumeLevels.value={}
+  vst3Song?.stop()
   importedMidiPrograms.value=Object.fromEntries(midi.tracks.map((track,index)=>[index,
    typeof track.instrument?.number==='number'?track.instrument.number:0]))
   instrumentPreviewTrackId.value=null
@@ -1154,6 +1157,7 @@ function updatePianoRollNotes(edited: NoteEvent[]) {
   // Never modify notes on any other track. All playback and export reads allNotes.
   if (playState.value === 'playing') pause()
   midiBridge.stopAll()
+  vst3Song?.stop()
   piano?.stop()
   allNotes.value = [
     ...allNotes.value.filter(note => note.trackId !== id),
@@ -1181,6 +1185,7 @@ function beginPianoRollResize(e: PointerEvent) {
   window.addEventListener('pointerup',stop)
 }
 function resetAfterTrackChange() {
+  vst3Song?.stop()
   playRequest++
   // Stop pending MIDI as well as Web Audio when switching track mixes.
   midiBridge.stopAll()
@@ -1306,7 +1311,7 @@ function scheduleUpcomingAudio() {
   if(delay>AUDIO_LOOKAHEAD_SECONDS)break
   lastScheduledIdx=i+1
   // When resuming/starting mid-song do not retrigger older notes.
-  if(delay<-.035)continue
+  if(delay<-.035||vst3Song?.isPlayingTrack(n.trackId))continue
   playTrackVoice(ctx,n.trackId,n.midi,n.velocity*127,
     ctx.currentTime+Math.max(.005,delay),n.duration*speed.value,synthScheduledVoices,undefined,n.time)
  }
@@ -1355,7 +1360,8 @@ async function play() {
     }
     if(request!==playRequest)return
     lastScheduledIdx = 0; lastFrameTime = performance.now()
-    scheduleAll()
+    if(vst3LiveTrackId.value!==null&&!originalAudioActive()&&!midiBridge.externalOnly)vst3Song?.start(notes.value,vst3LiveTrackId.value,currentTime.value/speed.value)
+    scheduleAll();vst3Song?.tick(currentTime.value/speed.value)
     playState.value = 'playing'
   } catch(error){
     if(request!==playRequest)return
@@ -1367,6 +1373,7 @@ async function play() {
 }
 
 function resetPiano() {
+  vst3Song?.stop()
   pauseOriginalAudio()
   midiBridge.stopAll()
   stopPianoAudition()
@@ -1381,7 +1388,7 @@ function resetPiano() {
   pianoLoaded.value = false; initPianoPromise = null
 }
 
-function pause() { playRequest++; pauseOriginalAudio(); midiBridge.stopAll(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
+function pause() { vst3Song?.stop(); playRequest++; pauseOriginalAudio(); midiBridge.stopAll(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
 function stop() {
   playRequest++
   playState.value = 'idle'; currentTime.value = 0
@@ -2006,9 +2013,10 @@ function loop() {
       }
     }else{
       currentTime.value += (performance.now() - lastFrameTime) / 1000
+      vst3Song?.tick(currentTime.value/speed.value)
       scheduleUpcomingAudio()
       if (currentTime.value >= duration.value) {
-        if (repeat.value) { currentTime.value = 0; lastScheduledIdx = 0; midiBridge.stopAll(); stopSynthVoices(synthScheduledVoices); piano?.stop(); scheduleAll() }
+        if (repeat.value) {currentTime.value=0;lastScheduledIdx=0;vst3Song?.stop();if(vst3LiveTrackId.value!==null&&!midiBridge.externalOnly)vst3Song?.start(notes.value,vst3LiveTrackId.value,0);midiBridge.stopAll();stopSynthVoices(synthScheduledVoices);piano?.stop();scheduleAll();vst3Song?.tick(0)}
         else { nextTrack() }
       }
     }
@@ -2622,7 +2630,7 @@ watch(() => currentTime.value, (t) => {
           <span>{{ kontaktMidiLive ? 'Kontakt MIDI' : 'Kết nối Kontakt' }}</span>
         </button>
         <button v-if="hasNativeVst3Scanner" type="button" class="mx-kontakt-live-action"
-          title="Quản lý VST3 theo track trên Windows — chưa nối âm thanh"
+          title="VST3/WASAPI: thử phát toàn bộ MIDI trên một track"
           @click="showVst3Browser=true">
           <i class="fas fa-puzzle-piece" aria-hidden="true"></i>
           <span>Nhạc cụ VST3</span>
