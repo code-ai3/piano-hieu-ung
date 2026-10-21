@@ -216,6 +216,11 @@ app.whenReady().then(() => {
     }
     return getVst3Session().request('LIVE_NOTE\t'+trackId+'\t'+pitch+'\t'+velocity)
   })
+  ipcMain.handle('melorix:vst3:live-cc',async(event,trackId,controller,value)=>{
+    if(!trustedNativeSender(event)||!validTrackId(trackId)||controller!==64||
+       !Number.isInteger(value)||value<0||value>127)throw Error('Invalid sustain CC64 request')
+    return getVst3Session().request(['LIVE_CC',trackId,controller,value].join('\t'))
+  })
   ipcMain.handle('melorix:vst3:audition',async(event,trackId,pitch,velocity,durationMs)=>{
     if(!trustedNativeSender(event))throw new Error('Nguồn gọi VST3 không được phép')
     if(!validTrackId(trackId)||!Number.isInteger(pitch)||pitch<0||pitch>127||

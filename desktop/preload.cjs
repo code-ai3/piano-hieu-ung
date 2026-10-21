@@ -14,4 +14,5 @@ contextBridge.exposeInMainWorld('melorixDesktop',Object.freeze({
   startLiveVst3Track:(trackId)=>ipcRenderer.invoke('melorix:vst3:live-start',trackId),
   stopLiveVst3:()=>ipcRenderer.invoke('melorix:vst3:live-stop'),
   sendLiveVst3Note:(trackId,pitch,velocity)=>ipcRenderer.invoke('melorix:vst3:live-note',trackId,pitch,velocity),
+  sendLiveVst3Pedal:(trackId,value)=>ipcRenderer.invoke('melorix:vst3:live-cc',trackId,64,value),
 }))

@@ -22,6 +22,7 @@ import MelorixMidiConnector from '@/components/MelorixMidiConnector.vue'
 import MelorixVst3Browser from '@/components/MelorixVst3Browser.vue'
 import {Vst3PreviewPlayer} from '@/util/melorix-vst3-preview'
 import {Vst3SongScheduler} from '@/util/melorix-vst3-song'
+import {Vst3PedalScheduler} from '@/util/melorix-vst3-pedal'
 import {normalizePedalPoints} from '@/util/melorix-auto-pedal'
 import type {PedalPoint} from '@/util/melorix-auto-pedal'
 import type {Vst3PreviewApi} from '@/util/melorix-vst3-preview'
@@ -54,14 +55,15 @@ type NoteEvent = MidiNoteEvent
 
 // ---- 状态 ----
 const playState = ref<'idle' | 'playing' | 'paused'>('idle')
-type Vst3TrackPreviewApi=Vst3PreviewApi&{listVst3Tracks:()=>Promise<{audioConnected:boolean;liveTrack?:number;tracks:{track:number;componentInitialized:boolean}[]}>;sendLiveVst3Note:(track:number,pitch:number,velocity:number)=>Promise<unknown>}
+type Vst3TrackPreviewApi=Vst3PreviewApi&{listVst3Tracks:()=>Promise<{audioConnected:boolean;liveTrack?:number;tracks:{track:number;componentInitialized:boolean}[]}>;sendLiveVst3Note:(track:number,pitch:number,velocity:number)=>Promise<unknown>;sendLiveVst3Pedal?:(track:number,value:number)=>Promise<unknown>}
 const vst3Api=(window as Window&{melorixDesktop?:Vst3TrackPreviewApi}).melorixDesktop
 const vst3AssignedTrackIds=ref<Set<number>>(new Set())
 const vst3LiveTrackId=ref<number|null>(null)
 let activeVst3KeyPitch:number|null=null
 let activeVst3ChordPitches:number[]=[]
 const vst3Song=vst3Api?new Vst3SongScheduler(vst3Api,message=>{uploadError.value='VST3: '+message}):null
-function onVst3LiveChanged(id:number|null){if(id!==vst3LiveTrackId.value)vst3Song?.stop();vst3LiveTrackId.value=id}
+function onVst3LiveChanged(id:number|null){if(id!==vst3LiveTrackId.value){vst3Pedal?.stop();vst3Song?.stop()}vst3LiveTrackId.value=id}
+const vst3Pedal=vst3Api?.sendLiveVst3Pedal?new Vst3PedalScheduler({sendLiveVst3Pedal:vst3Api.sendLiveVst3Pedal},message=>{uploadError.value='VST3 Pedal: '+message}):null
 const vst3KeyPreview=new Vst3PreviewPlayer()
 function onVst3BindingsChanged(ids:number[]){vst3AssignedTrackIds.value=new Set(ids)}
 async function refreshVst3PianoBindings(){
@@ -1123,6 +1125,7 @@ function processMidi(midi: Midi) {
   stopPianoTrackSamples()
   clearTrackAudioOutputs()
   trackVolumeLevels.value={}
+  vst3Pedal?.stop()
   pedalByTrack.value=Object.fromEntries(midi.tracks.map((track,id)=>[
     id,normalizePedalPoints((track.controlChanges[64]??[]).map(cc=>({time:cc.time,value:cc.value*127})))
   ]))
@@ -1165,6 +1168,7 @@ function updatePianoRollPedal(points:PedalPoint[]){
  const id=pianoRollTrackId.value
  if(id===null||exporting.value)return
  if(playState.value==='playing')pause()
+ vst3Pedal?.stop()
  vst3Song?.stop()
  midiBridge.stopAll()
  pedalByTrack.value={...pedalByTrack.value,[id]:normalizePedalPoints(points)}
@@ -1203,6 +1207,7 @@ function beginPianoRollResize(e: PointerEvent) {
   window.addEventListener('pointerup',stop)
 }
 function resetAfterTrackChange() {
+  vst3Pedal?.stop()
   vst3Song?.stop()
   playRequest++
   // Stop pending MIDI as well as Web Audio when switching track mixes.
@@ -1378,8 +1383,11 @@ async function play() {
     }
     if(request!==playRequest)return
     lastScheduledIdx = 0; lastFrameTime = performance.now()
-    if(vst3LiveTrackId.value!==null&&!originalAudioActive()&&!midiBridge.externalOnly)vst3Song?.start(notes.value,vst3LiveTrackId.value,currentTime.value/speed.value)
-    scheduleAll();vst3Song?.tick(currentTime.value/speed.value)
+    if(vst3LiveTrackId.value!==null&&!originalAudioActive()&&!midiBridge.externalOnly){
+      vst3Song?.start(notes.value,vst3LiveTrackId.value,currentTime.value/speed.value)
+      vst3Pedal?.start(vst3LiveTrackId.value,pedalByTrack.value[vst3LiveTrackId.value]??[],currentTime.value/speed.value)
+     }
+    scheduleAll();vst3Pedal?.tick(currentTime.value/speed.value);vst3Song?.tick(currentTime.value/speed.value)
     playState.value = 'playing'
   } catch(error){
     if(request!==playRequest)return
@@ -1391,6 +1399,7 @@ async function play() {
 }
 
 function resetPiano() {
+  vst3Pedal?.stop()
   vst3Song?.stop()
   pauseOriginalAudio()
   midiBridge.stopAll()
@@ -1406,7 +1415,7 @@ function resetPiano() {
   pianoLoaded.value = false; initPianoPromise = null
 }
 
-function pause() { vst3Song?.stop(); playRequest++; pauseOriginalAudio(); midiBridge.stopAll(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
+function pause() { vst3Pedal?.stop(); vst3Song?.stop(); playRequest++; pauseOriginalAudio(); midiBridge.stopAll(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
 function stop() {
   playRequest++
   playState.value = 'idle'; currentTime.value = 0
@@ -2031,10 +2040,11 @@ function loop() {
       }
     }else{
       currentTime.value += (performance.now() - lastFrameTime) / 1000
+      vst3Pedal?.tick(currentTime.value/speed.value)
       vst3Song?.tick(currentTime.value/speed.value)
       scheduleUpcomingAudio()
       if (currentTime.value >= duration.value) {
-        if (repeat.value) {currentTime.value=0;lastScheduledIdx=0;vst3Song?.stop();if(vst3LiveTrackId.value!==null&&!midiBridge.externalOnly)vst3Song?.start(notes.value,vst3LiveTrackId.value,0);midiBridge.stopAll();stopSynthVoices(synthScheduledVoices);piano?.stop();scheduleAll();vst3Song?.tick(0)}
+        if (repeat.value) {currentTime.value=0;lastScheduledIdx=0;vst3Pedal?.stop();vst3Song?.stop();if(vst3LiveTrackId.value!==null&&!midiBridge.externalOnly){vst3Song?.start(notes.value,vst3LiveTrackId.value,0);vst3Pedal?.start(vst3LiveTrackId.value,pedalByTrack.value[vst3LiveTrackId.value]??[],0)}midiBridge.stopAll();stopSynthVoices(synthScheduledVoices);piano?.stop();scheduleAll();vst3Pedal?.tick(0);vst3Song?.tick(0)}
         else { nextTrack() }
       }
     }

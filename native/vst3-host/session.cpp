@@ -10,6 +10,8 @@
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
+#include "pluginterfaces/vst/ivstmidicontrollers.h"
+#include <optional>
 #include "editor-win32.hpp"
 #include "track-preview.hpp"
 #include "wasapi-live.hpp"
@@ -273,12 +275,25 @@ void audition(int id,const std::string& args){
   +std::to_string(rendered.peak)+",\"wavBase64\":"
   +escape(rendered.wavBase64)+"}");
 }
+std::optional<ParamID> sustainParamId(Loaded& slot){
+ // Kontakt's native editor controller is already available after choosing an NKI.
+ if(!slot.controller)return std::nullopt;
+ IMidiMapping* mapping=nullptr;
+ if(slot.controller->queryInterface(IMidiMapping::iid,reinterpret_cast<void**>(&mapping))!=kResultOk||!mapping)
+  return std::nullopt;
+ ParamID result=0xffffffffu;
+ const auto ok=mapping->getMidiControllerAssignment(0,0,kCtrlSustainOnOff,result)==kResultTrue;
+ mapping->release();
+ if(!ok||result==0xffffffffu)return std::nullopt;
+ return result;
+}
 void startLive(int id){
  const auto it=instances.find(id);
  if(it==instances.end()){fail("Assign a VST3 instrument before starting Windows audio");return;}
  liveOutput.stop();liveOutputTrack=-1;
  std::string why;
- if(!liveOutput.start(it->second->component.get(),why)){fail(why);return;}
+ const auto pedal=sustainParamId(*it->second);
+ if(!liveOutput.start(it->second->component.get(),why,pedal)){fail(why);return;}
  liveOutputTrack=id;
  reply("{\"schema\":3,\"ok\":true,\"operation\":\"live-start\",\"track\":"
   +std::to_string(id)+",\"audioConnected\":true,\"driver\":\"wasapi-shared\","
@@ -307,6 +322,23 @@ void sendLiveNote(const std::string& cmd){
   +std::to_string(track)+",\"pitch\":"+std::to_string(pitch)+
   ",\"noteOn\":"+(velocity>0?"true":"false")+"}");
 }
+void sendLivePedal(const std::string& args){
+ const auto a=args.find('\t'),b=a==std::string::npos?std::string::npos:args.find('\t',a+1);
+ if(a==std::string::npos||b==std::string::npos||args.find('\t',b+1)!=std::string::npos){
+  fail("LIVE_CC expects track, controller, value");return;
+ }
+ int track=0,controller=0,value=0;
+ if(!parseTrack(args.substr(0,a),track)||!parseTrack(args.substr(a+1,b-a-1),controller)||
+    !parseTrack(args.substr(b+1),value)||track!=liveOutputTrack||controller!=64||value>127){
+  fail("CC64 requires an active VST3 track and a value 0-127");return;
+ }
+ if(!liveOutput.sustainSupported()){
+  fail("This VST3 did not expose IMidiMapping for Sustain CC64");return;
+ }
+ if(!liveOutput.sendSustain(value)){fail("WASAPI MIDI sustain queue is not ready");return;}
+ reply("{\"schema\":3,\"ok\":true,\"operation\":\"live-cc\",\"track\":"+
+  std::to_string(track)+",\"controller\":64,\"value\":"+std::to_string(value)+"}");
+}
 void unload(int id){
  if(id==liveOutputTrack){liveOutput.stop();liveOutputTrack=-1;}
  const auto removed=instances.erase(id);
@@ -333,6 +365,7 @@ void process(const std::string& line){
   startLive(id);return;
  }
  if(line.rfind("LIVE_NOTE\t",0)==0){sendLiveNote(line.substr(10));return;}
+ if(line.rfind("LIVE_CC\t",0)==0){sendLivePedal(line.substr(8));return;}
  if(line.rfind("AUDITION\t",0)==0){
   const auto split=line.find('\t',9);
   if(split==std::string::npos){fail("AUDITION requires track/pitch/velocity/duration");return;}

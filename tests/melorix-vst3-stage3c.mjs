@@ -65,7 +65,7 @@ for(const marker of ['getBusCount(kAudio,direction)','getBusInfo(kAudio,directio
  'kMaxTotalChannels','int32 outputCount()const'])
  assert.ok(buses.includes(marker),'Missing declared audio bus buffers: '+marker)
 assert.ok(!wasapi.includes('std::sin('),'WASAPI host must play plugin output rather than synthesized substitute')
-assert.ok(session.includes('liveOutput.start(it->second->component.get(),why)'))
+assert.ok(session.includes('liveOutput.start(it->second->component.get(),why,pedal)'), 'Keep native WASAPI playback with optional CC64 mapping')
 assert.ok(session.includes('liveOutput.send(velocity>0,pitch,velocity)'))
 assert.ok(session.includes('Stop the WASAPI stream before rendering a separate offline VST3 preview'))
 assert.ok(preload.includes("ipcRenderer.invoke('melorix:vst3:live-note'"))

@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 #include "public.sdk/source/vst/hosting/eventlist.h"
+#include "public.sdk/source/vst/hosting/parameterchanges.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "audio-bus-layout.hpp"
@@ -22,25 +23,26 @@
 #include <string>
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
 namespace MelorixWasapi {
 using namespace Steinberg;
 using namespace Steinberg::Vst;
 constexpr int kBlock=256;
-struct NoteEvent{bool on;int pitch;float velocity;};
+struct NoteEvent{enum class Kind{NoteOn,NoteOff,Sustain} kind;int pitch;float velocity;};
 class LiveStream {
 public:
  LiveStream()=default;
  LiveStream(const LiveStream&)=delete;
  LiveStream& operator=(const LiveStream&)=delete;
  ~LiveStream(){stop();}
- bool start(IComponent* component,std::string& error){
+ bool start(IComponent* component,std::string& error,std::optional<ParamID> sustainParam=std::nullopt){
   stop();
   if(!component){error="No loaded VST3 instance";return false;}
   {
    std::lock_guard<std::mutex> lock(mutex_);
    ready_=false;success_=false;error_.clear();sampleRate_=0;
-   source_=component;stopping_=false;
+   source_=component;stopping_=false;sustainParam_=sustainParam;
   }
   thread_=std::thread([this]{run();});
   std::unique_lock<std::mutex> lock(mutex_);
@@ -55,15 +57,26 @@ public:
   if(thread_.joinable())thread_.join();
   std::lock_guard<std::mutex> lock(mutex_);
   queue_.clear();
-  source_=nullptr;
+  source_=nullptr;sustainParam_.reset();
   ready_=false;success_=false;
  }
  bool send(bool on,int pitch,int velocity){
   if(pitch<0||pitch>127||velocity<0||velocity>127)return false;
   std::lock_guard<std::mutex> lock(mutex_);
   if(!ready_||!success_||stopping_||queue_.size()>=256)return false;
-  queue_.push_back({on,pitch,static_cast<float>(velocity)/127.f});
+  queue_.push_back({on?NoteEvent::Kind::NoteOn:NoteEvent::Kind::NoteOff,pitch,static_cast<float>(velocity)/127.f});
   return true;
+ }
+ bool sendSustain(int value){
+  if(value<0||value>127)return false;
+  std::lock_guard<std::mutex> lock(mutex_);
+  if(!sustainParam_||!ready_||!success_||stopping_||queue_.size()>=256)return false;
+  queue_.push_back({NoteEvent::Kind::Sustain,64,static_cast<float>(value)/127.f});
+  return true;
+ }
+ bool sustainSupported()const{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return sustainParam_.has_value()&&ready_&&success_&&!stopping_;
  }
  bool running()const{
   std::lock_guard<std::mutex> lock(mutex_);
@@ -77,6 +90,7 @@ private:
  mutable std::mutex mutex_;
  std::condition_variable readyCv_;
  std::deque<NoteEvent> queue_;
+ std::optional<ParamID> sustainParam_;
  std::thread thread_;
  std::atomic<bool> stopping_{false};
  bool ready_{false},success_{false};
@@ -175,6 +189,8 @@ private:
    pd.numOutputs=audioBuses.outputCount();pd.outputs=audioBuses.outputBuses();
    EventList events(256);
    pd.inputEvents=&events;
+   ParameterChanges params(1);
+   pd.inputParameterChanges=&params;
    while(!stopping_){
     UINT32 padding=0;
     if(FAILED(audio->GetCurrentPadding(&padding))||padding>bufferFrames)break;
@@ -187,7 +203,7 @@ private:
     auto* samples=reinterpret_cast<float*>(rawBuffer);
     for(UINT32 offset=0;offset<frames;offset+=kBlock){
      const auto count=std::min(static_cast<UINT32>(kBlock),frames-offset);
-     events.clear();
+     events.clear();params.clearQueue();
      std::deque<NoteEvent> pending;
      {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -195,7 +211,16 @@ private:
      }
      for(const auto& e:pending){
       Event ev{};ev.busIndex=0;ev.sampleOffset=0;
-      if(e.on){
+      if(e.kind==NoteEvent::Kind::Sustain){
+       // CC64 is parameter automation in VST3, never a legacy MIDI output event.
+       if(sustainParam_){
+        int32 queueIndex=0;
+        auto* queue=params.addParameterData(*sustainParam_,queueIndex);
+        if(queue){int32 pointIndex=0;queue->addPoint(0,e.velocity,pointIndex);}
+       }
+       continue;
+      }
+      if(e.kind==NoteEvent::Kind::NoteOn){
        ev.type=Event::kNoteOnEvent;
        ev.noteOn.channel=0;ev.noteOn.pitch=static_cast<int16>(e.pitch);
        ev.noteOn.velocity=e.velocity;ev.noteOn.noteId=-1;

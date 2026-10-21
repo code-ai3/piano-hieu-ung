@@ -1,23 +1,33 @@
 // GĐ3C1. Single-track VST3 MIDI playback via WASAPI, not sample-accurate.
 export type SongNote={trackId:number;midi:number;velocity:number;time:number;duration:number}
-export type Vst3NotePort={sendLiveVst3Note:(track:number,pitch:number,velocity:number)=>Promise<unknown>}
-type Event={time:number;pitch:number;velocity:number;on:boolean}
+export type Vst3NotePort={
+ sendLiveVst3Note:(track:number,pitch:number,velocity:number)=>Promise<unknown>
+ sendLiveVst3Pedal?:(track:number,value:number)=>Promise<unknown>
+}
+export type PedalCC={time:number;value:number}
+type Event={time:number;pitch:number;velocity:number;on:boolean;pedal?:boolean}
 export class Vst3SongScheduler {
  private events:Event[]=[]
  private cursor=0
  private track:number|null=null
  private active=new Set<number>()
+ private pedalActive=false
  private pending:Promise<void>=Promise.resolve()
  private port:Vst3NotePort
  private onError:(message:string)=>void
  constructor(port:Vst3NotePort,onError:(message:string)=>void=()=>{}){this.port=port;this.onError=onError}
+ private sendPedal(track:number,value:number){
+  if(!this.port.sendLiveVst3Pedal){this.onError('Sustain CC64 chưa được kết nối vào VST3');return}
+  this.pending=this.pending.then(async()=>{await this.port.sendLiveVst3Pedal!(track,value)})
+   .catch(error=>{this.onError(error instanceof Error?error.message:String(error))})
+ }
  private send(track:number,pitch:number,velocity:number){
   // Serialize host commands to preserve note-off before restarting.
   this.pending=this.pending.then(async()=>{await this.port.sendLiveVst3Note(track,pitch,velocity)})
    .catch(error=>{this.onError(error instanceof Error?error.message:String(error))})
  }
  isPlayingTrack(id:number){return this.track===id}
- start(notes:readonly SongNote[],id:number,position:number){
+ start(notes:readonly SongNote[],id:number,position:number,pedal:readonly PedalCC[]=[]){
   this.stop()
   if(!Number.isInteger(id)||id<0||!Number.isFinite(position))return
   const events:Event[]=[]

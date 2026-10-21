@@ -1,0 +1,44 @@
+name: MELORIX VST3 Sustain 4B QA
+on:
+  push:
+    branches:
+      - feature/melorix-vst3-sustain-4b
+    paths:
+      - .github/workflows/melorix-sustain-4b-qa.yml
+      - native/vst3-host/**
+      - src/**
+      - desktop/**
+      - package.json
+      - tests/melorix-vst3-pedal.mjs
+      - tests/melorix-vst3-stage3c.mjs
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-sustain:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Validate MIDI CC64 scheduler and web bundle
+        run: npm run build
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Compile genuine Steinberg VST3 host without Kontakt files
+        run: |
+          $sdk=Join-Path $env:RUNNER_TEMP 'vst3sdk'
+          git clone --recursive --filter=blob:none https://github.com/steinbergmedia/vst3sdk.git $sdk
+          if ($LASTEXITCODE -ne 0) { throw 'SDK unavailable' }
+          git -C $sdk checkout 3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96
+          git -C $sdk submodule update --init --recursive
+          cmake -S native/vst3-host -B native/vst3-host-build -G Ninja "-DVST3_SDK_ROOT=$sdk" -DCMAKE_BUILD_TYPE=Release -DMELORIX_BUILD_VST3_TEST_PLUGIN=OFF -DMELORIX_BUILD_VST3_TEST_SYNTH=OFF
+          if ($LASTEXITCODE -ne 0) { throw 'VST3 CMake failed' }
+          cmake --build native/vst3-host-build --target melorix-vst3-session --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'VST3 sustain host C++ compile failed' }
