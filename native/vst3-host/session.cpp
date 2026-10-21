@@ -10,6 +10,8 @@
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
+#include "pluginterfaces/vst/ivstmidicontrollers.h"
+#include <optional>
 #include "editor-win32.hpp"
 #include "track-preview.hpp"
 #include "wasapi-live.hpp"
