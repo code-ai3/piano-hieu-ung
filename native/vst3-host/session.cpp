@@ -322,6 +322,23 @@ void sendLiveNote(const std::string& cmd){
   +std::to_string(track)+",\"pitch\":"+std::to_string(pitch)+
   ",\"noteOn\":"+(velocity>0?"true":"false")+"}");
 }
+void sendLivePedal(const std::string& args){
+ const auto a=args.find('\t'),b=a==std::string::npos?std::string::npos:args.find('\t',a+1);
+ if(a==std::string::npos||b==std::string::npos||args.find('\t',b+1)!=std::string::npos){
+  fail("LIVE_CC expects track, controller, value");return;
+ }
+ int track=0,controller=0,value=0;
+ if(!parseTrack(args.substr(0,a),track)||!parseTrack(args.substr(a+1,b-a-1),controller)||
+    !parseTrack(args.substr(b+1),value)||track!=liveOutputTrack||controller!=64||value>127){
+  fail("CC64 requires an active VST3 track and a value 0-127");return;
+ }
+ if(!liveOutput.sustainSupported()){
+  fail("This VST3 did not expose IMidiMapping for Sustain CC64");return;
+ }
+ if(!liveOutput.sendSustain(value)){fail("WASAPI MIDI sustain queue is not ready");return;}
+ reply("{\"schema\":3,\"ok\":true,\"operation\":\"live-cc\",\"track\":"+
+  std::to_string(track)+",\"controller\":64,\"value\":"+std::to_string(value)+"}");
+}
 void unload(int id){
  if(id==liveOutputTrack){liveOutput.stop();liveOutputTrack=-1;}
  const auto removed=instances.erase(id);
@@ -348,6 +365,7 @@ void process(const std::string& line){
   startLive(id);return;
  }
  if(line.rfind("LIVE_NOTE\t",0)==0){sendLiveNote(line.substr(10));return;}
+ if(line.rfind("LIVE_CC\t",0)==0){sendLivePedal(line.substr(8));return;}
  if(line.rfind("AUDITION\t",0)==0){
   const auto split=line.find('\t',9);
   if(split==std::string::npos){fail("AUDITION requires track/pitch/velocity/duration");return;}
