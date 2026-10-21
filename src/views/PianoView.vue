@@ -22,6 +22,8 @@ import MelorixMidiConnector from '@/components/MelorixMidiConnector.vue'
 import MelorixVst3Browser from '@/components/MelorixVst3Browser.vue'
 import {Vst3PreviewPlayer} from '@/util/melorix-vst3-preview'
 import {Vst3SongScheduler} from '@/util/melorix-vst3-song'
+import {normalizePedalPoints} from '@/util/melorix-auto-pedal'
+import type {PedalPoint} from '@/util/melorix-auto-pedal'
 import type {Vst3PreviewApi} from '@/util/melorix-vst3-preview'
 import MelorixKontaktTrackRouter from '@/components/MelorixKontaktTrackRouter.vue'
 import MelorixKontaktAudioCapture from '@/components/MelorixKontaktAudioCapture.vue'
@@ -73,12 +75,14 @@ async function refreshVst3PianoBindings(){
 const currentTime = ref(0)
 const speed = ref(1)
 const allNotes = ref<NoteEvent[]>([])
+const pedalByTrack=ref<Record<number,PedalPoint[]>>({})
 const midiTempo = ref(120)
 const pianoRollTrackId = ref<number | null>(null)
 const selectedTrackId=ref<number|null>(null)
 const pianoRollHeight = ref(330)
 const pianoRollPart = computed(() => midiParts.value.find(part => part.id === pianoRollTrackId.value) || null)
 const pianoRollNotes = computed(() => allNotes.value.filter(note => note.trackId === pianoRollTrackId.value))
+const pianoRollPedal=computed(()=>pianoRollTrackId.value===null?[]:pedalByTrack.value[pianoRollTrackId.value]??[])
 const midiParts = ref<MidiPart[]>([])
 const notes = computed(() => filterMidiParts(allNotes.value, midiParts.value))
 const enabledPartCount = computed(() => midiParts.value.filter(part => part.enabled).length)
@@ -574,6 +578,7 @@ function deleteMidiTrack(id:number){
  kontaktTrackChannels.value=omitTrackSetting(kontaktTrackChannels.value,id)
  kontaktTrackNames.value=omitTrackSetting(kontaktTrackNames.value,id)
  trackVolumeLevels.value=omitTrackSetting(trackVolumeLevels.value,id)
+ pedalByTrack.value=omitTrackSetting(pedalByTrack.value,id)
  duration.value=allNotes.value.reduce((max,n)=>Math.max(max,n.time+n.duration),0)
  playState.value='idle'
  currentTime.value=0
@@ -1118,6 +1123,9 @@ function processMidi(midi: Midi) {
   stopPianoTrackSamples()
   clearTrackAudioOutputs()
   trackVolumeLevels.value={}
+  pedalByTrack.value=Object.fromEntries(midi.tracks.map((track,id)=>[
+    id,normalizePedalPoints((track.controlChanges[64]??[]).map(cc=>({time:cc.time,value:cc.value*127})))
+  ]))
   vst3Song?.stop()
   importedMidiPrograms.value=Object.fromEntries(midi.tracks.map((track,index)=>[index,
    typeof track.instrument?.number==='number'?track.instrument.number:0]))
@@ -1152,6 +1160,14 @@ function openPianoRoll(id: number) {
   selectTrack(id)
   pianoRollTrackId.value = id
   if (playState.value === 'playing') pause()
+}
+function updatePianoRollPedal(points:PedalPoint[]){
+ const id=pianoRollTrackId.value
+ if(id===null||exporting.value)return
+ if(playState.value==='playing')pause()
+ vst3Song?.stop()
+ midiBridge.stopAll()
+ pedalByTrack.value={...pedalByTrack.value,[id]:normalizePedalPoints(points)}
 }
 function updatePianoRollNotes(edited: NoteEvent[]) {
   const id = pianoRollTrackId.value
@@ -2178,6 +2194,8 @@ function downloadEditedMidi() {
       if (note.trackId !== part.id) continue
       track.addNote({ midi: note.midi, time: note.time, duration: note.duration, velocity: note.velocity })
     }
+    // Keep pedal CC64 in its own MIDI track, without extending the original notes.
+    for(const event of pedalByTrack.value[part.id]??[])track.addCC({number:64,time:event.time,value:event.value/127})
   }
   const blob = new Blob([result.toArray() as BlobPart], { type: 'audio/midi' })
   const url = URL.createObjectURL(blob)
@@ -2677,8 +2695,8 @@ watch(() => currentTime.value, (t) => {
         </section> <!-- preview -->
         <div v-if="!isFullscreen && pianoRollPart" class="mx-roll-divider" role="separator" aria-orientation="horizontal" title="Kéo lên/xuống để chỉnh chiều cao Piano Roll" @pointerdown="beginPianoRollResize"></div>
         <MelorixPianoRoll v-if="!isFullscreen && pianoRollPart" :key="pianoRollPart.id" :style="{ height: pianoRollHeight + 'px' }"
-          :part="pianoRollPart" :notes="pianoRollNotes" :duration="duration" :bpm="midiTempo"
-          :disabled="exporting" :current-time="currentTime / speed" :playing="playState === 'playing'" @seek="seekFromPianoRoll" @change="updatePianoRollNotes" @audition-start="startPianoAudition" @audition-stop="stopPianoAudition" @chord-audition="startChordAudition" @close="pianoRollTrackId = null" />
+          :part="pianoRollPart" :notes="pianoRollNotes" :pedal="pianoRollPedal" :duration="duration" :bpm="midiTempo"
+          :disabled="exporting" :current-time="currentTime / speed" :playing="playState === 'playing'" @seek="seekFromPianoRoll" @change="updatePianoRollNotes" @pedal-change="updatePianoRollPedal" @audition-start="startPianoAudition" @audition-stop="stopPianoAudition" @chord-audition="startChordAudition" @close="pianoRollTrackId = null" />
       </div> <!-- workspace stage -->
       <aside v-if="!isFullscreen && isInspectorOpen" class="mx-inspector" aria-label="Thuộc tính MELORIX">
         <div class="mx-inspector-top"><i class="fas fa-sliders-h"></i> Cài đặt <span style="margin-left:auto;font-weight:400;color:#929eae">Thuộc tính</span>
