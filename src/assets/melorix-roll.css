@@ -258,3 +258,7 @@
 .mx-track-add-choices small{color:#9cadc2;font-size:10px;line-height:1.5}
 
 .mx-track-native-state{font-size:9px!important;color:#f7ba77;border:1px solid #936d42;border-radius:4px;padding:2px 5px;background:#322a25;white-space:nowrap}
+
+/* Show browser sound status without compressing Play/Stop transport controls. */
+.mx-web-audio-hint{font-size:10px;color:#e1bf83;max-width:165px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:1;min-width:0}
+@media(max-width:1100px){.mx-web-audio-hint{display:none}}
