@@ -646,6 +646,15 @@ onUnmounted(()=>{stopDrag();cancelNoteDraw();painting=null;window.removeEventLis
       <button type="button" :disabled="disabled||pedalUndo===null" @click="undoPedal">Hoàn tác</button>
       <span>{{showPedalPreview?'Đang xem thử — chưa thay MIDI':Math.floor(pedal.length/2)+' đoạn pedal đã lưu'}}</span>
     </div>
+    <div class="mx-roll-pedal-lane" role="img" aria-label="Các khoảng đạp và nhả pedal CC64">
+      <div class="mx-roll-pedal-timeline" :style="{width:gridWidth+'px',transform:'translateX(-'+gridScrollLeft+'px)'}">
+        <span class="mx-roll-pedal-label">CC64</span>
+        <span v-for="(segment,index) in pedalSegments" :key="index"
+          class="mx-roll-pedal-segment" :class="{preview:showPedalPreview}"
+          :title="'Pedal ON: '+segment.start.toFixed(2)+'s — OFF: '+segment.end.toFixed(2)+'s'"
+          :style="{left:KEY_W+segment.start*pixelsPerSecond+'px',width:Math.max(2,(segment.end-segment.start)*pixelsPerSecond)+'px'}"></span>
+      </div>
+    </div>
     <div class="mx-roll-ruler" @click="seekOnRuler">
       <div :style="{ width: gridWidth + 'px', transform: 'translateX(-' + gridScrollLeft + 'px)' }">
         <span v-for="sec in ticks" :key="sec" :style="{ left: KEY_W + sec * pixelsPerSecond + 'px' }">{{ sec }}s</span>
