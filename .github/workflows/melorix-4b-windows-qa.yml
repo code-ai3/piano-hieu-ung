@@ -1,0 +1,134 @@
+name: MELORIX Stage 4B Sustain Windows QA
+
+on:
+  push:
+    branches:
+      - feature/melorix-desktop-electron
+      - feature/melorix-expressive-playback
+      - feature/melorix-desktop-kontakt-live
+      - feature/melorix-native-vst3-host
+      - feature/melorix-vst3-stage3-track-instances
+      - feature/melorix-vst3-stage3b-native-editor
+      - feature/melorix-vst3-stage3c-audio-routing
+      - feature/melorix-vst3-stage3c1-full-midi-track
+      - feature/melorix-vst3-stage3d-local-audio-qa
+      - feature/melorix-vst3-sustain-4b
+    paths:
+      - .github/workflows/melorix-4b-windows-qa.yml
+      - desktop/**
+      - native/vst3-scan/**
+      - native/vst3-host/**
+      - tests/melorix-vst3-foundation.mjs
+      - tests/melorix-vst3-stage3.mjs
+      - tests/melorix-vst3-diagnostics.mjs
+      - electron-builder.yml
+      - package.json
+      - tests/melorix-desktop.mjs
+      - tests/melorix-expressive-audio.mjs
+      - tests/melorix-desktop-kontakt-live.mjs
+      - src/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-windows-x64:
+    name: Build Portable and Setup (Windows x64)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout MELORIX source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install existing web dependencies
+        run: npm ci
+
+      - name: Install temporary desktop packaging tool
+        # Keep package-lock intact; the app runtime version is pinned by electron-builder.yml.
+        run: npm install --no-save --package-lock=false electron-builder@26.0.12
+
+      - name: Run MELORIX tests, TypeScript and Vite build
+        run: npm run build
+
+      - name: Build a proper 256x256 MELORIX Windows icon
+        run: |
+          python -m pip install --disable-pip-version-check Pillow==11.3.0
+          python desktop/make_windows_icon.py
+
+      - name: Set up Microsoft Visual C++ build tools
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Compile native VST3 discovery scanner (no plugin execution)
+        run: |
+          New-Item -ItemType Directory -Path native/bin -Force | Out-Null
+          & cl.exe /nologo /std:c++17 /EHsc /W4 /O2 /utf-8 native/vst3-scan/main.cpp /Fe:native/bin/melorix-vst3-scan.exe
+          if ($LASTEXITCODE -ne 0) { throw "C++ VST3 scanner compilation failed" }
+
+      - name: Smoke-test local VST3 bundle discovery
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'MelorixVst3Smoke'
+          $folder = Join-Path $root 'Kontakt 8.vst3/Contents/x86_64-win'
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          [IO.File]::WriteAllBytes((Join-Path $folder 'Kontakt 8.vst3'), [byte[]](77,90))
+          $raw = & ./native/bin/melorix-vst3-scan.exe --root $root
+          if ($LASTEXITCODE -ne 0) { throw "Scanner failed on fixture" }
+          $report = $raw | ConvertFrom-Json
+          if ($report.engine -ne 'discovery-only' -or $report.plugins.Count -ne 1) { throw "Invalid discovery-only schema" }
+          if ($report.plugins[0].name -ne 'Kontakt 8' -or !$report.plugins[0].hasBinary) { throw "Failed to discover VST3 fixture" }
+          Write-Host 'PASS: native VST3 bundle found without LoadLibrary or starting Kontakt'
+
+      - name: Obtain pinned Steinberg VST3 SDK for Stage 3 native plugin host
+        run: |
+          $sdk=Join-Path $env:RUNNER_TEMP 'vst3sdk'
+          git clone --recursive --filter=blob:none https://github.com/steinbergmedia/vst3sdk.git $sdk
+          if ($LASTEXITCODE -ne 0) { throw 'VST3 SDK checkout failed' }
+          git -C $sdk checkout 3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96
+          if ($LASTEXITCODE -ne 0) { throw 'VST3 SDK version mismatch' }
+          git -C $sdk submodule update --init --recursive
+          if ($LASTEXITCODE -ne 0) { throw 'Missing SDK modules' }
+
+      - name: Compile persistent native VST3 track session for Desktop
+        run: |
+          $sdk=Join-Path $env:RUNNER_TEMP 'vst3sdk'
+          cmake -S native/vst3-host -B native/vst3-host-build -G Ninja "-DVST3_SDK_ROOT=$sdk" -DCMAKE_BUILD_TYPE=Release -DMELORIX_BUILD_VST3_TEST_PLUGIN=OFF -DMELORIX_BUILD_VST3_TEST_SYNTH=OFF
+          if ($LASTEXITCODE -ne 0) { throw 'VST3 host configuration failed' }
+          cmake --build native/vst3-host-build --target melorix-vst3-session --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'VST3 persistent host compilation failed' }
+          Copy-Item native/vst3-host-build/bin/melorix-vst3-session.exe native/bin/melorix-vst3-session.exe -Force
+          if (!(Test-Path native/bin/melorix-vst3-session.exe)) { throw 'Missing packaged native VST3 helper' }
+
+      - name: Package two Windows executables
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run desktop:build:win
+
+      - name: Verify Portable and Setup artifacts
+        run: |
+          $portable = @(Get-ChildItem -Path release -Filter 'MELORIX-Portable-*.exe' -ErrorAction SilentlyContinue)
+          $setup = @(Get-ChildItem -Path release -Filter 'MELORIX-Setup-*.exe' -ErrorAction SilentlyContinue)
+          if ($portable.Count -ne 1) { throw "Expected 1 portable EXE, got $($portable.Count)" }
+          if ($setup.Count -ne 1) { throw "Expected 1 setup EXE, got $($setup.Count)" }
+          foreach ($file in @($portable[0], $setup[0])) {
+            if ($file.Length -lt 20000000) { throw "Unexpectedly small EXE: $($file.Name)" }
+            Write-Host "$($file.Name) - $([Math]::Round($file.Length / 1MB, 1)) MB"
+            Get-FileHash -Algorithm SHA256 -Path $file.FullName | Format-List
+          }
+
+      - name: Upload downloadable Windows builds
+        uses: actions/upload-artifact@v4
+        with:
+          name: MELORIX-4B-CC64-Windows-x64
+          path: release/*.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
