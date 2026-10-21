@@ -23,6 +23,9 @@ import MelorixVst3Browser from '@/components/MelorixVst3Browser.vue'
 import {Vst3PreviewPlayer} from '@/util/melorix-vst3-preview'
 import {Vst3SongScheduler} from '@/util/melorix-vst3-song'
 import {Vst3PedalScheduler} from '@/util/melorix-vst3-pedal'
+import MelorixAddInstrumentTrack from '@/components/MelorixAddInstrumentTrack.vue'
+import {prepareInstrumentTracks} from '@/util/melorix-native-instrument-tracks'
+import type {NativeInstrumentRequest} from '@/util/melorix-native-instrument-tracks'
 import {normalizePedalPoints} from '@/util/melorix-auto-pedal'
 import type {PedalPoint} from '@/util/melorix-auto-pedal'
 import type {Vst3PreviewApi} from '@/util/melorix-vst3-preview'
@@ -55,7 +58,7 @@ type NoteEvent = MidiNoteEvent
 
 // ---- 状态 ----
 const playState = ref<'idle' | 'playing' | 'paused'>('idle')
-type Vst3TrackPreviewApi=Vst3PreviewApi&{listVst3Tracks:()=>Promise<{audioConnected:boolean;liveTrack?:number;tracks:{track:number;componentInitialized:boolean}[]}>;sendLiveVst3Note:(track:number,pitch:number,velocity:number)=>Promise<unknown>;sendLiveVst3Pedal?:(track:number,value:number)=>Promise<unknown>}
+type Vst3TrackPreviewApi=Vst3PreviewApi&{listVst3Tracks:()=>Promise<{audioConnected:boolean;liveTrack?:number;tracks:{track:number;componentInitialized:boolean}[]}>;scanVst3:()=>Promise<unknown>;bindVst3Track:(track:number,path:string)=>Promise<unknown>;unbindVst3Track:(track:number)=>Promise<unknown>;sendLiveVst3Note:(track:number,pitch:number,velocity:number)=>Promise<unknown>;sendLiveVst3Pedal?:(track:number,value:number)=>Promise<unknown>}
 const vst3Api=(window as Window&{melorixDesktop?:Vst3TrackPreviewApi}).melorixDesktop
 const vst3AssignedTrackIds=ref<Set<number>>(new Set())
 const vst3LiveTrackId=ref<number|null>(null)
@@ -188,6 +191,9 @@ const isTimelineOpen = ref(false)
 // Instrument routing is per track and survives Piano Roll edits.
 const showMidiConnector=ref(false)
 const showVst3Browser=ref(false)
+const showNativeInstrumentCreator=ref(false)
+const nativeTrackBusy=ref(false)
+const showTrackAddMenu=ref(false)
 const vst3QaBusy=ref(false)
 function onVst3DiagnosticChange(busy:boolean){vst3QaBusy.value=busy}
 // Only native Electron preload exposes the read-only local VST3 scanner.
@@ -519,6 +525,41 @@ async function importPersonalWav(){
   console.error('Personal WAV import failed:',error)
   sampleImportError.value='Không giải mã được WAV này. Hãy thử file WAV PCM thông thường.'
  }finally{sampleImportBusy.value=false}
+}
+function openNativeInstrumentCreator(){
+ showTrackAddMenu.value=false
+ if(!hasNativeVst3Scanner){uploadError.value='Instrument Track VST3 cần MELORIX Desktop Windows';return}
+ if(exporting.value||nativeTrackBusy.value)return
+ closeControlPanel()
+ showNativeInstrumentCreator.value=true
+}
+async function createNativeInstrumentTracks(request:NativeInstrumentRequest){
+ if(!vst3Api?.bindVst3Track||!vst3Api?.unbindVst3Track||nativeTrackBusy.value||exporting.value)return
+ nativeTrackBusy.value=true
+ try{
+  if(playState.value==='playing')pause()
+  const currentNative=await vst3Api.listVst3Tracks()
+  // Protect existing plugin instances when MIDI song IDs have changed.
+  const batch=await prepareInstrumentTracks(midiParts.value,request,vst3Api,currentNative.tracks.map(t=>t.track))
+  const channels={...kontaktTrackChannels.value},parts=[...midiParts.value]
+  for(const {part} of batch){
+   channels[part.id]=nextKontaktChannel(parts,channels)
+   parts.push(part)
+  }
+  midiParts.value=parts
+  kontaktTrackChannels.value=channels
+  assignedTrackPresets.value={...assignedTrackPresets.value,
+   ...Object.fromEntries(batch.map(item=>[item.part.id,'piano' as TrackInstrument]))}
+  onVst3BindingsChanged([...vst3AssignedTrackIds.value,...batch.map(item=>item.part.id)])
+  selectedTrackId.value=batch[0]?.part.id??null
+  lastScheduledIdx=0
+  playState.value='idle'
+  uploadError.value=''
+  showNativeInstrumentCreator.value=false
+  if(selectedTrackId.value!==null)openPianoRoll(selectedTrackId.value)
+ }catch(error){
+  uploadError.value='Không thêm được Instrument Track: '+(error instanceof Error?error.message:String(error))
+ }finally{nativeTrackBusy.value=false}
 }
 function openTrackComposer(){
  closeControlPanel()
@@ -2286,7 +2327,8 @@ watch(() => currentTime.value, (t) => {
           <div class="mx-menu-caption">{{ midiParts.length }} track · {{ enabledPartCount }} đang bật</div>
         </div></details>
         <details name="melorix-main-menu"><summary>Nhạc cụ</summary><div class="mx-menu-pop" aria-label="Menu nhạc cụ">
-          <button type="button" @click="openTrackComposer"><i class="fas fa-plus mr-2"></i> Thêm track</button>
+          <button type="button" @click="openNativeInstrumentCreator"><i class="fas fa-keyboard mr-2"></i> Thêm Instrument Track VST3</button>
+          <button type="button" @click="openTrackComposer"><i class="fas fa-plus mr-2"></i> Thêm MIDI Track / nhạc cụ web</button>
           <button type="button" @click="openPublishedLibrary"><i class="fas fa-book-open mr-2"></i> Xem thư viện nhạc cụ</button>
         </div></details>
         <details name="melorix-main-menu"><summary>Công cụ</summary><div class="mx-menu-pop">
@@ -2330,10 +2372,15 @@ watch(() => currentTime.value, (t) => {
         <div class="mx-inspector-top mx-track-sidebar-title">
           <i class="fas fa-layer-group"></i><span>Track MIDI</span>
           <span class="mx-track-side-count">{{ enabledPartCount }}/{{ midiParts.length }}</span>
-          <button type="button" class="mx-track-add-btn" :aria-expanded="activeEditorPanel === 'track'" aria-label="Tạo track nhạc cụ mới" title="Thêm track nhạc cụ" :disabled="exporting" @click="toggleTrackComposerPreview"><i class="fas fa-plus"></i></button>
+          <button type="button" class="mx-track-add-btn" :aria-expanded="showTrackAddMenu" aria-label="Thêm track" title="Thêm track" :disabled="exporting" @click="showTrackAddMenu=!showTrackAddMenu"><i class="fas fa-plus"></i></button>
           <button type="button" class="mx-side-close" aria-label="Ẩn danh sách track" title="Ẩn track" @click="isTrackPanelOpen = false"><i class="fas fa-times"></i></button>
         </div>
 
+        <div v-if="showTrackAddMenu" class="mx-track-add-choices" role="group" aria-label="Chọn loại track">
+          <button type="button" :disabled="!hasNativeVst3Scanner" @click="openNativeInstrumentCreator"><i class="fas fa-keyboard"></i> Instrument Track (VST3)</button>
+          <button type="button" @click="showTrackAddMenu=false;openTrackComposer()"><i class="fas fa-music"></i> MIDI Track / nhạc cụ web</button>
+          <small v-if="!hasNativeVst3Scanner">VST3 chỉ khả dụng trên MELORIX Desktop Windows.</small>
+        </div>
         <div class="mx-track-sidebar-actions">
           <button type="button" :disabled="exporting || !midiParts.length" @click="setAllParts(true)">Bật tất cả</button>
           <button type="button" :disabled="exporting || !midiParts.length" @click="setAllParts(false)">Tắt tất cả</button>
@@ -2751,6 +2798,7 @@ watch(() => currentTime.value, (t) => {
       </aside>
     </div> <!-- workspace -->
 
+    <MelorixAddInstrumentTrack v-if="showNativeInstrumentCreator" :busy="nativeTrackBusy" @close="showNativeInstrumentCreator=false" @create="createNativeInstrumentTracks" />
     <MelorixMidiConnector v-if="showMidiConnector" :playing="playState === 'playing'"
        @kontakt-enabled="activateKontaktOnly" @close="showMidiConnector = false" />
      <MelorixVst3Browser v-if="showVst3Browser" :playing="playState === 'playing'"
