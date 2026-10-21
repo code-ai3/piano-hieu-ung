@@ -3,6 +3,8 @@ import { computed, ref, watch, nextTick, onUnmounted } from 'vue'
 import type { MidiNoteEvent, MidiPart } from '@/util/midi-tracks'
 import { midiNoteName, snapMidiTime } from '@/util/midi-edit'
 import { midiDrawRange } from '@/util/melorix-note-draw'
+import {suggestAutoPedal,pedalIntervals} from '@/util/melorix-auto-pedal'
+import type {PedalMode,PedalPoint} from '@/util/melorix-auto-pedal'
 import { playheadLeft, rulerSeekTime } from '@/util/piano-roll-playhead'
 import { cloneNotes, sameNotes, copyMidiNotes, pasteMidiNotes, moveMidiNotes, selectMidiInBox } from '@/util/piano-roll-selection'
 import { midiGridStep, quantizeMidiNotes } from '@/util/piano-roll-quantize'
@@ -11,9 +13,28 @@ import { isPitchInScale, isScaleRoot, snapPitchToScale, correctMidiNotesToScale 
 import type { ScaleMode } from '@/util/piano-roll-scale'
 import { CHORD_INTERVALS, CHORD_LABELS, chordName, chordNoteName, chordPitches, createChordNotes } from '@/util/piano-roll-chords'
 import type { ChordQuality } from '@/util/piano-roll-chords'
-const props=defineProps<{part:MidiPart; notes:MidiNoteEvent[]; duration:number; bpm:number; disabled:boolean; currentTime:number; playing:boolean}>()
-const emit=defineEmits<{(e:'change',notes:MidiNoteEvent[]):void;(e:'close'):void;(e:'seek',time:number):void;(e:'audition-start',midi:number):void;(e:'audition-stop'):void;(e:'chord-audition',pitches:number[]):void}>()
+const props=defineProps<{part:MidiPart; notes:MidiNoteEvent[]; pedal:PedalPoint[]; duration:number; bpm:number; disabled:boolean; currentTime:number; playing:boolean}>()
+const emit=defineEmits<{(e:'change',notes:MidiNoteEvent[]):void;(e:'pedal-change',points:PedalPoint[]):void;(e:'close'):void;(e:'seek',time:number):void;(e:'audition-start',midi:number):void;(e:'audition-stop'):void;(e:'chord-audition',pitches:number[]):void}>()
 const ROW=19, KEY_W=54, HIGH=108, LOW=21
+const pedalMode=ref<PedalMode>('natural')
+const showPedalPreview=ref(false)
+const pedalUndo=ref<PedalPoint[]|null>(null)
+const pedalSuggestion=computed(()=>suggestAutoPedal(draft.value,pedalMode.value,props.bpm))
+const displayedPedal=computed(()=>showPedalPreview.value?pedalSuggestion.value:props.pedal)
+const pedalSegments=computed(()=>pedalIntervals(displayedPedal.value,Math.max(props.duration,...draft.value.map(n=>n.time+n.duration),0)+5))
+function suggestPedal(){showPedalPreview.value=true}
+function applyPedal(){
+ if(props.disabled||!pedalSuggestion.value.length)return
+ pedalUndo.value=props.pedal.map(p=>({...p}))
+ emit('pedal-change',pedalSuggestion.value.map(p=>({...p})))
+ showPedalPreview.value=false
+}
+function undoPedal(){
+ if(props.disabled||pedalUndo.value===null)return
+ emit('pedal-change',pedalUndo.value)
+ pedalUndo.value=null
+ showPedalPreview.value=false
+}
 const scroll=ref<HTMLElement|null>(null)
 const gridScrollLeft=ref(0)
 const followPlayback=ref(true)
@@ -83,6 +104,7 @@ watch(()=>[props.part.id,props.notes],()=>{
   if(switched){
     selectedIndices.value=[];selected.value=-1
     velocityDrawing.value=false;advancedPanel.value='none'
+    showPedalPreview.value=false;pedalUndo.value=null
     undoHistory.value=[];redoHistory.value=[];clipboard.value=[]
     void nextTick(()=>{centerKeys();followPlayhead(true)})
   } else if(selectedIndices.value.some(i=>i>=draft.value.length)){
