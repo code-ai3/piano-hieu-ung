@@ -8,7 +8,9 @@ export class Vst3SongScheduler {
  private track:number|null=null
  private active=new Set<number>()
  private pending:Promise<void>=Promise.resolve()
- constructor(private port:Vst3NotePort,private onError:(message:string)=>void=()=>{}){}
+ private port:Vst3NotePort
+ private onError:(message:string)=>void
+ constructor(port:Vst3NotePort,onError:(message:string)=>void=()=>{}){this.port=port;this.onError=onError}
  private send(track:number,pitch:number,velocity:number){
   // Serialize host commands to preserve note-off before restarting.
   this.pending=this.pending.then(async()=>{await this.port.sendLiveVst3Note(track,pitch,velocity)})
