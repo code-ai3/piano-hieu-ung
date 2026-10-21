@@ -281,10 +281,10 @@ std::optional<ParamID> sustainParamId(Loaded& slot){
  IMidiMapping* mapping=nullptr;
  if(slot.controller->queryInterface(IMidiMapping::iid,reinterpret_cast<void**>(&mapping))!=kResultOk||!mapping)
   return std::nullopt;
- ParamID result=InvalidParamID;
+ ParamID result=0xffffffffu;
  const auto ok=mapping->getMidiControllerAssignment(0,0,kCtrlSustainOnOff,result)==kResultTrue;
  mapping->release();
- if(!ok||result==InvalidParamID)return std::nullopt;
+ if(!ok||result==0xffffffffu)return std::nullopt;
  return result;
 }
 void startLive(int id){
