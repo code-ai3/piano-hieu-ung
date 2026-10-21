@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 const native=readFileSync(new URL('../native/vst3-host/track-preview.hpp',import.meta.url),'utf8')
+const buses=readFileSync(new URL('../native/vst3-host/audio-bus-layout.hpp',import.meta.url),'utf8')
 const session=readFileSync(new URL('../native/vst3-host/session.cpp',import.meta.url),'utf8')
 const main=readFileSync(new URL('../desktop/main.cjs',import.meta.url),'utf8')
 const preload=readFileSync(new URL('../desktop/preload.cjs',import.meta.url),'utf8')
@@ -11,19 +12,20 @@ const wasapi=readFileSync(new URL('../native/vst3-host/wasapi-live.hpp',import.m
 for(const marker of [
  'component->queryInterface(IAudioProcessor::iid',
  'component->getBusCount(kAudio,kOutput)',
- 'processor->setBusArrangements(nullptr,0,&stereo,1)',
+ 'audioBuses.initialize(component,result.message)',
  'processor->setupProcessing(setup)',
  'processor->setProcessing(true)',
  'Event::kNoteOnEvent',
  'Event::kNoteOffEvent',
  'processor->process(data)',
- 'float* channels[2]',
+ 'data.numOutputs=audioBuses.outputCount()',
  'push16(wav,3)',
  'push16(wav,32)',
  'result.wavBase64=base64(wav)',
  'if(processing)processor->setProcessing(false)',
  'if(active)component->setActive(false)',
 ])assert.ok(native.includes(marker),'Missing real plugin PCM render: '+marker)
+assert.ok(!native.includes('setBusArrangements(nullptr,0,&stereo,1)'), 'Do not force only one output bus')
 assert.ok(!native.includes('std::sin('),'Host may not imitate a VST3 synth')
 assert.ok(!native.includes('std::ofstream'),'Do not write preview WAV to a Windows drive')
 assert.ok(session.includes('MelorixPreview::render(it->second->component.get()'))
@@ -55,6 +57,13 @@ for(const marker of [
  'Event::kNoteOnEvent','Event::kNoteOffEvent',
  'GetCurrentPadding','ReleaseBuffer(frames','CoInitializeEx(nullptr,COINIT_MULTITHREADED)',
 ])assert.ok(wasapi.includes(marker),'Missing actual WASAPI native VST3 audio output: '+marker)
+assert.ok(wasapi.includes('pd.numOutputs=audioBuses.outputCount()'))
+assert.ok(wasapi.includes('pd.outputs=audioBuses.outputBuses()'))
+assert.ok(!wasapi.includes('setBusArrangements(nullptr,0,&stereo,1)'))
+for(const marker of ['getBusCount(kAudio,direction)','getBusInfo(kAudio,direction,i,info)',
+ 'descriptors.resize(static_cast<size_t>(count))','bus.channelBuffers32=',
+ 'kMaxTotalChannels','int32 outputCount()const'])
+ assert.ok(buses.includes(marker),'Missing declared audio bus buffers: '+marker)
 assert.ok(!wasapi.includes('std::sin('),'WASAPI host must play plugin output rather than synthesized substitute')
 assert.ok(session.includes('liveOutput.start(it->second->component.get(),why)'))
 assert.ok(session.includes('liveOutput.send(velocity>0,pitch,velocity)'))
