@@ -1384,7 +1384,7 @@ async function play() {
       vst3Song?.start(notes.value,vst3LiveTrackId.value,currentTime.value/speed.value)
       vst3Pedal?.start(vst3LiveTrackId.value,pedalByTrack.value[vst3LiveTrackId.value]??[],currentTime.value/speed.value)
      }
-    scheduleAll();vst3Song?.tick(currentTime.value/speed.value)
+    scheduleAll();vst3Pedal?.tick(currentTime.value/speed.value);vst3Song?.tick(currentTime.value/speed.value)
     playState.value = 'playing'
   } catch(error){
     if(request!==playRequest)return
@@ -2037,6 +2037,7 @@ function loop() {
       }
     }else{
       currentTime.value += (performance.now() - lastFrameTime) / 1000
+      vst3Pedal?.tick(currentTime.value/speed.value)
       vst3Song?.tick(currentTime.value/speed.value)
       scheduleUpcomingAudio()
       if (currentTime.value >= duration.value) {
