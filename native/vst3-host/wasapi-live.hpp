@@ -7,7 +7,7 @@
 #include "public.sdk/source/vst/hosting/eventlist.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
-#include "pluginterfaces/vst/vstspeaker.h"
+#include "audio-bus-layout.hpp"
 #include <windows.h>
 #include <mmdeviceapi.h>
 #include <audioclient.h>
@@ -137,9 +137,10 @@ private:
    }
    hr=component->queryInterface(IAudioProcessor::iid,reinterpret_cast<void**>(&processor));
    if(hr!=kResultOk||!processor){fail("VST3 does not implement IAudioProcessor");break;}
-   SpeakerArrangement stereo=SpeakerArr::kStereo;
-   if(processor->setBusArrangements(nullptr,0,&stereo,1)!=kResultOk){
-    fail("VST3 rejected stereo output bus");break;
+   MelorixAudioBus::Buffers audioBuses;
+   std::string layoutError;
+   if(!audioBuses.initialize(component,layoutError)){
+    fail(layoutError.c_str());break;
    }
    if(component->activateBus(kAudio,kOutput,0,true)!=kResultOk||
       component->activateBus(kEvent,kInput,0,true)!=kResultOk){
@@ -168,13 +169,10 @@ private:
    audioStarted=true;
    notify(true,"",static_cast<int>(format->nSamplesPerSec));
    notified=true;
-   float left[kBlock]{},right[kBlock]{};
-   float* channels[2]={left,right};
-   AudioBusBuffers bus{};
-   bus.numChannels=2;bus.channelBuffers32=channels;
    ProcessData pd{};
    pd.processMode=kRealtime;pd.symbolicSampleSize=kSample32;
-   pd.numInputs=0;pd.numOutputs=1;pd.outputs=&bus;
+   pd.numInputs=audioBuses.inputCount();pd.inputs=audioBuses.inputBuses();
+   pd.numOutputs=audioBuses.outputCount();pd.outputs=audioBuses.outputBuses();
    EventList events(256);
    pd.inputEvents=&events;
    while(!stopping_){
@@ -208,13 +206,13 @@ private:
       }
       events.addEvent(ev);
      }
-     std::fill_n(left,count,0.f);std::fill_n(right,count,0.f);
-     pd.numSamples=static_cast<int32>(count);bus.silenceFlags=0;
+     audioBuses.clear(static_cast<int>(count));
+     pd.numSamples=static_cast<int32>(count);
      if(processor->process(pd)!=kResultOk){stopping_=true;break;}
      for(UINT32 i=0;i<count;++i){
       const auto dest=(offset+i)*format->nChannels;
       for(UINT32 ch=0;ch<format->nChannels;++ch){
-       const auto sample=ch==0?left[i]:(ch==1?right[i]:0.f);
+       const auto sample=ch==0?audioBuses.left(i):(ch==1?audioBuses.right(i):0.f);
        samples[dest+ch]=std::isfinite(sample)?std::clamp(sample,-1.f,1.f):0.f;
       }
      }
