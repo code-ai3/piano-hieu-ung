@@ -22,6 +22,7 @@ import MelorixMidiConnector from '@/components/MelorixMidiConnector.vue'
 import MelorixVst3Browser from '@/components/MelorixVst3Browser.vue'
 import {Vst3PreviewPlayer} from '@/util/melorix-vst3-preview'
 import {Vst3SongScheduler} from '@/util/melorix-vst3-song'
+import {Vst3PedalScheduler} from '@/util/melorix-vst3-pedal'
 import {normalizePedalPoints} from '@/util/melorix-auto-pedal'
 import type {PedalPoint} from '@/util/melorix-auto-pedal'
 import type {Vst3PreviewApi} from '@/util/melorix-vst3-preview'
@@ -54,7 +55,7 @@ type NoteEvent = MidiNoteEvent
 
 // ---- 状态 ----
 const playState = ref<'idle' | 'playing' | 'paused'>('idle')
-type Vst3TrackPreviewApi=Vst3PreviewApi&{listVst3Tracks:()=>Promise<{audioConnected:boolean;liveTrack?:number;tracks:{track:number;componentInitialized:boolean}[]}>;sendLiveVst3Note:(track:number,pitch:number,velocity:number)=>Promise<unknown>}
+type Vst3TrackPreviewApi=Vst3PreviewApi&{listVst3Tracks:()=>Promise<{audioConnected:boolean;liveTrack?:number;tracks:{track:number;componentInitialized:boolean}[]}>;sendLiveVst3Note:(track:number,pitch:number,velocity:number)=>Promise<unknown>;sendLiveVst3Pedal?:(track:number,value:number)=>Promise<unknown>}
 const vst3Api=(window as Window&{melorixDesktop?:Vst3TrackPreviewApi}).melorixDesktop
 const vst3AssignedTrackIds=ref<Set<number>>(new Set())
 const vst3LiveTrackId=ref<number|null>(null)
@@ -62,6 +63,7 @@ let activeVst3KeyPitch:number|null=null
 let activeVst3ChordPitches:number[]=[]
 const vst3Song=vst3Api?new Vst3SongScheduler(vst3Api,message=>{uploadError.value='VST3: '+message}):null
 function onVst3LiveChanged(id:number|null){if(id!==vst3LiveTrackId.value)vst3Song?.stop();vst3LiveTrackId.value=id}
+const vst3Pedal=vst3Api?.sendLiveVst3Pedal?new Vst3PedalScheduler({sendLiveVst3Pedal:vst3Api.sendLiveVst3Pedal},message=>{uploadError.value='VST3 Pedal: '+message}):null
 const vst3KeyPreview=new Vst3PreviewPlayer()
 function onVst3BindingsChanged(ids:number[]){vst3AssignedTrackIds.value=new Set(ids)}
 async function refreshVst3PianoBindings(){
