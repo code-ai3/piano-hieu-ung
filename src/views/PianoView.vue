@@ -23,6 +23,7 @@ import MelorixVst3Browser from '@/components/MelorixVst3Browser.vue'
 import {Vst3PreviewPlayer} from '@/util/melorix-vst3-preview'
 import {Vst3SongScheduler} from '@/util/melorix-vst3-song'
 import {Vst3PedalScheduler} from '@/util/melorix-vst3-pedal'
+import {unlockWebAudio} from '@/util/melorix-web-audio-unlock'
 import MelorixAddInstrumentTrack from '@/components/MelorixAddInstrumentTrack.vue'
 import {prepareInstrumentTracks} from '@/util/melorix-native-instrument-tracks'
 import type {NativeInstrumentRequest} from '@/util/melorix-native-instrument-tracks'
@@ -351,7 +352,7 @@ function playGmVoice(ctx:AudioContext,trackId:number,midi:number,velocity:number
 async function prepareAudioContext():Promise<AudioContext>{
  const ctx=audioCtx.value??new AudioContext()
  audioCtx.value=ctx
- await ctx.resume()
+ await unlockWebAudio(ctx)
  return ctx
 }
 function preloadGmForEnabledTracks(){
@@ -1092,7 +1093,9 @@ function loadTrack(idx: number) {
   void loadMidi(playlist.value[idx].file).then(ok=>{
    if(!ok)return
    if(hasOriginalAudio.value)ensureOriginalAudioPlayer()
-   void play()
+   // Asynchronous browser loads cannot autoplay without a user gesture.
+   if(hasNativeVst3Scanner)void play()
+   else gmAudioNotice.value='MIDI đã sẵn sàng. Bấm ▶ Phát để bật tiếng web.'
   })
 }
 
@@ -1444,13 +1447,14 @@ async function play() {
       vst3Pedal?.start(vst3LiveTrackId.value,pedalByTrack.value[vst3LiveTrackId.value]??[],currentTime.value/speed.value)
      }
     scheduleAll();vst3Pedal?.tick(currentTime.value/speed.value);vst3Song?.tick(currentTime.value/speed.value)
+    gmAudioNotice.value=''
     playState.value = 'playing'
   } catch(error){
     if(request!==playRequest)return
     console.error('MELORIX playback failed:',error)
     midiBridge.stopAll()
     playState.value='idle'
-    uploadError.value='Không thể bắt đầu phát nhạc. Hãy kiểm tra âm thanh và cổng MIDI.'
+    uploadError.value='Không thể bắt đầu phát: '+(error instanceof Error?error.message:String(error))
   } finally { pianoLoading = false }
 }
 
@@ -1490,7 +1494,9 @@ async function testWebSound(){
   for(const [n,delay] of [[36,0],[38,.28],[42,.54]]){
    synthKeyVoices.add(engine.play(percussion,n,110,ctx.currentTime+.05+delay,.20))
   }
-  synthKeyVoices.add(engine.play(pianoTest,72,115,ctx.currentTime+.9,.65))
+  // Verify the same per-track -> master path that actual MIDI uses.
+  const id=midiParts.value.find(part=>part.enabled)?.id??-1
+  synthKeyVoices.add(engine.play(pianoTest,72,115,ctx.currentTime+.9,.65,id))
   gmAudioNotice.value='Đã phát 3 tiếng trống và nốt Đô để thử loa; nếu vẫn im, kiểm tra âm lượng của tab và đầu ra hệ thống.'
  }catch(error){gmAudioNotice.value='Không mở được đầu ra âm thanh: '+String(error)}
 }
@@ -2731,6 +2737,13 @@ watch(() => currentTime.value, (t) => {
           <i class="fas fa-puzzle-piece" aria-hidden="true"></i>
           <span>Nhạc cụ VST3</span>
         </button>
+        <button v-if="!hasNativeVst3Scanner" type="button" class="mx-kontakt-live-action"
+          title="Thử loa qua engine web, không cần Kontakt" aria-label="Thử loa và bật âm thanh web"
+          @click="testWebSound">
+          <i class="fas fa-volume-up" aria-hidden="true"></i><span>Thử loa</span>
+        </button>
+        <span v-if="!hasNativeVst3Scanner && gmAudioNotice" class="mx-web-audio-hint"
+          role="status" :title="gmAudioNotice">{{gmAudioNotice}}</span>
         <!-- 单曲循环 -->
         <button @click="repeat = !repeat" class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border border-[rgba(255,255,255,0.5)] shadow-glass-light transition-all duration-300 hover:-translate-y-px hover:shadow-glass-hover-light active:translate-y-0 dark:shadow-none"
           :class="repeat
