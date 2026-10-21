@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import {onMounted,onUnmounted,ref} from 'vue'
 import {Vst3PreviewPlayer} from '@/util/melorix-vst3-preview'
+import {diagnoseLocalVst3} from '@/util/melorix-vst3-diagnostics'
+import type {LocalVst3QaReport} from '@/util/melorix-vst3-diagnostics'
 
-const emit=defineEmits<{(event:'close'):void;(event:'bindings-change',ids:number[]):void;(event:'live-change',id:number|null):void}>()
-const props=defineProps<{tracks:{id:number;label:string}[]}>()
+const emit=defineEmits<{(event:'close'):void;(event:'bindings-change',ids:number[]):void;(event:'live-change',id:number|null):void;(event:'diagnostic-change',busy:boolean):void}>()
+const props=defineProps<{tracks:{id:number;label:string}[];playing:boolean}>()
 type InstalledVst3={name:string;path:string;hasBinary:boolean}
 type ScannerResult={schema:1;engine:'discovery-only';plugins:InstalledVst3[]}
 type LoadedTrack={track:number;plugin:string;path:string;componentInitialized:boolean;editorOpened?:boolean;liveAudio?:boolean}
@@ -33,6 +35,42 @@ const hearingTrack=ref<number|null>(null)
 const auditionPeak=ref<number|null>(null)
 const liveBusy=ref(false)
 const preview=new Vst3PreviewPlayer()
+const diagnosticTrack=ref<number|null>(null)
+const qaReport=ref<LocalVst3QaReport|null>(null)
+const qaPlugin=ref('')
+const heardResult=ref<'none'|'yes'|'no'>('none')
+async function runDiagnostic(slot:LoadedTrack){
+ if(!api||diagnosticTrack.value!==null||props.playing||binding.value||liveBusy.value||hearingTrack.value!==null)return
+ diagnosticTrack.value=slot.track
+ qaReport.value=null
+ qaPlugin.value=slot.plugin
+ heardResult.value='none'
+ routingError.value=''
+ emit('diagnostic-change',true)
+ try{
+  qaReport.value=await diagnoseLocalVst3(api,slot.track,
+   id=>preview.play(api,id,60,100,650).then(result=>({peak:result.peak,nonzeroSamples:result.nonzeroSamples})))
+  await refreshBindings()
+ }catch(error){routingError.value=error instanceof Error?error.message:String(error)}
+ finally{diagnosticTrack.value=null;emit('diagnostic-change',false)}
+}
+async function copyDiagnostic(){
+ const r=qaReport.value
+ if(!r)return
+ const text=[
+  'MELORIX VST3 local QA — chưa tự xác minh Kontakt/NKI',
+  'Track: '+r.track+' | Plugin: '+qaPlugin.value,
+  'Loaded: '+r.loaded+' | Editor opened: '+r.editorOpened,
+  'PCM: '+r.hasPcm+' | peak: '+(r.pcmPeak?.toFixed(4)??'N/A')+' | nonzero: '+(r.pcmNonzeroSamples??'N/A'),
+  'WASAPI: '+r.wasapiConnected+' | Note On: '+r.noteOnAccepted+' | Note Off: '+r.noteOffAccepted+' | Clean stop: '+r.cleanStop,
+  'Technical QA: '+(r.complete?'PASS':'NOT YET'),
+  'Nghe được tiếng thực tế: '+(heardResult.value==='yes'?'CÓ':heardResult.value==='no'?'KHÔNG':'CHƯA XÁC NHẬN'),
+  ...r.errors.map(message=>'Lỗi: '+message),
+ ].join('\n')
+ try{await navigator.clipboard.writeText(text)}
+ catch{routingError.value='Không sao chép được kết quả; hãy chụp màn hình báo cáo.'}
+}
+
 async function hearRealVst3(track:number){
  if(!api?.auditionVst3Note||hearingTrack.value!==null)return
  hearingTrack.value=track;routingError.value='';auditionPeak.value=null
@@ -47,7 +85,7 @@ async function hearRealVst3(track:number){
 
 const routingError=ref('')
 async function toggleLive(slot:LoadedTrack){
- if(!api?.startLiveVst3Track||!api?.stopLiveVst3||liveBusy.value)return
+ if(!api?.startLiveVst3Track||!api?.stopLiveVst3||liveBusy.value||diagnosticTrack.value!==null)return
  liveBusy.value=true;routingError.value=''
  try{
   if(slot.liveAudio)await api.stopLiveVst3()
@@ -68,7 +106,7 @@ async function refreshBindings(){
  }catch(error){routingError.value=error instanceof Error?error.message:String(error)}
 }
 async function bindToTrack(){
- if(!api?.bindVst3Track||selectedTrackId.value===null||!selectedPluginPath.value||
+ if(!api?.bindVst3Track||diagnosticTrack.value!==null||selectedTrackId.value===null||!selectedPluginPath.value||
   binding.value||!props.tracks.some(t=>t.id===selectedTrackId.value))return
  const plugin=plugins.value.find(p=>p.path===selectedPluginPath.value&&p.hasBinary)
  if(!plugin)return
@@ -80,7 +118,7 @@ async function bindToTrack(){
  finally{binding.value=false}
 }
 async function toggleEditor(slot:LoadedTrack){
- if(!api?.openVst3Editor||!api?.closeVst3Editor||binding.value)return
+ if(!api?.openVst3Editor||!api?.closeVst3Editor||binding.value||diagnosticTrack.value!==null)return
  binding.value=true;routingError.value=''
  try{
   if(slot.editorOpened)await api.closeVst3Editor(slot.track)
@@ -90,7 +128,7 @@ async function toggleEditor(slot:LoadedTrack){
  finally{binding.value=false}
 }
 async function removeBinding(id:number){
- if(!api?.unbindVst3Track||binding.value)return
+ if(!api?.unbindVst3Track||binding.value||diagnosticTrack.value!==null)return
  binding.value=true;routingError.value=''
  try{await api.unbindVst3Track(id);await refreshBindings()}
  catch(error){routingError.value=error instanceof Error?error.message:String(error)}
