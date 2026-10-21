@@ -275,12 +275,25 @@ void audition(int id,const std::string& args){
   +std::to_string(rendered.peak)+",\"wavBase64\":"
   +escape(rendered.wavBase64)+"}");
 }
+std::optional<ParamID> sustainParamId(Loaded& slot){
+ // Kontakt's native editor controller is already available after choosing an NKI.
+ if(!slot.controller)return std::nullopt;
+ IMidiMapping* mapping=nullptr;
+ if(slot.controller->queryInterface(IMidiMapping::iid,reinterpret_cast<void**>(&mapping))!=kResultOk||!mapping)
+  return std::nullopt;
+ ParamID result=InvalidParamID;
+ const auto ok=mapping->getMidiControllerAssignment(0,0,kCtrlSustainOnOff,result)==kResultTrue;
+ mapping->release();
+ if(!ok||result==InvalidParamID)return std::nullopt;
+ return result;
+}
 void startLive(int id){
  const auto it=instances.find(id);
  if(it==instances.end()){fail("Assign a VST3 instrument before starting Windows audio");return;}
  liveOutput.stop();liveOutputTrack=-1;
  std::string why;
- if(!liveOutput.start(it->second->component.get(),why)){fail(why);return;}
+ const auto pedal=sustainParamId(*it->second);
+ if(!liveOutput.start(it->second->component.get(),why,pedal)){fail(why);return;}
  liveOutputTrack=id;
  reply("{\"schema\":3,\"ok\":true,\"operation\":\"live-start\",\"track\":"
   +std::to_string(id)+",\"audioConnected\":true,\"driver\":\"wasapi-shared\","
