@@ -182,6 +182,8 @@ const isTimelineOpen = ref(false)
 // Instrument routing is per track and survives Piano Roll edits.
 const showMidiConnector=ref(false)
 const showVst3Browser=ref(false)
+const vst3QaBusy=ref(false)
+function onVst3DiagnosticChange(busy:boolean){vst3QaBusy.value=busy}
 // Only native Electron preload exposes the read-only local VST3 scanner.
 // Ordinary Cloudflare/Chrome pages never inspect the user's installed plugins.
 const hasNativeVst3Scanner=typeof window!=='undefined'&&
@@ -1342,7 +1344,7 @@ function scheduleAll() {
 // ---- 播放控制 ----
 let playRequest=0
 async function play() {
-  if (!notes.value.length || pianoLoading) return
+  if (!notes.value.length || pianoLoading || vst3QaBusy.value) return
   if (playState.value === 'playing') return
   pianoLoading = true
   const request=++playRequest
@@ -2723,9 +2725,9 @@ watch(() => currentTime.value, (t) => {
 
     <MelorixMidiConnector v-if="showMidiConnector" :playing="playState === 'playing'"
        @kontakt-enabled="activateKontaktOnly" @close="showMidiConnector = false" />
-     <MelorixVst3Browser v-if="showVst3Browser"
+     <MelorixVst3Browser v-if="showVst3Browser" :playing="playState === 'playing'"
        :tracks="midiParts.map(part=>({id:part.id,label:part.name}))"
-       @bindings-change="onVst3BindingsChanged" @live-change="onVst3LiveChanged"
+       @bindings-change="onVst3BindingsChanged" @live-change="onVst3LiveChanged" @diagnostic-change="onVst3DiagnosticChange"
        @close="showVst3Browser=false" />
     <MelorixPublishedLibrary v-if="showPublishedLibrary" @close="showPublishedLibrary=false" />
     <MelorixKontaktAudioCapture :key="captureSession" :open="showKontaktAudioCapture"
