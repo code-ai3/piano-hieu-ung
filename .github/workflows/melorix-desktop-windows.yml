@@ -18,6 +18,8 @@ on:
       - native/vst3-scan/**
       - native/vst3-host/**
       - tests/melorix-vst3-foundation.mjs
+      - tests/melorix-vst3-stage3.mjs
+      - tests/melorix-vst3-diagnostics.mjs
       - electron-builder.yml
       - package.json
       - tests/melorix-desktop.mjs
