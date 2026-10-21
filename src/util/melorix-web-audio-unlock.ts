@@ -15,5 +15,7 @@ export async function unlockWebAudio(
    })
   ])
  }finally{if(timer!==undefined)clearTimeout(timer)}
- if(ctx.state!=='running')throw Error('Âm thanh vẫn đang tạm dừng. Hãy bấm Phát hoặc Thử loa.')
+ // Resume updates the state asynchronously; do not preserve TypeScript's pre-await narrowing.
+ const resumedState:string=String(ctx.state)
+ if(resumedState!=='running')throw Error('Âm thanh vẫn đang tạm dừng. Hãy bấm Phát hoặc Thử loa.')
 }
