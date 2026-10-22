@@ -262,3 +262,9 @@
 /* Show browser sound status without compressing Play/Stop transport controls. */
 .mx-web-audio-hint{font-size:10px;color:#e1bf83;max-width:165px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:1;min-width:0}
 @media(max-width:1100px){.mx-web-audio-hint{display:none}}
+
+/* Giai đoạn B: shortcut to the per-track Audio Inspector */
+.mx-track-inspector-btn{flex:0 0 auto;border:1px solid #6d756f;background:#2d3a42;color:#f2b674;border-radius:5px;padding:5px 6px;font-size:10px;cursor:pointer}
+.mx-track-inspector-btn:hover:not(:disabled){background:#745032;color:#fff}
+.mx-track-inspector-btn:focus-visible{outline:2px solid #f3a567;outline-offset:2px}
+.mx-track-inspector-btn:disabled{opacity:.45;cursor:default}
