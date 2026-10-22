@@ -64,7 +64,16 @@ try{
  await page.locator('.mx-transport button:has(i.fa-play)').first().click()
  await page.locator('.mx-transport button:has(i.fa-pause)').first().waitFor()
  await page.locator('.mx-transport button:has(i.fa-step-forward)').first().click()
- await page.locator('.mx-transport button:has(i.fa-pause)').first().waitFor({timeout:15000})
+ await page.waitForTimeout(900)
+ const nextInfo=await page.evaluate(()=>({
+  transport:[...document.querySelectorAll('.mx-transport button:has(i.fa-play),.mx-transport button:has(i.fa-pause)')].map(x=>x.querySelector('i')?.className),
+  song:document.querySelector('.mx-transport span.text-xs')?.textContent,
+  notice:document.querySelector('.mx-web-audio-hint')?.textContent,
+  warning:document.querySelector('.mx-warning')?.textContent,
+  trackCount:document.querySelectorAll('.mx-track-side-item').length
+ }))
+ console.log('AFTER NEXT',JSON.stringify({nextInfo,errors}))
+ await page.locator('.mx-transport button:has(i.fa-pause)').first().waitFor({timeout:9000})
  assert.deepEqual(errors,[], 'Unexpected browser page errors')
  console.log('PASS Chromium MELORIX Stage A: actual nonzero WebAudio PCM; speaker, MIDI Play, Pause, Stop, restart and Next')
 }finally{await browser?.close();server.kill('SIGTERM')}
