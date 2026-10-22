@@ -1,5 +1,6 @@
 import {chromium} from 'playwright-core'
-import {Midi} from '@tonejs/midi'
+import midiModule from '@tonejs/midi'
+const {Midi}=midiModule
 import {spawn} from 'node:child_process'
 import {existsSync} from 'node:fs'
 import assert from 'node:assert/strict'
