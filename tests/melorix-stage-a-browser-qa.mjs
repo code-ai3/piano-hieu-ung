@@ -23,7 +23,14 @@ try{
  await page.addInitScript(()=>{
   const connect=AudioNode.prototype.connect
   const taps=[]
-  window.__audioQA={taps,peak:()=>Math.max(0,...taps.map(({analyser})=>{
+  const panNodes=[]
+  const createPan=AudioContext.prototype.createStereoPanner
+  AudioContext.prototype.createStereoPanner=function(...args){
+   const node=createPan.apply(this,args)
+   panNodes.push(node)
+   return node
+  }
+  window.__audioQA={taps,panNodes,peak:()=>Math.max(0,...taps.map(({analyser})=>{
    const values=new Float32Array(analyser.fftSize)
    analyser.getFloatTimeDomainData(values)
    return Math.max(...values.map(Math.abs))
@@ -90,11 +97,18 @@ try{
  const vel=page.getByRole('slider',{name:'Lực đánh MIDI'})
  await vel.evaluate(el=>{el.value='154';el.dispatchEvent(new Event('input',{bubbles:true}))})
  await page.getByText('154%',{exact:true}).first().waitFor({timeout:4000})
+ const pan=page.getByRole('slider',{name:'Pan trái phải Audio Inspector'})
+ await pan.evaluate(el=>{el.value='80';el.dispatchEvent(new Event('input',{bubbles:true}))})
+ await page.waitForFunction(()=>window.__audioQA.panNodes.some(n=>n.pan.value>.55),null,{timeout:8000})
+ await page.evaluate(()=>{window.__audioQA.testPanNode=window.__audioQA.panNodes.find(n=>n.pan.value>.55)})
  const ab=page.getByRole('button',{name:/A\/B:/})
  await ab.click()
+ await page.waitForFunction(()=>Math.abs(window.__audioQA.testPanNode.pan.value)<.20,null,{timeout:8000})
  await page.getByRole('button',{name:'Áp dụng vào MIDI'}).click()
  await page.getByRole('button',{name:'Undo',exact:true}).click()
  await page.getByRole('button',{name:'Redo',exact:true}).click()
+ await page.getByRole('button',{name:'Reset nút chỉnh'}).click()
+ assert.equal(await pan.inputValue(),'80','Reset must retain already committed CC10 pan from Apply')
  await page.getByRole('button',{name:'Áp dụng pedal CC64'}).click()
  assert.deepEqual(errors,[],'No Chromium JavaScript errors during Audio Inspector adjustment')
  console.log('PASS Chromium MELORIX Stage B: UI track Inspector, Velocity edit, A/B, apply MIDI, Undo/Redo, CC64')
