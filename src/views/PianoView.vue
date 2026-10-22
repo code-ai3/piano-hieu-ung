@@ -1352,7 +1352,9 @@ const synthScheduledVoices=new Set<SynthVoice>()
 const synthKeyVoices=new Set<SynthVoice>()
 const synthChordVoices=new Set<SynthVoice>()
 function stopSynthVoices(set:Set<SynthVoice>){
- for(const voice of set)voice.stop()
+ for(const voice of set){
+  try{voice.stop()}catch(error){console.warn('MELORIX voice cleanup:',error)}
+ }
  set.clear()
 }
 function routedNote(ctx:AudioContext,midi:number,velocity:number,when:number,duration:number,
@@ -1505,12 +1507,12 @@ function resetPiano(preserveWebAudioContext=false) {
 
 function pause() { vst3Pedal?.stop(); vst3Song?.stop()
  playRequest++
+ // Keep transport responsive even if a third-party sample throws on cleanup.
+ playState.value='paused'
  pauseOriginalAudio();midiBridge.stopAll()
  stopChordAudition();stopPianoAudition();stopSynthVoices(synthScheduledVoices)
- piano?.stop()
- // Stopping scheduled voices is enough. Suspending the entire context races
- // with a rapid resume() on Play and can leave Chrome playing silently.
- playState.value='paused'
+ try{piano?.stop()}catch(error){console.warn('MELORIX piano stop:',error)}
+ // No AudioContext.suspend(): fast Pause/Play keeps the existing running context.
 }
 function stop() {
   playRequest++
