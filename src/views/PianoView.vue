@@ -1219,7 +1219,7 @@ function onFullscreenChange() {
 }
 
 function loadTrack(idx: number) {
-  const wasPlaying=playState.value==='playing'
+  const wasPlaying=playState.value==='playing'||autoAudioInterrupted
   const canContinueWebAudio=canContinueAudioToNextSong({
    playing:wasPlaying,desktop:hasNativeVst3Scanner,
    originalAudio:originalAudioActive(),externalMidi:midiBridge.externalOnly,
@@ -1230,6 +1230,7 @@ function loadTrack(idx: number) {
   // Invalidate an async Play immediately so a stale AudioContext cannot
   // resume after the user has changed songs.
   playRequest++
+  autoAudioInterrupted=false
   currentTrackIdx.value=idx
   // Keep an unlocked WebAudio context for a continuous browser playlist.
   // Creating a NEW context in an async load callback can be blocked by autoplay.
@@ -1589,10 +1590,12 @@ function scheduleAll() {
 
 // ---- 播放控制 ----
 let playRequest=0
+let autoAudioInterrupted=false
 async function play() {
   if (!notes.value.length || pianoLoading || vst3QaBusy.value) return
   if (playState.value === 'playing') return
   pianoLoading = true
+  autoAudioInterrupted=false
   const request=++playRequest
   try {
     if(originalAudioActive()){
@@ -1646,7 +1649,8 @@ function resetPiano(preserveWebAudioContext=false) {
   pianoLoaded.value=false;initPianoPromise=null
 }
 
-function pause() { vst3Pedal?.stop(); vst3Song?.stop()
+function pause(reason:'user'|'interruption'='user') { vst3Pedal?.stop(); vst3Song?.stop()
+ autoAudioInterrupted=reason==='interruption'
  playRequest++
  // Keep transport responsive even if a third-party sample throws on cleanup.
  playState.value='paused'
@@ -1656,6 +1660,7 @@ function pause() { vst3Pedal?.stop(); vst3Song?.stop()
  // Keep the AudioContext running to support fast Pause/Play transitions.
 }
 function stop() {
+  autoAudioInterrupted=false
   playRequest++
   playState.value = 'idle'; currentTime.value = 0
   lastScheduledIdx = 0; pianoLoading = false
@@ -2287,7 +2292,7 @@ function loop() {
       },frameGap)){
         // If the browser suspends audio or throttles this tab, do not silently
         // jump over unscheduled MIDI notes while the falling-note clock runs.
-        pause()
+        pause('interruption')
         gmAudioNotice.value='Trình duyệt đã gián đoạn âm thanh. Bấm ▶ Phát để tiếp tục đúng vị trí.'
       }else{
       currentTime.value += Math.max(0,frameGap)
