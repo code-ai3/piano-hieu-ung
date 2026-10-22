@@ -26,6 +26,11 @@ import {Vst3PedalScheduler} from '@/util/melorix-vst3-pedal'
 import {unlockWebAudio} from '@/util/melorix-web-audio-unlock'
 import {canContinueAudioToNextSong,shouldPauseInterruptedWebAudio} from '@/util/melorix-stage-a-audio-lifecycle'
 import MelorixAddInstrumentTrack from '@/components/MelorixAddInstrumentTrack.vue'
+import MelorixAudioInspector from '@/components/MelorixAudioInspector.vue'
+import {DEFAULT_PERFORMANCE,normalizedPerformance,hasNoteExpression,shapeTrackNotes,audioInspectorPreview} from '@/util/melorix-stage-b-performance'
+import type {PerformanceSettings,PerformanceKey} from '@/util/melorix-stage-b-performance'
+import {suggestAutoPedal} from '@/util/melorix-auto-pedal'
+import type {PedalMode} from '@/util/melorix-auto-pedal'
 import {prepareInstrumentTracks} from '@/util/melorix-native-instrument-tracks'
 import type {NativeInstrumentRequest} from '@/util/melorix-native-instrument-tracks'
 import {normalizePedalPoints} from '@/util/melorix-auto-pedal'
@@ -264,6 +269,16 @@ type TrackInstrument=InstrumentPreset|LocalInstrumentId|CatalogInstrumentId
 const newTrackPreset=ref<TrackInstrument>('piano')
 const assignedTrackPresets=ref<Record<number,TrackInstrument>>({})
 const trackVolumeLevels=ref<Record<number,number>>({})
+const committedPanByTrack=ref<Record<number,number>>({})
+const performanceByTrack=ref<Record<number,PerformanceSettings>>({})
+const performancePreviewEnabled=ref(true)
+const inspectorStatus=ref('')
+type InspectorSnapshot={notes:NoteEvent[];pedal:Record<number,PedalPoint[]>;pan:Record<number,number>}
+const inspectorUndo=ref<InspectorSnapshot[]>([])
+const inspectorRedo=ref<InspectorSnapshot[]>([])
+const selectedAudioTrack=computed(()=>midiParts.value.find(part=>part.id===selectedTrackId.value)||null)
+const selectedPerformance=computed(()=>selectedTrackId.value===null?{...DEFAULT_PERFORMANCE}:performanceByTrack.value[selectedTrackId.value]??{...DEFAULT_PERFORMANCE})
+const audibleNotes=computed(()=>audioInspectorPreview(notes.value,performanceByTrack.value,performancePreviewEnabled.value,pedalByTrack.value))
 const expressionMode=ref<ExpressionMode>('natural')
 let audioMaster:ExpressiveAudioMaster|null=null
 function getAudioMaster(ctx:AudioContext):AudioNode{
@@ -276,20 +291,37 @@ function setExpressionMode(mode:ExpressionMode){
  if(audioMaster&&audioCtx.value)audioMaster.setMode(audioCtx.value,mode)
 }
 const trackGainNodes=new Map<number,GainNode>()
+const trackPanNodes=new Map<number,StereoPannerNode>()
+function effectiveTrackPan(id:number){
+ const committed=committedPanByTrack.value[id]??0
+ const draft=performancePreviewEnabled.value?(performanceByTrack.value[id]?.pan??0):0
+ return Math.max(-100,Math.min(100,committed+draft))
+}
+function refreshTrackPan(id:number){
+ const node=trackPanNodes.get(id)
+ if(node&&audioCtx.value)node.pan.setTargetAtTime(effectiveTrackPan(id)/100,audioCtx.value.currentTime,.012)
+}
+function refreshAllTrackPans(){for(const id of trackPanNodes.keys())refreshTrackPan(id)}
 function trackVolumePercent(id:number){return trackVolumeLevels.value[id]??100}
 function trackOutput(ctx:AudioContext,id:number):GainNode{
  let node=trackGainNodes.get(id)
  if(!node){
   node=ctx.createGain()
   node.gain.value=trackVolumePercent(id)/100
-  node.connect(getAudioMaster(ctx))
+  const panner=ctx.createStereoPanner()
+  panner.pan.value=effectiveTrackPan(id)/100
+  node.connect(panner)
+  panner.connect(getAudioMaster(ctx))
+  trackPanNodes.set(id,panner)
   trackGainNodes.set(id,node)
  }
  return node
 }
 function setTrackVolume(id:number,event:Event){
+ setTrackVolumePercent(id,Number((event.target as HTMLInputElement).value))
+}
+function setTrackVolumePercent(id:number,raw:number){
  if(exporting.value||!midiParts.value.some(p=>p.id===id))return
- const raw=Number((event.target as HTMLInputElement).value)
  if(!Number.isFinite(raw))return
  const volume=Math.max(0,Math.min(100,Math.round(raw)))
  trackVolumeLevels.value={...trackVolumeLevels.value,[id]:volume}
@@ -300,6 +332,8 @@ function setTrackVolume(id:number,event:Event){
 function clearTrackAudioOutputs(){
  for(const node of trackGainNodes.values()){try{node.disconnect()}catch{}}
  trackGainNodes.clear()
+ for(const node of trackPanNodes.values()){try{node.disconnect()}catch{}}
+ trackPanNodes.clear()
 }
 const importedMidiPrograms=ref<Record<number,number>>({})
 // The bundled SplendidGrandPiano samples are genuine recordings and work offline.
