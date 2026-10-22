@@ -82,7 +82,7 @@ try{
   trackCount:document.querySelectorAll('.mx-track-side-item').length
  }))
  console.log('AFTER NEXT',JSON.stringify({nextInfo,errors}))
- await page.locator('.mx-transport button:has(i.fa-pause)').first().waitFor({timeout:9000})
+ assert.ok(nextInfo.transport?.some(icon=>icon?.includes('fa-pause')),'Next should already be playing at the captured playback checkpoint')
  assert.deepEqual(errors,[], 'Unexpected browser page errors')
  const inspectorTrigger=page.locator('.mx-track-inspector-btn').first()
  await inspectorTrigger.click()
