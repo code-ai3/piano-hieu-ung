@@ -1082,19 +1082,28 @@ function onFullscreenChange() {
 }
 
 function loadTrack(idx: number) {
-  currentTrackIdx.value = idx
-  resetPiano()
-  currentTime.value = 0
-  lastScheduledIdx = 0
-  playState.value = 'idle'
-  uploadError.value = ''
+  const wasPlaying=playState.value==='playing'
+  const canContinueWebAudio=wasPlaying&&!hasNativeVst3Scanner&&
+   !originalAudioActive()&&!midiBridge.externalOnly&&audioCtx.value?.state==='running'
+  const track=playlist.value[idx]
+  if(!track)return
+  // Invalidate an async Play immediately so a stale AudioContext cannot
+  // resume after the user has changed songs.
+  playRequest++
+  currentTrackIdx.value=idx
+  // Keep an unlocked WebAudio context for a continuous browser playlist.
+  // Creating a NEW context in an async load callback can be blocked by autoplay.
+  resetPiano(Boolean(canContinueWebAudio))
+  currentTime.value=0
+  lastScheduledIdx=0
+  playState.value='idle'
+  uploadError.value=''
   useOriginalAudio.value=true
   pauseOriginalAudio()
-  void loadMidi(playlist.value[idx].file).then(ok=>{
-   if(!ok)return
+  void loadMidi(track.file).then(ok=>{
+   if(!ok||currentTrack.value!==track)return
    if(hasOriginalAudio.value)ensureOriginalAudioPlayer()
-   // Asynchronous browser loads cannot autoplay without a user gesture.
-   if(hasNativeVst3Scanner)void play()
+   if(hasNativeVst3Scanner||canContinueWebAudio)void play()
    else gmAudioNotice.value='MIDI đã sẵn sàng. Bấm ▶ Phát để bật tiếng web.'
   })
 }
@@ -1107,25 +1116,35 @@ function nextTrack() {
 // ---- smplr 钢琴引擎（baseUrl 指向本地采样） ----
 let pianoLoading = false
 
-let initPianoPromise: Promise<void> | null = null
-async function initPiano() {
-  if (initPianoPromise) { await initPianoPromise; return }
-  if (piano) return
-  initPianoPromise = (async () => {
-    const ctx = audioCtx.value??new AudioContext()
-    // 自定义 storage：修复文件名中 # 被浏览器当 hash 截断的问题
-    const safeStorage = { fetch: (url: string) => fetch(url.replace('#', '%23')) }
-    piano = SplendidGrandPiano(ctx, {
-      volume: 100,
-      baseUrl: '/samples/sfzinstruments-splendid-grand-piano/samples',
-      decayTime: 0.5,
-      storage: safeStorage as any,
-    })
-    audioCtx.value = ctx
-    await piano.load
-    pianoLoaded.value = true
-  })()
-  try { await initPianoPromise } finally { initPianoPromise = null }
+let initPianoPromise:Promise<void>|null=null
+let pianoGeneration=0
+async function initPiano(){
+ if(initPianoPromise){await initPianoPromise;return}
+ if(piano)return
+ const generation=pianoGeneration
+ const task=(async()=>{
+  const ctx=audioCtx.value??new AudioContext()
+  const safeStorage={fetch:(url:string)=>fetch(url.replace('#','%23'))}
+  const sampler=SplendidGrandPiano(ctx,{
+   volume:100,
+   baseUrl:'/samples/sfzinstruments-splendid-grand-piano/samples',
+   decayTime:.5,
+   storage:safeStorage as any,
+  })
+  piano=sampler
+  audioCtx.value=ctx
+  try{
+   await sampler.load
+   // Never publish a completed load from a Stop/Next/Unmount generation.
+   if(generation===pianoGeneration&&piano===sampler)pianoLoaded.value=true
+  }catch(error){
+   if(generation===pianoGeneration&&piano===sampler)piano=null
+   throw error
+  }
+ })()
+ initPianoPromise=task
+ try{await task}
+ finally{if(initPianoPromise===task)initPianoPromise=null}
 }
 
 // ---- Nạp MIDI: giữ tên, channel và màu của từng track ----
@@ -1458,7 +1477,8 @@ async function play() {
   } finally { pianoLoading = false }
 }
 
-function resetPiano() {
+function resetPiano(preserveWebAudioContext=false) {
+  pianoGeneration++
   vst3Pedal?.stop()
   vst3Song?.stop()
   pauseOriginalAudio()
@@ -1471,18 +1491,30 @@ function resetPiano() {
   clearTrackAudioOutputs()
   audioMaster?.disconnect();audioMaster=null
   piano?.stop(); piano = null
-  audioCtx.value?.close(); audioCtx.value = null
-  pianoLoaded.value = false; initPianoPromise = null
+  if(!preserveWebAudioContext){
+   const ctx=audioCtx.value
+   audioCtx.value=null
+   void ctx?.close().catch(error=>console.warn('AudioContext close:',error))
+  }
+  pianoLoaded.value=false;initPianoPromise=null
 }
 
-function pause() { vst3Pedal?.stop(); vst3Song?.stop(); playRequest++; pauseOriginalAudio(); midiBridge.stopAll(); stopChordAudition(); stopPianoAudition(); stopSynthVoices(synthScheduledVoices); playState.value = 'paused'; audioCtx.value?.suspend(); piano?.stop() }
+function pause() {
+ vst3Pedal?.stop();vst3Song?.stop();playRequest++
+ pauseOriginalAudio();midiBridge.stopAll()
+ stopChordAudition();stopPianoAudition();stopSynthVoices(synthScheduledVoices)
+ piano?.stop()
+ // Stopping scheduled voices is enough. Suspending the entire context races
+ // with a rapid resume() on Play and can leave Chrome playing silently.
+ playState.value='paused'
+}
 function stop() {
   playRequest++
   playState.value = 'idle'; currentTime.value = 0
   lastScheduledIdx = 0; pianoLoading = false
   resetPiano()
   if(originalAudioPlayer){try{originalAudioPlayer.currentTime=0}catch{}}
-  if(!midiBridge.externalOnly&&!originalAudioActive())void initPiano().catch(e=>console.warn('Piano preload:',e))
+  // Do not reopen AudioContext outside a user gesture immediately after Stop.
 }
 function togglePlay() { playState.value === 'playing' ? pause() : play() }
 async function testWebSound(){
@@ -2166,7 +2198,9 @@ onMounted(() => {
   syncKontaktStatus()
   void erhuWebSampler.init().then(()=>{erhuWebReady.value=erhuWebSampler.ready})
   void refreshPublishedInstruments()
-  initPiano()
+  // WebAudio must be initialized by the first Play/Thử loa user gesture.
+  // Desktop may still preload for its already-working Kontakt path.
+  if(hasNativeVst3Scanner)void initPiano().catch(error=>console.warn('Piano preload:',error))
   void refreshVst3PianoBindings()
   rafId = requestAnimationFrame(loop)
   // 预加载默认背景
@@ -2243,11 +2277,14 @@ function seekFromTimeline(event: MouseEvent) {
   const element = event.currentTarget as HTMLElement
   const rect = element.getBoundingClientRect()
   if (rect.width <= 0) return
-  if (playState.value === 'playing') pause()
+  const wasPlaying=playState.value==='playing'
+  if(wasPlaying)pause()
   midiBridge.stopAll()
   currentTime.value = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)) * duration.value * speed.value
   lastScheduledIdx = 0
   keyState.value = {}
+  // A click on the timeline during Play must seek AND keep playing.
+  if(wasPlaying)void play()
 }
 function downloadEditedMidi() {
   if (!allNotes.value.length) return
