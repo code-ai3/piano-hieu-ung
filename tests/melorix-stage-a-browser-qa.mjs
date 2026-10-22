@@ -103,6 +103,13 @@ try{
  await page.evaluate(()=>{window.__audioQA.testPanNode=window.__audioQA.panNodes.find(n=>n.pan.value>.55)})
  const ab=page.getByRole('button',{name:/A\/B:/})
  await ab.click()
+ await page.waitForTimeout(450)
+ console.log('PAN AFTER AB',JSON.stringify(await page.evaluate(()=>({
+  nodes:window.__audioQA.panNodes.map(n=>({pan:n.pan.value,time:n.context.currentTime,state:n.context.state})),
+  test:window.__audioQA.testPanNode.pan.value,
+  ab:[...document.querySelectorAll('button[aria-pressed]')].filter(b=>b.textContent?.includes('A/B')).map(b=>({text:b.textContent,pressed:b.getAttribute('aria-pressed')})),
+  notice:document.querySelector('.mx-audio-status')?.textContent
+ }))))
  await page.waitForFunction(()=>Math.abs(window.__audioQA.testPanNode.pan.value)<.20,null,{timeout:8000})
  await page.getByRole('button',{name:'Áp dụng vào MIDI'}).click()
  await page.getByRole('button',{name:'Undo',exact:true}).click()
