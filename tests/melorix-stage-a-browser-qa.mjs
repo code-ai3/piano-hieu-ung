@@ -1,4 +1,5 @@
 import {chromium} from 'playwright-core'
+import {Midi} from '@tonejs/midi'
 import {spawn} from 'node:child_process'
 import {existsSync} from 'node:fs'
 import assert from 'node:assert/strict'
@@ -47,6 +48,13 @@ try{
  const speaker=page.getByRole('button',{name:'Thử loa và bật âm thanh web'})
  await speaker.click()
  await page.waitForFunction(()=>window.__audioQA?.peak()>0.001,null,{timeout:12000})
+ const midi=new Midi()
+ midi.header.setTempo(120)
+ const track=midi.addTrack()
+ track.name='Stage A Fixture'
+ for(let n=0;n<36;n++)track.addNote({midi:60+n%5,time:.1+n*.23,duration:.2,velocity:.86})
+ await page.locator('input[accept=".mid,.midi"]').first().setInputFiles({name:'qa.mid',mimeType:'audio/midi',buffer:Buffer.from(midi.toArray())})
+ await page.waitForFunction(()=>document.body.textContent?.includes('Stage A Fixture'),null,{timeout:12000})
  const toggle=page.locator('.mx-transport button:has(i.fa-play), .mx-transport button:has(i.fa-pause)').first()
  await toggle.click()
  await page.locator('.mx-transport button:has(i.fa-pause)').first().waitFor({timeout:6000})
