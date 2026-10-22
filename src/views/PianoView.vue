@@ -664,6 +664,9 @@ function deleteMidiTrack(id:number){
  kontaktTrackChannels.value=omitTrackSetting(kontaktTrackChannels.value,id)
  kontaktTrackNames.value=omitTrackSetting(kontaktTrackNames.value,id)
  trackVolumeLevels.value=omitTrackSetting(trackVolumeLevels.value,id)
+ committedPanByTrack.value=omitTrackSetting(committedPanByTrack.value,id)
+ performanceByTrack.value=omitTrackSetting(performanceByTrack.value,id)
+ inspectorUndo.value=[];inspectorRedo.value=[]
  pedalByTrack.value=omitTrackSetting(pedalByTrack.value,id)
  newNativeTrackIds.value=new Set([...newNativeTrackIds.value].filter(other=>other!==id))
  if(vst3AssignedTrackIds.value.has(id)&&vst3Api?.unbindVst3Track){
@@ -1239,6 +1242,9 @@ function processMidi(midi: Midi) {
   stopPianoTrackSamples()
   clearTrackAudioOutputs()
   trackVolumeLevels.value={}
+  performanceByTrack.value={}
+  inspectorUndo.value=[];inspectorRedo.value=[];inspectorStatus.value=''
+  committedPanByTrack.value=Object.fromEntries(midi.tracks.map((track,id)=>[id,Math.round(((track.controlChanges[10]??[])[0]?.value??.5)*200-100)]))
   newNativeTrackIds.value=new Set()
   vst3Pedal?.stop()
   pedalByTrack.value=Object.fromEntries(midi.tracks.map((track,id)=>[
@@ -1431,7 +1437,7 @@ function routedNote(ctx:AudioContext,midi:number,velocity:number,when:number,dur
  if(set.size>2400){for(const stale of Array.from(set).slice(0,set.size-2200))set.delete(stale)}
 }
 
-const midiPlaybackPlan=computed(()=>mergeOverlappingMidiNotes(notes.value.map(n=>({
+const midiPlaybackPlan=computed(()=>mergeOverlappingMidiNotes(audibleNotes.value.map(n=>({
  note:n.midi,
  velocity:n.velocity*127,
  channel:trackMidiChannel(kontaktChannelForTrack(n.trackId)),
@@ -1445,8 +1451,9 @@ function scheduleUpcomingAudio() {
  const ctx=audioCtx.value
  if(originalAudioActive()||!ctx||midiBridge.externalOnly||ctx.state!=='running')return
  const targetTime=currentTime.value/speed.value
- for(let i=lastScheduledIdx;i<notes.value.length;i++){
-  const n=notes.value[i]
+ const soundNotes=audibleNotes.value
+ for(let i=lastScheduledIdx;i<soundNotes.length;i++){
+  const n=soundNotes[i]
   const delay=(n.time-targetTime)*speed.value
   if(delay>AUDIO_LOOKAHEAD_SECONDS)break
   lastScheduledIdx=i+1
@@ -2357,6 +2364,8 @@ function downloadEditedMidi() {
     }
     // Keep pedal CC64 in its own MIDI track, without extending the original notes.
     for(const event of pedalByTrack.value[part.id]??[])track.addCC({number:64,time:event.time,value:event.value/127})
+    const pan=committedPanByTrack.value[part.id]??0
+    if(pan!==0)track.addCC({number:10,time:0,value:(pan+100)/200})
   }
   const blob = new Blob([result.toArray() as BlobPart], { type: 'audio/midi' })
   const url = URL.createObjectURL(blob)
