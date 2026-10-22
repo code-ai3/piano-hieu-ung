@@ -12,5 +12,5 @@ export function canContinueAudioToNextSong(env:BrowserPlaybackEnvironment):boole
 }
 export function shouldPauseInterruptedWebAudio(env:Pick<BrowserPlaybackEnvironment,'desktop'|'externalMidi'|'contextState'>,frameGapSeconds:number):boolean{
  return !env.desktop&&!env.externalMidi&&
-  (env.contextState!=='running'||!Number.isFinite(frameGapSeconds)||frameGapSeconds>1.25)
+  (env.contextState!=='running'||!Number.isFinite(frameGapSeconds)||frameGapSeconds>5)
 }
