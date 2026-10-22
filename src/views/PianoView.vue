@@ -1105,7 +1105,8 @@ function loadTrack(idx: number) {
   useOriginalAudio.value=true
   pauseOriginalAudio()
   void loadMidi(track.file).then(ok=>{
-   if(!ok||currentTrack.value!==track)return
+   // Compare the selected playlist index, not a reactive object proxy identity.
+   if(!ok||currentTrackIdx.value!==idx)return
    if(hasOriginalAudio.value)ensureOriginalAudioPlayer()
    if(hasNativeVst3Scanner||canContinueWebAudio)void play()
    else gmAudioNotice.value='MIDI đã sẵn sàng. Bấm ▶ Phát để bật tiếng web.'
