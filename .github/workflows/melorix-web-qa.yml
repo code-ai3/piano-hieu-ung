@@ -32,3 +32,25 @@ jobs:
         run: npm ci
       - name: Test and build web only (NO Windows EXE)
         run: npm run build
+
+  audio-chromium:
+    name: Chromium browser audio signal and transport QA
+    needs: verify-web
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Stage A source
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install existing source dependencies
+        run: npm ci
+      - name: Install ephemeral browser automation driver
+        run: npm install --no-save --package-lock=false playwright-core@1.55.0
+      - name: Build browser preview
+        run: npm run build-only
+      - name: Verify real WebAudio sample signal and transport in Chromium
+        run: node tests/melorix-stage-a-browser-qa.mjs
