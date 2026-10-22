@@ -377,7 +377,8 @@ function toggleAudioComparison(){
 function resetAudioInspector(){
  const id=selectedTrackId.value
  if(id===null||exporting.value)return
- performanceByTrack.value={...performanceByTrack.value,[id]:{...DEFAULT_PERFORMANCE}}
+ // Reset only the uncommitted preview. Keep CC10 pan that already exists in MIDI.
+ performanceByTrack.value={...performanceByTrack.value,[id]:{...DEFAULT_PERFORMANCE,pan:committedPanByTrack.value[id]??0}}
  performancePreviewEnabled.value=true
  refreshTrackPan(id)
  inspectorStatus.value='Đã đặt lại các nút nghe thử. MIDI gốc và pedal đã lưu không bị thay đổi.'
