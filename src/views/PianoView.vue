@@ -277,7 +277,7 @@ type InspectorSnapshot={notes:NoteEvent[];pedal:Record<number,PedalPoint[]>;pan:
 const inspectorUndo=ref<InspectorSnapshot[]>([])
 const inspectorRedo=ref<InspectorSnapshot[]>([])
 const selectedAudioTrack=computed(()=>midiParts.value.find(part=>part.id===selectedTrackId.value)||null)
-const selectedPerformance=computed(()=>selectedTrackId.value===null?{...DEFAULT_PERFORMANCE}:performanceByTrack.value[selectedTrackId.value]??{...DEFAULT_PERFORMANCE})
+const selectedPerformance=computed(()=>selectedTrackId.value===null?{...DEFAULT_PERFORMANCE}:performanceByTrack.value[selectedTrackId.value]??{...DEFAULT_PERFORMANCE,pan:committedPanByTrack.value[selectedTrackId.value]??0})
 const audibleNotes=computed(()=>audioInspectorPreview(notes.value,performanceByTrack.value,performancePreviewEnabled.value,pedalByTrack.value))
 const expressionMode=ref<ExpressionMode>('natural')
 let audioMaster:ExpressiveAudioMaster|null=null
@@ -294,8 +294,8 @@ const trackGainNodes=new Map<number,GainNode>()
 const trackPanNodes=new Map<number,StereoPannerNode>()
 function effectiveTrackPan(id:number){
  const committed=committedPanByTrack.value[id]??0
- const draft=performancePreviewEnabled.value?(performanceByTrack.value[id]?.pan??0):0
- return Math.max(-100,Math.min(100,committed+draft))
+ const preview=performancePreviewEnabled.value?performanceByTrack.value[id]?.pan:undefined
+ return Math.max(-100,Math.min(100,preview??committed))
 }
 function refreshTrackPan(id:number){
  const node=trackPanNodes.get(id)
