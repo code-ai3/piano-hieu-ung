@@ -17,6 +17,7 @@ try{
  const page=await browser.newPage({viewport:{width:1440,height:900}})
  const errors=[]
  page.on('pageerror',e=>errors.push(e.message))
+ page.on('console',m=>{if(m.type()==='error')errors.push('console: '+m.text())})
  await page.addInitScript(()=>{
   const connect=AudioNode.prototype.connect
   const taps=[]
@@ -53,8 +54,9 @@ try{
  await page.locator('.mx-transport button:has(i.fa-pause)').first().click()
  await page.waitForTimeout(350)
  const afterPause=await page.locator('.mx-transport button:has(i.fa-play), .mx-transport button:has(i.fa-pause)').allTextContents()
- const icons=await page.locator('.mx-transport button:has(i.fa-play), .mx-transport button:has(i.fa-pause)').evaluateAll(nodes=>nodes.map(x=>x.outerHTML.slice(0,280)))
- console.log('AFTER PAUSE',JSON.stringify({afterPause,icons,errors}))
+ const icons=await page.locator('.mx-transport button:has(i.fa-play), .mx-transport button:has(i.fa-pause)').evaluateAll(nodes=>nodes.map(x=>({icon:x.querySelector('i')?.className,html:x.outerHTML.slice(-220)})))
+ const vue=await page.evaluate(()=>{const c=document.querySelector('.mx-transport');return String(c?.__vueParentComponent?.setupState?.playState??'unknown')})
+ console.log('AFTER PAUSE',JSON.stringify({afterPause,icons,vue,errors}))
  await page.locator('.mx-transport button:has(i.fa-play)').first().waitFor({timeout:5000})
  await page.locator('.mx-transport button:has(i.fa-play)').first().click()
  await page.locator('.mx-transport button:has(i.fa-pause)').first().waitFor()
