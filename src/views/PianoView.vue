@@ -2133,13 +2133,22 @@ function loop() {
         }else nextTrack()
       }
     }else{
-      currentTime.value += (performance.now() - lastFrameTime) / 1000
+      const frameGap=(performance.now()-lastFrameTime)/1000
+      if(!hasNativeVst3Scanner&&!midiBridge.externalOnly&&
+         (audioCtx.value?.state!=='running'||frameGap>1.25)){
+        // If the browser suspends audio or throttles this tab, do not silently
+        // jump over unscheduled MIDI notes while the falling-note clock runs.
+        pause()
+        gmAudioNotice.value='Trình duyệt đã gián đoạn âm thanh. Bấm ▶ Phát để tiếp tục đúng vị trí.'
+      }else{
+      currentTime.value += Math.max(0,frameGap)
       vst3Pedal?.tick(currentTime.value/speed.value)
       vst3Song?.tick(currentTime.value/speed.value)
       scheduleUpcomingAudio()
       if (currentTime.value >= duration.value) {
         if (repeat.value) {currentTime.value=0;lastScheduledIdx=0;vst3Pedal?.stop();vst3Song?.stop();if(vst3LiveTrackId.value!==null&&!midiBridge.externalOnly){vst3Song?.start(notes.value,vst3LiveTrackId.value,0);vst3Pedal?.start(vst3LiveTrackId.value,pedalByTrack.value[vst3LiveTrackId.value]??[],0)}midiBridge.stopAll();stopSynthVoices(synthScheduledVoices);piano?.stop();scheduleAll();vst3Pedal?.tick(0);vst3Song?.tick(0)}
         else { nextTrack() }
+      }
       }
     }
   }
