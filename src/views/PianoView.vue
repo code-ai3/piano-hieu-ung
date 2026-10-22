@@ -24,6 +24,7 @@ import {Vst3PreviewPlayer} from '@/util/melorix-vst3-preview'
 import {Vst3SongScheduler} from '@/util/melorix-vst3-song'
 import {Vst3PedalScheduler} from '@/util/melorix-vst3-pedal'
 import {unlockWebAudio} from '@/util/melorix-web-audio-unlock'
+import {canContinueAudioToNextSong,shouldPauseInterruptedWebAudio} from '@/util/melorix-stage-a-audio-lifecycle'
 import MelorixAddInstrumentTrack from '@/components/MelorixAddInstrumentTrack.vue'
 import {prepareInstrumentTracks} from '@/util/melorix-native-instrument-tracks'
 import type {NativeInstrumentRequest} from '@/util/melorix-native-instrument-tracks'
@@ -1083,8 +1084,11 @@ function onFullscreenChange() {
 
 function loadTrack(idx: number) {
   const wasPlaying=playState.value==='playing'
-  const canContinueWebAudio=wasPlaying&&!hasNativeVst3Scanner&&
-   !originalAudioActive()&&!midiBridge.externalOnly&&audioCtx.value?.state==='running'
+  const canContinueWebAudio=canContinueAudioToNextSong({
+   playing:wasPlaying,desktop:hasNativeVst3Scanner,
+   originalAudio:originalAudioActive(),externalMidi:midiBridge.externalOnly,
+   contextState:audioCtx.value?.state??null
+  })
   const track=playlist.value[idx]
   if(!track)return
   // Invalidate an async Play immediately so a stale AudioContext cannot
@@ -2134,8 +2138,10 @@ function loop() {
       }
     }else{
       const frameGap=(performance.now()-lastFrameTime)/1000
-      if(!hasNativeVst3Scanner&&!midiBridge.externalOnly&&
-         (audioCtx.value?.state!=='running'||frameGap>1.25)){
+      if(shouldPauseInterruptedWebAudio({
+       desktop:hasNativeVst3Scanner,externalMidi:midiBridge.externalOnly,
+       contextState:audioCtx.value?.state??null
+      },frameGap)){
         // If the browser suspends audio or throttles this tab, do not silently
         // jump over unscheduled MIDI notes while the falling-note clock runs.
         pause()
