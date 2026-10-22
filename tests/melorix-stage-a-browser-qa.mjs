@@ -23,7 +23,14 @@ try{
  await page.addInitScript(()=>{
   const connect=AudioNode.prototype.connect
   const taps=[]
-  window.__audioQA={taps,peak:()=>Math.max(0,...taps.map(({analyser})=>{
+  const panNodes=[]
+  const createPan=AudioContext.prototype.createStereoPanner
+  AudioContext.prototype.createStereoPanner=function(...args){
+   const node=createPan.apply(this,args)
+   panNodes.push(node)
+   return node
+  }
+  window.__audioQA={taps,panNodes,peak:()=>Math.max(0,...taps.map(({analyser})=>{
    const values=new Float32Array(analyser.fftSize)
    analyser.getFloatTimeDomainData(values)
    return Math.max(...values.map(Math.abs))
@@ -82,7 +89,36 @@ try{
   trackCount:document.querySelectorAll('.mx-track-side-item').length
  }))
  console.log('AFTER NEXT',JSON.stringify({nextInfo,errors}))
- await page.locator('.mx-transport button:has(i.fa-pause)').first().waitFor({timeout:9000})
+ assert.ok(nextInfo.transport?.some(icon=>icon?.includes('fa-pause')),'Next should already be playing at the captured playback checkpoint')
  assert.deepEqual(errors,[], 'Unexpected browser page errors')
+ const inspectorTrigger=page.locator('.mx-track-inspector-btn').first()
+ await inspectorTrigger.click()
+ await page.getByRole('heading',{name:'Audio Inspector'}).waitFor({timeout:5000})
+ const vel=page.getByRole('slider',{name:'Lực đánh MIDI'})
+ await vel.evaluate(el=>{el.value='154';el.dispatchEvent(new Event('input',{bubbles:true}))})
+ await page.getByText('154%',{exact:true}).first().waitFor({timeout:4000})
+ const pan=page.getByRole('slider',{name:'Pan trái phải Audio Inspector'})
+ const panBefore=Number(await pan.inputValue())/100
+ await pan.evaluate(el=>{el.value='80';el.dispatchEvent(new Event('input',{bubbles:true}))})
+ await page.waitForFunction(()=>window.__audioQA.panNodes.some(n=>n.pan.value>.55),null,{timeout:8000})
+ await page.evaluate(()=>{window.__audioQA.testPanNode=window.__audioQA.panNodes.find(n=>n.pan.value>.55)})
+ const ab=page.getByRole('button',{name:/A\/B:/})
+ await ab.click()
+ await page.waitForTimeout(450)
+ console.log('PAN AFTER AB',JSON.stringify(await page.evaluate(()=>({
+  nodes:window.__audioQA.panNodes.map(n=>({pan:n.pan.value,time:n.context.currentTime,state:n.context.state})),
+  test:window.__audioQA.testPanNode.pan.value,
+  ab:[...document.querySelectorAll('button[aria-pressed]')].filter(b=>b.textContent?.includes('A/B')).map(b=>({text:b.textContent,pressed:b.getAttribute('aria-pressed')})),
+  notice:document.querySelector('.mx-audio-status')?.textContent
+ }))))
+ await page.waitForFunction(v=>Math.abs(window.__audioQA.testPanNode.pan.value-v)<.065,panBefore,{timeout:8000})
+ await page.getByRole('button',{name:'Áp dụng vào MIDI'}).click()
+ await page.getByRole('button',{name:'Undo',exact:true}).click()
+ await page.getByRole('button',{name:'Redo',exact:true}).click()
+ await page.getByRole('button',{name:'Reset nút chỉnh'}).click()
+ assert.equal(await pan.inputValue(),'80','Reset must retain already committed CC10 pan from Apply')
+ await page.getByRole('button',{name:'Áp dụng pedal CC64'}).click()
+ assert.deepEqual(errors,[],'No Chromium JavaScript errors during Audio Inspector adjustment')
+ console.log('PASS Chromium MELORIX Stage B: UI track Inspector, Velocity edit, A/B, apply MIDI, Undo/Redo, CC64')
  console.log('PASS Chromium MELORIX Stage A: actual nonzero WebAudio PCM; speaker, MIDI Play, Pause, Stop, restart and Next')
 }finally{await browser?.close();server.kill('SIGTERM')}
