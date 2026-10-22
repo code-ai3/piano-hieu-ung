@@ -1503,8 +1503,8 @@ function resetPiano(preserveWebAudioContext=false) {
   pianoLoaded.value=false;initPianoPromise=null
 }
 
-function pause() {
- vst3Pedal?.stop();vst3Song?.stop();playRequest++
+function pause() { vst3Pedal?.stop(); vst3Song?.stop()
+ playRequest++
  pauseOriginalAudio();midiBridge.stopAll()
  stopChordAudition();stopPianoAudition();stopSynthVoices(synthScheduledVoices)
  piano?.stop()
