@@ -329,6 +329,105 @@ function setTrackVolumePercent(id:number,raw:number){
  if(node&&audioCtx.value)node.gain.setTargetAtTime(volume/100,audioCtx.value.currentTime,.012)
  if(midiBridge.externalOnly)midiBridge.setChannelVolume(trackMidiChannel(kontaktChannelForTrack(id)),volume)
 }
+function inspectorSnapshot():InspectorSnapshot{
+ return {notes:allNotes.value.map(n=>({...n})),
+  pedal:Object.fromEntries(Object.entries(pedalByTrack.value).map(([id,points])=>[id,points.map(p=>({...p}))])),
+  pan:{...committedPanByTrack.value}}
+}
+function pushInspectorUndo(){
+ inspectorUndo.value=[...inspectorUndo.value.slice(-19),inspectorSnapshot()]
+ inspectorRedo.value=[]
+}
+function interruptInspectorPlayback(){
+ if(playState.value==='playing')pause()
+ else {stopSynthVoices(synthScheduledVoices);midiBridge.stopAll();vst3Song?.stop();vst3Pedal?.stop()}
+ lastScheduledIdx=0
+}
+function restoreInspectorSnapshot(snapshot:InspectorSnapshot){
+ interruptInspectorPlayback()
+ allNotes.value=snapshot.notes.map(n=>({...n})).sort((a,b)=>a.time-b.time||a.midi-b.midi)
+ pedalByTrack.value=Object.fromEntries(Object.entries(snapshot.pedal).map(([id,points])=>[id,points.map(p=>({...p}))]))
+ committedPanByTrack.value={...snapshot.pan}
+ performanceByTrack.value={}
+ performancePreviewEnabled.value=true
+ duration.value=allNotes.value.reduce((end,n)=>Math.max(end,n.time+n.duration),0)
+ lastScheduledIdx=0;refreshAllTrackPans();updateNoteRange()
+}
+function openAudioInspector(id:number){
+ if(!midiParts.value.some(p=>p.id===id)||exporting.value)return
+ selectTrack(id)
+ isInspectorOpen.value=true
+}
+function updatePerformanceSetting(key:PerformanceKey,value:number){
+ const id=selectedTrackId.value
+ if(id===null||exporting.value)return
+ const previous=selectedPerformance.value
+ const next=normalizedPerformance({...previous,[key]:value})
+ performanceByTrack.value={...performanceByTrack.value,[id]:next}
+ if(key==='pan')refreshTrackPan(id)
+ inspectorStatus.value='Đang nghe thử biểu cảm mới. Bấm A/B để đối chiếu; Áp dụng để ghi MIDI.'
+}
+function toggleAudioComparison(){
+ if(exporting.value)return
+ performancePreviewEnabled.value=!performancePreviewEnabled.value
+ refreshAllTrackPans()
+ if(playState.value==='playing'){pause();void play()}
+ inspectorStatus.value=performancePreviewEnabled.value?'Đang nghe bản có điều chỉnh.':'Đang nghe bản gốc (chưa áp dụng).'
+}
+function resetAudioInspector(){
+ const id=selectedTrackId.value
+ if(id===null||exporting.value)return
+ performanceByTrack.value={...performanceByTrack.value,[id]:{...DEFAULT_PERFORMANCE}}
+ performancePreviewEnabled.value=true
+ refreshTrackPan(id)
+ inspectorStatus.value='Đã đặt lại các nút nghe thử. MIDI gốc và pedal đã lưu không bị thay đổi.'
+}
+function applyInspectorToMidi(){
+ const id=selectedTrackId.value
+ if(id===null||exporting.value)return
+ const setting=selectedPerformance.value
+ if(!hasNoteExpression(setting)&&setting.pan===(committedPanByTrack.value[id]??0)){
+  inspectorStatus.value='Chưa có điều chỉnh mới để áp dụng.';return
+ }
+ pushInspectorUndo()
+ interruptInspectorPlayback()
+ if(hasNoteExpression(setting)){
+  allNotes.value=shapeTrackNotes(allNotes.value,id,setting).sort((a,b)=>a.time-b.time||a.midi-b.midi)
+  duration.value=allNotes.value.reduce((end,n)=>Math.max(end,n.time+n.duration),0)
+ }
+ committedPanByTrack.value={...committedPanByTrack.value,[id]:setting.pan}
+ performanceByTrack.value={...performanceByTrack.value,[id]:{...DEFAULT_PERFORMANCE,pan:setting.pan}}
+ performancePreviewEnabled.value=true
+ refreshTrackPan(id)
+ lastScheduledIdx=0;updateNoteRange()
+ inspectorStatus.value='Đã áp dụng Velocity/Timing/Length/Legato vào MIDI và lưu Pan qua CC10. Có thể Undo.'
+}
+function applyInspectorPedal(mode:PedalMode){
+ const id=selectedTrackId.value
+ if(id===null||exporting.value)return
+ const suggestion=suggestAutoPedal(allNotes.value.filter(n=>n.trackId===id),mode,midiTempo.value)
+ if(!suggestion.length){inspectorStatus.value='Không đủ nốt để tạo đề xuất pedal.';return}
+ pushInspectorUndo()
+ interruptInspectorPlayback()
+ pedalByTrack.value={...pedalByTrack.value,[id]:normalizePedalPoints(suggestion)}
+ inspectorStatus.value='Đã ghi '+(Math.floor(suggestion.length/2))+' đoạn pedal CC64 cho track; Undo để hoàn tác.'
+}
+function undoInspectorChange(){
+ if(exporting.value||!inspectorUndo.value.length)return
+ const previous=inspectorUndo.value.at(-1)!
+ inspectorUndo.value=inspectorUndo.value.slice(0,-1)
+ inspectorRedo.value=[...inspectorRedo.value,inspectorSnapshot()]
+ restoreInspectorSnapshot(previous)
+ inspectorStatus.value='Đã hoàn tác thay đổi MIDI/CC64/Pan.'
+}
+function redoInspectorChange(){
+ if(exporting.value||!inspectorRedo.value.length)return
+ const next=inspectorRedo.value.at(-1)!
+ inspectorRedo.value=inspectorRedo.value.slice(0,-1)
+ inspectorUndo.value=[...inspectorUndo.value,inspectorSnapshot()]
+ restoreInspectorSnapshot(next)
+ inspectorStatus.value='Đã thực hiện lại thay đổi MIDI/CC64/Pan.'
+}
 function clearTrackAudioOutputs(){
  for(const node of trackGainNodes.values()){try{node.disconnect()}catch{}}
  trackGainNodes.clear()
