@@ -16,7 +16,7 @@ await assert.rejects(()=>unlockWebAudio({state:'closed',resume:async()=>{}},10),
 
 const view=readFileSync('src/views/PianoView.vue','utf8')
 assert.ok(view.includes('await unlockWebAudio(ctx)'), 'all Web Audio entrypoints need an unblockable resume')
-assert.ok(view.includes('if(hasNativeVst3Scanner)void play()'),'retain desktop auto play only')
+assert.ok(view.includes('if(hasNativeVst3Scanner||canContinueWebAudio)void play()'),'retain desktop autoplay and browser playlist continuity')
 assert.ok(view.includes('gmAudioNotice.value=\'MIDI đã sẵn sàng.'),'browser explains how to start playback')
 assert.ok(view.includes('aria-label="Thử loa và bật âm thanh web"'),'show speaker check on main transport')
 assert.ok(view.includes('engine.play(pianoTest,72,115,ctx.currentTime+.9,.65,id)'),'speaker test must exercise same per-track output routing')
