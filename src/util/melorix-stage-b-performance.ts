@@ -79,12 +79,12 @@ export function audioInspectorPreview(
  notes:readonly MidiNoteEvent[],byTrack:Readonly<Record<number,PerformanceSettings>>,
  enabled:boolean,pedals:Readonly<Record<number,PedalPoint[]>>={}
 ):MidiNoteEvent[]{
- if(!enabled)return [...notes]
  let result=[...notes]
- for(const [id,value] of Object.entries(byTrack)){
-  const trackId=Number(id)
-  if(!Number.isInteger(trackId))continue
-  result=shapeTrackNotes(result,trackId,value,pedals[trackId]??[],true)
+ // A/B bypasses pending expression while retaining CC64 already saved in MIDI.
+ const ids=new Set<number>([...Object.keys(pedals).map(Number),...(enabled?Object.keys(byTrack).map(Number):[])])
+ for(const id of ids){
+  if(!Number.isInteger(id))continue
+  result=shapeTrackNotes(result,id,enabled?byTrack[id]??{...DEFAULT_PERFORMANCE}:{...DEFAULT_PERFORMANCE},pedals[id]??[],true)
  }
  return result.sort((a,b)=>a.time-b.time||a.trackId-b.trackId||a.midi-b.midi)
 }
