@@ -1512,7 +1512,7 @@ function pause() { vst3Pedal?.stop(); vst3Song?.stop()
  pauseOriginalAudio();midiBridge.stopAll()
  stopChordAudition();stopPianoAudition();stopSynthVoices(synthScheduledVoices)
  try{piano?.stop()}catch(error){console.warn('MELORIX piano stop:',error)}
- // No AudioContext.suspend(): fast Pause/Play keeps the existing running context.
+ // Keep the AudioContext running to support fast Pause/Play transitions.
 }
 function stop() {
   playRequest++
