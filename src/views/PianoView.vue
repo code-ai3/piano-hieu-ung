@@ -2518,6 +2518,7 @@ watch(() => currentTime.value, (t) => {
                  :title="'Chọn '+part.name+' · nhấp đúp để mở Piano Roll'"
                  :aria-label="'Chọn track '+part.name" :aria-pressed="selectedTrackId===part.id" :disabled="exporting"
                  @click.stop="selectTrack(part.id)" @dblclick.stop="openPianoRoll(part.id)">{{ part.name }}</button>
+              <button type="button" class="mx-track-inspector-btn" :disabled="exporting" :aria-label="'Chỉnh âm thanh '+part.name" title="Audio Inspector" @click.stop="openAudioInspector(part.id)"><i class="fas fa-sliders-h"></i></button>
               <button type="button" class="mx-track-mini" :aria-pressed="!part.enabled" :disabled="exporting" @click="setPartEnabled(part.id, !part.enabled)" title="Mute">M</button>
               <button type="button" class="mx-track-mini" :aria-pressed="part.enabled && enabledPartCount === 1" :disabled="exporting" @click="soloPart(part.id)" title="Solo">S</button>
                <button type="button" class="mx-track-delete" :disabled="exporting"
@@ -2889,6 +2890,13 @@ watch(() => currentTime.value, (t) => {
         <div class="mx-inspector-top"><i class="fas fa-sliders-h"></i> Cài đặt <span style="margin-left:auto;font-weight:400;color:#929eae">Thuộc tính</span>
           <button type="button" class="mx-side-close" aria-label="Đóng bảng thuộc tính" @click="isInspectorOpen = false"><i class="fas fa-times"></i></button>
         </div>
+        <MelorixAudioInspector v-if="selectedAudioTrack" :key="selectedAudioTrack.id" :track-name="selectedAudioTrack.name"
+          :settings="selectedPerformance" :volume="trackVolumePercent(selectedAudioTrack.id)"
+          :active="performancePreviewEnabled" :disabled="exporting" :can-undo="inspectorUndo.length>0" :can-redo="inspectorRedo.length>0"
+          :native-track="vst3AssignedTrackIds.has(selectedAudioTrack.id)" :original-audio="originalAudioActive()" :status="inspectorStatus"
+          @update-setting="updatePerformanceSetting" @volume="setTrackVolumePercent(selectedAudioTrack.id,$event)"
+          @compare="toggleAudioComparison" @apply="applyInspectorToMidi" @pedal="applyInspectorPedal"
+          @reset="resetAudioInspector" @undo="undoInspectorChange" @redo="redoInspectorChange" />
         <section class="mx-panel">
           <h3><i class="fas fa-fire mr-2" style="color:#ff9c45"></i>Hiệu ứng nốt rơi</h3>
           <label class="mx-field"><span>Kiểu hiệu ứng</span><select v-model="noteEffect"><option value="smoke">Phát sáng + Hạt bụi</option><option value="diffuse">Hào quang lan tỏa</option></select></label>
