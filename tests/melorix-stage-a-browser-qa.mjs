@@ -98,6 +98,7 @@ try{
  await vel.evaluate(el=>{el.value='154';el.dispatchEvent(new Event('input',{bubbles:true}))})
  await page.getByText('154%',{exact:true}).first().waitFor({timeout:4000})
  const pan=page.getByRole('slider',{name:'Pan trái phải Audio Inspector'})
+ const panBefore=Number(await pan.inputValue())/100
  await pan.evaluate(el=>{el.value='80';el.dispatchEvent(new Event('input',{bubbles:true}))})
  await page.waitForFunction(()=>window.__audioQA.panNodes.some(n=>n.pan.value>.55),null,{timeout:8000})
  await page.evaluate(()=>{window.__audioQA.testPanNode=window.__audioQA.panNodes.find(n=>n.pan.value>.55)})
@@ -110,7 +111,7 @@ try{
   ab:[...document.querySelectorAll('button[aria-pressed]')].filter(b=>b.textContent?.includes('A/B')).map(b=>({text:b.textContent,pressed:b.getAttribute('aria-pressed')})),
   notice:document.querySelector('.mx-audio-status')?.textContent
  }))))
- await page.waitForFunction(()=>Math.abs(window.__audioQA.testPanNode.pan.value)<.20,null,{timeout:8000})
+ await page.waitForFunction(v=>Math.abs(window.__audioQA.testPanNode.pan.value-v)<.065,panBefore,{timeout:8000})
  await page.getByRole('button',{name:'Áp dụng vào MIDI'}).click()
  await page.getByRole('button',{name:'Undo',exact:true}).click()
  await page.getByRole('button',{name:'Redo',exact:true}).click()
