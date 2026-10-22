@@ -24,7 +24,8 @@ const view=readFileSync(new URL('../src/views/PianoView.vue',import.meta.url),'u
 for(const mark of [
  "const expressionMode=ref<ExpressionMode>('natural')",
  "new ExpressiveAudioMaster(ctx,expressionMode.value)",
- "node.connect(getAudioMaster(ctx))",
+ "node.connect(panner)",
+ "panner.connect(getAudioMaster(ctx))",
  "setExpressionMode('original')",
  "setExpressionMode('natural')",
  "setExpressionMode('warm')",
