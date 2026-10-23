@@ -1,9 +1,9 @@
 import type {MidiNoteEvent,MidiPart} from './midi-tracks'
 import {DEFAULT_TRACK_FX,normalizeTrackFx} from './melorix-stage-d-track-fx.ts'
 import type {TrackFxSettings} from './melorix-stage-d-track-fx'
-import {DEFAULT_PERFORMANCE,normalizedPerformance} from './melorix-stage-b-performance'
+import {DEFAULT_PERFORMANCE,normalizedPerformance} from './melorix-stage-b-performance.ts'
 import type {PerformanceSettings} from './melorix-stage-b-performance'
-import {DEFAULT_PIANO_FEEL,normalizedPianoFeel} from './melorix-stage-c-piano'
+import {DEFAULT_PIANO_FEEL,normalizedPianoFeel} from './melorix-stage-c-piano.ts'
 import type {PianoFeelSettings} from './melorix-stage-c-piano'
 
 export type MelorixProject={
