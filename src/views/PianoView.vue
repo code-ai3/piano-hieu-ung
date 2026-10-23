@@ -14,6 +14,8 @@ import { renderMultiTrackAudio } from '@/util/melorix-offline-mix'
 import { ExpressiveAudioMaster, expressedVelocity } from '@/util/melorix-expressive-audio'
 import {DEFAULT_PIANO_FEEL,normalizedPianoFeel,hasPianoFeel,shapePianoTrackNotes,pianoFeelPreview} from '@/util/melorix-stage-c-piano'
 import type {PianoFeelSettings} from '@/util/melorix-stage-c-piano'
+import {TrackFxRack,DEFAULT_TRACK_FX,normalizeTrackFx,trackFxEqual} from '@/util/melorix-stage-d-track-fx'
+import type {TrackFxSettings} from '@/util/melorix-stage-d-track-fx'
 import {exportMidiProgram} from '@/util/melorix-midi-program-export'
 import {removeMidiTrack,omitTrackSetting} from '@/util/melorix-track-actions'
 import type { ExpressionMode } from '@/util/melorix-expressive-audio'
@@ -276,6 +278,11 @@ const trackVolumeLevels=ref<Record<number,number>>({})
 const committedPanByTrack=ref<Record<number,number>>({})
 const performanceByTrack=ref<Record<number,PerformanceSettings>>({})
 const pianoFeelByTrack=ref<Record<number,PianoFeelSettings>>({})
+const fxPreviewByTrack=ref<Record<number,TrackFxSettings>>({})
+const fxSavedByTrack=ref<Record<number,TrackFxSettings>>({})
+const fxBypassByTrack=ref<Record<number,boolean>>({})
+const fxUndoByTrack=ref<Record<number,TrackFxSettings[]>>({})
+const fxRedoByTrack=ref<Record<number,TrackFxSettings[]>>({})
 const performancePreviewByTrack=ref<Record<number,boolean>>({})
 const inspectorStatusByTrack=ref<Record<number,string>>({})
 const inspectorUndoByTrack=ref<Record<number,TrackAudioSnapshot[]>>({})
@@ -288,6 +295,10 @@ function setInspectorStatus(id:number,message:string){
 const selectedAudioTrack=computed(()=>midiParts.value.find(part=>part.id===selectedTrackId.value)||null)
 const selectedPerformance=computed(()=>selectedTrackId.value===null?{...DEFAULT_PERFORMANCE}:performanceByTrack.value[selectedTrackId.value]??{...DEFAULT_PERFORMANCE,pan:committedPanByTrack.value[selectedTrackId.value]??0})
 const selectedPianoFeel=computed(()=>selectedTrackId.value===null?{...DEFAULT_PIANO_FEEL}:pianoFeelByTrack.value[selectedTrackId.value]??{...DEFAULT_PIANO_FEEL})
+const selectedFx=computed(()=>selectedTrackId.value===null?{...DEFAULT_TRACK_FX}:fxPreviewByTrack.value[selectedTrackId.value]??fxSavedByTrack.value[selectedTrackId.value]??{...DEFAULT_TRACK_FX})
+const selectedFxBypassed=computed(()=>selectedTrackId.value===null?false:fxBypassByTrack.value[selectedTrackId.value]===true)
+const selectedFxUndoCount=computed(()=>selectedTrackId.value===null?0:(fxUndoByTrack.value[selectedTrackId.value]?.length??0))
+const selectedFxRedoCount=computed(()=>selectedTrackId.value===null?0:(fxRedoByTrack.value[selectedTrackId.value]?.length??0))
 const selectedPreviewOn=computed(()=>selectedTrackId.value===null?true:previewOn(selectedTrackId.value))
 const selectedUndoCount=computed(()=>selectedTrackId.value===null?0:(inspectorUndoByTrack.value[selectedTrackId.value]?.length??0))
 const selectedRedoCount=computed(()=>selectedTrackId.value===null?0:(inspectorRedoByTrack.value[selectedTrackId.value]?.length??0))
@@ -309,6 +320,14 @@ function setExpressionMode(mode:ExpressionMode){
 }
 const trackGainNodes=new Map<number,GainNode>()
 const trackPanNodes=new Map<number,StereoPannerNode>()
+const trackFxRacks=new Map<number,TrackFxRack>()
+function currentTrackFx(id:number):TrackFxSettings{
+ return fxPreviewByTrack.value[id]??fxSavedByTrack.value[id]??{...DEFAULT_TRACK_FX}
+}
+function refreshTrackFx(id:number){
+ const rack=trackFxRacks.get(id)
+ if(rack)rack.set(currentTrackFx(id),fxBypassByTrack.value[id]===true)
+}
 function effectiveTrackPan(id:number){
  const committed=committedPanByTrack.value[id]??0
  const preview=previewOn(id)?performanceByTrack.value[id]?.pan:undefined
@@ -328,7 +347,10 @@ function trackOutput(ctx:AudioContext,id:number):GainNode{
   const panner=ctx.createStereoPanner()
   panner.pan.value=effectiveTrackPan(id)/100
   node.connect(panner)
-  panner.connect(getAudioMaster(ctx))
+  const rack=new TrackFxRack(ctx,getAudioMaster(ctx),currentTrackFx(id))
+  panner.connect(rack.input)
+  rack.set(currentTrackFx(id),fxBypassByTrack.value[id]===true)
+  trackFxRacks.set(id,rack)
   trackPanNodes.set(id,panner)
   trackGainNodes.set(id,node)
  }
@@ -391,6 +413,76 @@ function updatePianoFeel(value:PianoFeelSettings){
  pianoFeelByTrack.value={...pianoFeelByTrack.value,[id]:normalizedPianoFeel(value)}
  performancePreviewByTrack.value={...performancePreviewByTrack.value,[id]:true}
  setInspectorStatus(id,'Đang nghe thử Piano Performance riêng track này. Bấm A/B để so sánh; Áp dụng để ghi MIDI.')
+}
+function updateTrackFx(value:TrackFxSettings){
+ const id=selectedTrackId.value
+ if(id===null||exporting.value)return
+ fxPreviewByTrack.value={...fxPreviewByTrack.value,[id]:normalizeTrackFx(value)}
+ fxBypassByTrack.value={...fxBypassByTrack.value,[id]:false}
+ refreshTrackFx(id)
+ setInspectorStatus(id,'Đang nghe thử FX chỉ trên WebAudio của track này. Bấm Lưu FX để giữ trong phiên.')
+}
+function compareTrackFx(){
+ const id=selectedTrackId.value
+ if(id===null||exporting.value)return
+ const bypass=fxBypassByTrack.value[id]!==true
+ fxBypassByTrack.value={...fxBypassByTrack.value,[id]:bypass}
+ refreshTrackFx(id)
+ setInspectorStatus(id,bypass?'FX tạm bỏ qua: nghe tín hiệu dry.':'FX đang bật: nghe phiên bản đã chỉnh.')
+}
+function saveTrackFx(){
+ const id=selectedTrackId.value
+ if(id===null||exporting.value)return
+ const next=normalizeTrackFx(currentTrackFx(id))
+ const saved=fxSavedByTrack.value[id]??{...DEFAULT_TRACK_FX}
+ if(trackFxEqual(next,saved)){
+  setInspectorStatus(id,'FX đã trùng với thiết lập lưu trong phiên.');return
+ }
+ fxUndoByTrack.value={...fxUndoByTrack.value,[id]:[...(fxUndoByTrack.value[id]??[]).slice(-19),{...saved}]}
+ fxRedoByTrack.value={...fxRedoByTrack.value,[id]:[]}
+ fxSavedByTrack.value={...fxSavedByTrack.value,[id]:{...next}}
+ fxPreviewByTrack.value={...fxPreviewByTrack.value,[id]:{...next}}
+ fxBypassByTrack.value={...fxBypassByTrack.value,[id]:false}
+ refreshTrackFx(id)
+ setInspectorStatus(id,'Đã lưu FX cho track này trong phiên web. File MIDI không chứa EQ/Reverb.')
+}
+function undoTrackFx(){
+ const id=selectedTrackId.value
+ if(id===null||exporting.value)return
+ const stack=fxUndoByTrack.value[id]??[]
+ if(!stack.length)return
+ const previous=stack[stack.length-1]!
+ const current=fxSavedByTrack.value[id]??{...DEFAULT_TRACK_FX}
+ fxUndoByTrack.value={...fxUndoByTrack.value,[id]:stack.slice(0,-1)}
+ fxRedoByTrack.value={...fxRedoByTrack.value,[id]:[...(fxRedoByTrack.value[id]??[]),{...current}]}
+ fxSavedByTrack.value={...fxSavedByTrack.value,[id]:{...previous}}
+ fxPreviewByTrack.value={...fxPreviewByTrack.value,[id]:{...previous}}
+ fxBypassByTrack.value={...fxBypassByTrack.value,[id]:false}
+ refreshTrackFx(id)
+ setInspectorStatus(id,'Undo FX CHỈ track hiện tại; MIDI và track khác giữ nguyên.')
+}
+function redoTrackFx(){
+ const id=selectedTrackId.value
+ if(id===null||exporting.value)return
+ const stack=fxRedoByTrack.value[id]??[]
+ if(!stack.length)return
+ const next=stack[stack.length-1]!
+ const current=fxSavedByTrack.value[id]??{...DEFAULT_TRACK_FX}
+ fxRedoByTrack.value={...fxRedoByTrack.value,[id]:stack.slice(0,-1)}
+ fxUndoByTrack.value={...fxUndoByTrack.value,[id]:[...(fxUndoByTrack.value[id]??[]).slice(-19),{...current}]}
+ fxSavedByTrack.value={...fxSavedByTrack.value,[id]:{...next}}
+ fxPreviewByTrack.value={...fxPreviewByTrack.value,[id]:{...next}}
+ fxBypassByTrack.value={...fxBypassByTrack.value,[id]:false}
+ refreshTrackFx(id)
+ setInspectorStatus(id,'Redo FX CHỈ track hiện tại.')
+}
+function resetTrackFx(){
+ const id=selectedTrackId.value
+ if(id===null||exporting.value)return
+ fxPreviewByTrack.value={...fxPreviewByTrack.value,[id]:{...DEFAULT_TRACK_FX}}
+ fxBypassByTrack.value={...fxBypassByTrack.value,[id]:false}
+ refreshTrackFx(id)
+ setInspectorStatus(id,'Đã reset FX nghe thử của track này; thiết lập đã lưu và MIDI vẫn còn.')
 }
 function toggleAudioComparison(){
  const id=selectedTrackId.value
@@ -482,6 +574,8 @@ function clearTrackAudioOutputs(){
  trackGainNodes.clear()
  for(const node of trackPanNodes.values()){try{node.disconnect()}catch{}}
  trackPanNodes.clear()
+ for(const rack of trackFxRacks.values())rack.disconnect()
+ trackFxRacks.clear()
 }
 const importedMidiPrograms=ref<Record<number,number>>({})
 // The bundled SplendidGrandPiano samples are genuine recordings and work offline.
@@ -815,6 +909,14 @@ function deleteMidiTrack(id:number){
  committedPanByTrack.value=omitTrackSetting(committedPanByTrack.value,id)
  performanceByTrack.value=omitTrackSetting(performanceByTrack.value,id)
  pianoFeelByTrack.value=omitTrackSetting(pianoFeelByTrack.value,id)
+ fxPreviewByTrack.value=omitTrackSetting(fxPreviewByTrack.value,id)
+ fxSavedByTrack.value=omitTrackSetting(fxSavedByTrack.value,id)
+ fxBypassByTrack.value=omitTrackSetting(fxBypassByTrack.value,id)
+ fxUndoByTrack.value=omitTrackSetting(fxUndoByTrack.value,id)
+ fxRedoByTrack.value=omitTrackSetting(fxRedoByTrack.value,id)
+ trackGainNodes.get(id)?.disconnect();trackGainNodes.delete(id)
+ trackPanNodes.get(id)?.disconnect();trackPanNodes.delete(id)
+ trackFxRacks.get(id)?.disconnect();trackFxRacks.delete(id)
  inspectorUndoByTrack.value=omitTrackSetting(inspectorUndoByTrack.value,id)
  inspectorRedoByTrack.value=omitTrackSetting(inspectorRedoByTrack.value,id)
  inspectorStatusByTrack.value=omitTrackSetting(inspectorStatusByTrack.value,id)
@@ -1398,6 +1500,8 @@ function processMidi(midi: Midi) {
   trackVolumeLevels.value={}
   performanceByTrack.value={}
   pianoFeelByTrack.value={}
+  fxPreviewByTrack.value={};fxSavedByTrack.value={};fxBypassByTrack.value={}
+  fxUndoByTrack.value={};fxRedoByTrack.value={}
   inspectorUndoByTrack.value={};inspectorRedoByTrack.value={}
   inspectorStatusByTrack.value={};performancePreviewByTrack.value={}
   pedalModeByTrack.value={}
@@ -3055,11 +3159,15 @@ watch(() => currentTime.value, (t) => {
           :track-id="selectedAudioTrack.id" :track-name="selectedAudioTrack.name"
           :tracks="midiParts.map(part=>({id:part.id,name:part.name}))"
           :pedal-mode="selectedPedalMode"
-          :settings="selectedPerformance" :piano-feel="selectedPianoFeel" :volume="trackVolumePercent(selectedAudioTrack.id)"
+          :settings="selectedPerformance" :piano-feel="selectedPianoFeel"
+          :fx-settings="selectedFx" :fx-bypassed="selectedFxBypassed"
+          :fx-can-undo="selectedFxUndoCount>0" :fx-can-redo="selectedFxRedoCount>0" :volume="trackVolumePercent(selectedAudioTrack.id)"
           :active="selectedPreviewOn" :disabled="exporting" :can-undo="selectedUndoCount>0" :can-redo="selectedRedoCount>0"
           :native-track="vst3AssignedTrackIds.has(selectedAudioTrack.id)" :original-audio="originalAudioActive()" :status="selectedInspectorStatus"
           @track="openAudioInspector" @pedal-mode="setSelectedPedalMode"
-          @update-setting="updatePerformanceSetting" @piano-feel="updatePianoFeel" @volume="setTrackVolumePercent(selectedAudioTrack.id,$event)"
+          @update-setting="updatePerformanceSetting" @piano-feel="updatePianoFeel"
+          @fx-update="updateTrackFx" @fx-compare="compareTrackFx" @fx-save="saveTrackFx"
+          @fx-undo="undoTrackFx" @fx-redo="redoTrackFx" @fx-reset="resetTrackFx" @volume="setTrackVolumePercent(selectedAudioTrack.id,$event)"
           @compare="toggleAudioComparison" @apply="applyInspectorToMidi" @pedal="applyInspectorPedal"
           @reset="resetAudioInspector" @undo="undoInspectorChange" @redo="redoInspectorChange" />
         <section class="mx-panel">
