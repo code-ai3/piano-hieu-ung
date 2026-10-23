@@ -15,6 +15,9 @@ import { ExpressiveAudioMaster, expressedVelocity } from '@/util/melorix-express
 import {DEFAULT_PIANO_FEEL,normalizedPianoFeel,hasPianoFeel,shapePianoTrackNotes,pianoFeelPreview} from '@/util/melorix-stage-c-piano'
 import type {PianoFeelSettings} from '@/util/melorix-stage-c-piano'
 import {TrackFxRack,DEFAULT_TRACK_FX,normalizeTrackFx,trackFxEqual} from '@/util/melorix-stage-d-track-fx'
+import {parseMelorixProject,serializeMelorixProject} from '@/util/melorix-stage-e-project'
+import type {MelorixProject} from '@/util/melorix-stage-e-project'
+import {audioBufferToWav} from '@/util/melorix-wav-export'
 import type {TrackFxSettings} from '@/util/melorix-stage-d-track-fx'
 import {exportMidiProgram} from '@/util/melorix-midi-program-export'
 import {removeMidiTrack,omitTrackSetting} from '@/util/melorix-track-actions'
@@ -1173,6 +1176,52 @@ const exportLength = ref<ExportLength>('preview15')
 const selectedExportSeconds = computed(() => exportDurationSeconds(duration.value, exportLength.value))
 const exportPhase = ref<'preparing' | 'rendering'>('preparing')
 const exportAudioNotice=ref('')
+const uploadingWav=ref(false)
+
+function localMixWavSamples(){
+ const samples=new Map<string,{buffer:AudioBuffer,root:number}>()
+ for(const sample of localSamples.value){
+  const buffer=localSampleBuffers.get(sample.id)
+  if(buffer)samples.set(sample.id,{buffer,root:sample.rootMidi})
+ }
+ return samples
+}
+function renderEditedMidiMix(seconds:number){
+ return renderMultiTrackAudio({
+  notes:notes.value,parts:midiParts.value,
+  programs:importedMidiPrograms.value,presets:assignedTrackPresets.value,
+  volumes:trackVolumeLevels.value,
+  pans:Object.fromEntries(midiParts.value.map(p=>[p.id,effectiveTrackPan(p.id)])),
+  fx:{...fxSavedByTrack.value,...fxPreviewByTrack.value},
+  fxBypass:fxBypassByTrack.value,
+  wavSamples:localMixWavSamples(),
+  erhuSamples:erhuWebSampler.getDecodedSamples(),
+  seconds,tempo:midiTempo.value,expression:expressionMode.value
+ })
+}
+async function exportWavMix(){
+ if(exporting.value||!notes.value.length)return
+ if(playState.value==='playing')pause()
+ uploadingWav.value=true
+ exporting.value=true
+ uploadError.value=''
+ try{
+  const totalSeconds=Math.min(1200,Math.max(0,duration.value))
+  if(!totalSeconds)throw Error('Bài MIDI chưa có thời lượng')
+  const mix=await renderEditedMidiMix(totalSeconds)
+  const wav=audioBufferToWav(mix.audioBuffer)
+  const blob=new Blob([wav],{type:'audio/wav'})
+  const url=URL.createObjectURL(blob)
+  const a=document.createElement('a')
+  a.href=url;a.download=(currentTrack.value?.name||'MELORIX').replace(/[\\/:*?"<>|]/g,'_')+'-mix-fx.wav'
+  document.body.appendChild(a);a.click();a.remove()
+  setTimeout(()=>URL.revokeObjectURL(url),30000)
+  uploadError.value='Đã xuất WAV bản phối MIDI với EQ/Reverb từng track. Không dùng bản thu gốc/Kontakt; thời lượng tối đa 20 phút.'
+  if(mix.fallbacks.length)uploadError.value+=' Âm sắc dự phòng: '+mix.fallbacks.join(', ')
+ }catch(error){console.error(error);uploadError.value='Không xuất được WAV: '+String(error)}
+ finally{exporting.value=false;uploadingWav.value=false}
+}
+
 
 async function exportVideo() {
   if (exporting.value) return
@@ -1223,27 +1272,11 @@ async function exportVideo() {
       audioBuf=alignKontaktAudio(original,exportSeconds,0)
       exportAudioNotice.value='Xuất âm thanh bản thu gốc; nốt MIDI chỉ dùng cho hình nốt rơi.'
     }else{
-      const wavSamples=new Map<string,{buffer:AudioBuffer,root:number}>()
-      for(const sample of localSamples.value){
-        const buffer=localSampleBuffers.get(sample.id)
-        if(buffer)wavSamples.set(sample.id,{buffer,root:sample.rootMidi})
-      }
-      const mix=await renderMultiTrackAudio({
-        notes:notes.value,
-        parts:midiParts.value,
-        programs:importedMidiPrograms.value,
-        presets:assignedTrackPresets.value,
-        volumes:trackVolumeLevels.value,
-        wavSamples,
-        erhuSamples:erhuWebSampler.getDecodedSamples(),
-        seconds:exportSeconds,
-        tempo:midiTempo.value,
-        expression:expressionMode.value
-      })
+      const mix=await renderEditedMidiMix(exportSeconds)
       audioBuf=mix.audioBuffer
       exportAudioNotice.value=mix.fallbacks.length
         ?'Đã xuất bản phối đa track; các nhạc cụ dùng tiếng tổng hợp dự phòng: '+mix.fallbacks.join(', ')
-        :'Đã dựng âm thanh đa track theo nhạc cụ, Volume và biểu cảm đang chọn.'
+        :'Đã dựng âm thanh đa track với Volume, Pan, EQ/Reverb và biểu cảm đang chọn.'
     }
 
     // mediabunny output：流式写盘用 StreamTarget，否则用 BufferTarget
@@ -2610,9 +2643,9 @@ function seekFromTimeline(event: MouseEvent) {
   // A click on the timeline during Play must seek AND keep playing.
   if(wasPlaying)void play()
 }
-function downloadEditedMidi() {
-  if (!allNotes.value.length) return
-  // Export a fresh Standard MIDI File from edited notes, keeping each track separate.
+function buildEditedMidi():Midi {
+  // Preserve edited notes/CC64/CC10 and current GM programs in both MIDI export
+  // and the portable MELORIX project snapshot.
   const result = new Midi()
   result.header.setTempo(midiTempo.value)
   for (const part of midiParts.value) {
@@ -2632,6 +2665,11 @@ function downloadEditedMidi() {
     const pan=committedPanByTrack.value[part.id]??0
     if(pan!==0)track.addCC({number:10,time:0,value:(pan+100)/200})
   }
+  return result
+}
+function downloadEditedMidi() {
+  if(!allNotes.value.length)return
+  const result=buildEditedMidi()
   const blob = new Blob([result.toArray() as BlobPart], { type: 'audio/midi' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -2642,6 +2680,97 @@ function downloadEditedMidi() {
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 30_000)
 }
+
+function captureMelorixProject():MelorixProject{
+ const ids=midiParts.value.map(p=>p.id)
+ const record=<T,>(select:(id:number)=>T):Record<number,T>=>Object.fromEntries(ids.map(id=>[id,select(id)]))
+ return {
+  format:'melorix-project',version:1,
+  name:currentTrack.value?.name||'MELORIX',
+  tempo:midiTempo.value,
+  parts:midiParts.value.map(p=>({...p})),
+  notes:allNotes.value.map(n=>({...n})),
+  programs:record(id=>importedMidiPrograms.value[id]??0),
+  presets:record(id=>assignedTrackPresets.value[id]??'piano'),
+  volumes:record(id=>trackVolumeLevels.value[id]??100),
+  pans:record(id=>committedPanByTrack.value[id]??0),
+  pedal:record(id=>(pedalByTrack.value[id]??[]).map(e=>({...e}))),
+  // Capture draft as heard: every FX control is part of the portable snapshot.
+  fx:record(id=>({...currentTrackFx(id)})),
+  performance:record(id=>({...performanceByTrack.value[id]??DEFAULT_PERFORMANCE})),
+  pianoFeel:record(id=>({...pianoFeelByTrack.value[id]??DEFAULT_PIANO_FEEL})),
+  expression:expressionMode.value
+ }
+}
+function downloadMelorixProject(){
+ if(exporting.value||!allNotes.value.length)return
+ try{
+  const data=serializeMelorixProject(captureMelorixProject())
+  const url=URL.createObjectURL(new Blob([data],{type:'application/json'}))
+  const a=document.createElement('a');a.href=url
+  a.download=(currentTrack.value?.name||'MELORIX').replace(/[\\/:*?"<>|]/g,'_')+'.melorix'
+  document.body.appendChild(a);a.click();a.remove()
+  setTimeout(()=>URL.revokeObjectURL(url),30000)
+  uploadError.value='Đã lưu dự án .melorix gồm track, MIDI và FX. WAV/MP3/Kontakt/NKI không được nhúng.'
+ }catch(error){uploadError.value='Không thể lưu dự án: '+String(error)}
+}
+async function onMelorixProjectUpload(event:Event){
+ const input=event.target as HTMLInputElement
+ const file=input.files?.[0];input.value=''
+ if(!file||exporting.value||loadingMidi.value)return
+ try{
+  if(file.size>32_000_000)throw Error('Dự án vượt 32 MB')
+  // Validate the whole file before touching the current song, so corrupt
+  // projects cannot destroy the user's session.
+  const project=parseMelorixProject(await file.text())
+  const midi=new Midi()
+  midi.header.setTempo(project.tempo)
+  for(const part of project.parts){
+   const track=midi.addTrack()
+   track.name=part.name
+   track.channel=Math.max(0,(part.channel||1)-1)
+   track.instrument.number=project.programs[part.id]??0
+   for(const n of project.notes)if(n.trackId===part.id)
+    track.addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:n.velocity})
+   for(const p of project.pedal[part.id]??[])
+    track.addCC({number:64,time:p.time,value:p.value/127})
+   const pan=project.pans[part.id]??0
+   if(pan!==0)track.addCC({number:10,time:0,value:(pan+100)/200})
+  }
+  const name=project.name||file.name.replace(/\.melorix$/i,'')
+  const url=URL.createObjectURL(new Blob([midi.toArray() as BlobPart],{type:'audio/midi'}))
+  playlist.value.push({name,file:url})
+  currentTrackIdx.value=playlist.value.length-1
+  pauseOriginalAudio()
+  useOriginalAudio.value=false
+  processMidi(midi)
+  // Reapply stable original track IDs, including empty/new instrument tracks.
+  // All editor features address these IDs rather than the MIDI array indices.
+  midiParts.value=project.parts.map(p=>({...p}))
+  allNotes.value=project.notes.map(n=>({...n}))
+  selectedTrackId.value=project.parts[0]?.id??null
+  importedMidiPrograms.value={...project.programs}
+  assignedTrackPresets.value={...project.presets} as Record<number,TrackInstrument>
+  trackVolumeLevels.value={...project.volumes}
+  committedPanByTrack.value={...project.pans}
+  pedalByTrack.value=Object.fromEntries(Object.entries(project.pedal).map(([id,events])=>[id,normalizePedalPoints(events)]))
+  fxSavedByTrack.value={...project.fx}
+  fxPreviewByTrack.value={...project.fx}
+  fxBypassByTrack.value={}
+  fxUndoByTrack.value={};fxRedoByTrack.value={}
+  performanceByTrack.value={...project.performance}
+  pianoFeelByTrack.value={...project.pianoFeel}
+  performancePreviewByTrack.value={}
+  expressionMode.value=project.expression
+  if(audioMaster&&audioCtx.value)audioMaster.setMode(audioCtx.value,project.expression)
+  duration.value=allNotes.value.reduce((end,n)=>Math.max(end,n.time+n.duration),0)
+  updateNoteRange()
+  uploadError.value='Đã mở dự án MELORIX. FX và track đã khôi phục; nếu sử dụng mẫu WAV/NKI bên ngoài, cần gắn lại trên máy.'
+ }catch(error){
+  uploadError.value='Không thể mở dự án: '+String(error)
+ }
+}
+
 function captureFrame() {
   const canvas = canvasRef.value
   if (!canvas) return
@@ -2683,6 +2812,11 @@ watch(() => currentTime.value, (t) => {
           </label>
           <button type="button" @click="showPlaylist = !showPlaylist"><i class="fas fa-folder-open mr-2"></i> Thư viện bài nhạc</button>
           <button type="button" :disabled="exporting || !allNotes.length" @click="downloadEditedMidi"><i class="fas fa-save mr-2"></i> Lưu MIDI đã chỉnh (.mid)</button>
+          <button type="button" :disabled="exporting || !allNotes.length" @click="downloadMelorixProject"><i class="fas fa-project-diagram mr-2"></i> Lưu dự án (.melorix)</button>
+          <label><i class="fas fa-folder-open mr-2"></i> Mở dự án (.melorix)
+            <input type="file" class="hidden" accept=".melorix,application/json" :disabled="loadingMidi||converting||exporting" @change="onMelorixProjectUpload($event); closeMenus()">
+          </label>
+          <button type="button" :disabled="exporting || !notes.length" @click="exportWavMix"><i class="fas fa-file-audio mr-2"></i> {{uploadingWav?'Đang xuất WAV...':'Xuất WAV bản phối (FX)'}}</button>
           <button type="button" :disabled="exporting" @click="showExport = true"><i class="fas fa-file-video mr-2"></i> Xuất video MP4</button>
         </div></details>
         <details name="melorix-main-menu"><summary>Chỉnh sửa</summary><div class="mx-menu-pop">
