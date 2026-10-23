@@ -415,6 +415,10 @@ function applyInspectorToMidi(){
  lastScheduledIdx=0;updateNoteRange()
  setInspectorStatus(id,'Đã áp dụng biểu cảm và Pan CC10 CHỈ cho track này. Có thể Undo riêng.')
 }
+function setSelectedPedalMode(mode:PedalMode){
+ const id=selectedTrackId.value
+ if(id!==null&&!exporting.value)pedalModeByTrack.value={...pedalModeByTrack.value,[id]:mode}
+}
 function applyInspectorPedal(mode:PedalMode){
  const id=selectedTrackId.value
  if(id===null||exporting.value)return
@@ -787,7 +791,11 @@ function deleteMidiTrack(id:number){
  trackVolumeLevels.value=omitTrackSetting(trackVolumeLevels.value,id)
  committedPanByTrack.value=omitTrackSetting(committedPanByTrack.value,id)
  performanceByTrack.value=omitTrackSetting(performanceByTrack.value,id)
- inspectorUndo.value=[];inspectorRedo.value=[]
+ inspectorUndoByTrack.value=omitTrackSetting(inspectorUndoByTrack.value,id)
+ inspectorRedoByTrack.value=omitTrackSetting(inspectorRedoByTrack.value,id)
+ inspectorStatusByTrack.value=omitTrackSetting(inspectorStatusByTrack.value,id)
+ performancePreviewByTrack.value=omitTrackSetting(performancePreviewByTrack.value,id)
+ pedalModeByTrack.value=omitTrackSetting(pedalModeByTrack.value,id)
  pedalByTrack.value=omitTrackSetting(pedalByTrack.value,id)
  newNativeTrackIds.value=new Set([...newNativeTrackIds.value].filter(other=>other!==id))
  if(vst3AssignedTrackIds.value.has(id)&&vst3Api?.unbindVst3Track){
@@ -1365,7 +1373,9 @@ function processMidi(midi: Midi) {
   clearTrackAudioOutputs()
   trackVolumeLevels.value={}
   performanceByTrack.value={}
-  inspectorUndo.value=[];inspectorRedo.value=[];inspectorStatus.value=''
+  inspectorUndoByTrack.value={};inspectorRedoByTrack.value={}
+  inspectorStatusByTrack.value={};performancePreviewByTrack.value={}
+  pedalModeByTrack.value={}
   committedPanByTrack.value=Object.fromEntries(midi.tracks.map((track,id)=>[id,Math.round(((track.controlChanges[10]??[])[0]?.value??.5)*200-100)]))
   newNativeTrackIds.value=new Set()
   vst3Pedal?.stop()
@@ -3016,10 +3026,14 @@ watch(() => currentTime.value, (t) => {
         <div class="mx-inspector-top"><i class="fas fa-sliders-h"></i> Cài đặt <span style="margin-left:auto;font-weight:400;color:#929eae">Thuộc tính</span>
           <button type="button" class="mx-side-close" aria-label="Đóng bảng thuộc tính" @click="isInspectorOpen = false"><i class="fas fa-times"></i></button>
         </div>
-        <MelorixAudioInspector v-if="selectedAudioTrack" :key="selectedAudioTrack.id" :track-name="selectedAudioTrack.name"
+        <MelorixAudioInspector v-if="selectedAudioTrack" :key="selectedAudioTrack.id"
+          :track-id="selectedAudioTrack.id" :track-name="selectedAudioTrack.name"
+          :tracks="midiParts.map(part=>({id:part.id,name:part.name}))"
+          :pedal-mode="selectedPedalMode"
           :settings="selectedPerformance" :volume="trackVolumePercent(selectedAudioTrack.id)"
-          :active="performancePreviewEnabled" :disabled="exporting" :can-undo="inspectorUndo.length>0" :can-redo="inspectorRedo.length>0"
-          :native-track="vst3AssignedTrackIds.has(selectedAudioTrack.id)" :original-audio="originalAudioActive()" :status="inspectorStatus"
+          :active="selectedPreviewOn" :disabled="exporting" :can-undo="selectedUndoCount>0" :can-redo="selectedRedoCount>0"
+          :native-track="vst3AssignedTrackIds.has(selectedAudioTrack.id)" :original-audio="originalAudioActive()" :status="selectedInspectorStatus"
+          @track="openAudioInspector" @pedal-mode="setSelectedPedalMode"
           @update-setting="updatePerformanceSetting" @volume="setTrackVolumePercent(selectedAudioTrack.id,$event)"
           @compare="toggleAudioComparison" @apply="applyInspectorToMidi" @pedal="applyInspectorPedal"
           @reset="resetAudioInspector" @undo="undoInspectorChange" @redo="redoInspectorChange" />
