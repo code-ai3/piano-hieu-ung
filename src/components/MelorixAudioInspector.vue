@@ -3,6 +3,8 @@ import type {PerformanceKey,PerformanceSettings} from '@/util/melorix-stage-b-pe
 import type {PedalMode} from '@/util/melorix-auto-pedal'
 import {pianoFeelPreset,normalizedPianoFeel} from '@/util/melorix-stage-c-piano'
 import type {PianoFeelPreset,PianoFeelSettings} from '@/util/melorix-stage-c-piano'
+import {normalizeTrackFx} from '@/util/melorix-stage-d-track-fx'
+import type {TrackFxSettings} from '@/util/melorix-stage-d-track-fx'
 const props=defineProps<{
  trackId:number
  trackName:string
@@ -10,6 +12,10 @@ const props=defineProps<{
  pedalMode:PedalMode
  settings:PerformanceSettings
  pianoFeel:PianoFeelSettings
+ fxSettings:TrackFxSettings
+ fxBypassed:boolean
+ fxCanUndo:boolean
+ fxCanRedo:boolean
  volume:number
  active:boolean
  disabled:boolean
@@ -24,6 +30,12 @@ const emit=defineEmits<{
  (e:'pedal-mode',mode:PedalMode):void
  (e:'update-setting',key:PerformanceKey,value:number):void
  (e:'piano-feel',settings:PianoFeelSettings):void
+ (e:'fx-update',settings:TrackFxSettings):void
+ (e:'fx-compare'):void
+ (e:'fx-save'):void
+ (e:'fx-undo'):void
+ (e:'fx-redo'):void
+ (e:'fx-reset'):void
  (e:'volume',value:number):void
  (e:'compare'):void
  (e:'apply'):void
@@ -43,6 +55,13 @@ function pianoFeelSelect(e:Event){
 function pianoFeelNumber(key:'dynamics'|'chordRollMs',e:Event){
  const number=Number((e.target as HTMLInputElement).value)
  if(Number.isFinite(number))emit('piano-feel',normalizedPianoFeel({...props.pianoFeel,[key]:number}))
+}
+function fxChange(key:'bassDb'|'midDb'|'trebleDb'|'reverbWet'|'roomMs',event:Event){
+ const value=Number((event.target as HTMLInputElement).value)
+ if(Number.isFinite(value))emit('fx-update',normalizeTrackFx({...props.fxSettings,[key]:value}))
+}
+function fxEnable(event:Event){
+ emit('fx-update',normalizeTrackFx({...props.fxSettings,enabled:(event.target as HTMLInputElement).checked}))
 }
 function selectTrack(e:Event){
  const id=Number((e.target as HTMLSelectElement).value)
@@ -111,6 +130,42 @@ function volumeInput(e:Event){
    </div>
    <p class="mx-piano-hint">Độ nhấn theo câu nhạc và độ rải nốt hợp âm rất nhỏ, tính trên MIDI đang phát. A/B so sánh từng track; chỉ ghi vào MIDI khi bấm Áp dụng.</p>
   </div>
+  <section class="mx-track-fx" aria-label="EQ và Reverb của track">
+   <h4><i class="fas fa-sliders-h"></i> Giai đoạn D — EQ / Reverb riêng track</h4>
+   <p v-if="nativeTrack||originalAudio" class="mx-audio-note">FX WebAudio không xử lý bản thu gốc hay âm thanh Kontakt native. Hãy chọn track phát MIDI bằng WebAudio để nghe thử.</p>
+   <label class="mx-track-fx-enable">
+     <input type="checkbox" :checked="fxSettings.enabled" :disabled="disabled||nativeTrack||originalAudio" aria-label="Bật EQ Reverb track" @change="fxEnable">
+     <span>Bật xử lý EQ / Reverb trên track này</span>
+   </label>
+   <div class="mx-audio-controls">
+    <label v-for="control in [
+     {key:'bassDb',name:'Bass 180 Hz',min:-12,max:12,unit:'dB'},
+     {key:'midDb',name:'Mid 1 kHz',min:-12,max:12,unit:'dB'},
+     {key:'trebleDb',name:'Treble 4,5 kHz',min:-12,max:12,unit:'dB'},
+     {key:'reverbWet',name:'Reverb Wet',min:0,max:70,unit:'%'}
+    ]" :key="control.key">
+     <span><strong>{{control.name}}</strong><output>{{fxSettings[control.key as 'bassDb'|'midDb'|'trebleDb'|'reverbWet']}}{{control.unit}}</output></span>
+     <input type="range" :min="control.min" :max="control.max" step="1"
+       :value="fxSettings[control.key as 'bassDb'|'midDb'|'trebleDb'|'reverbWet']"
+       :disabled="disabled||nativeTrack||originalAudio||!fxSettings.enabled"
+       :aria-label="'FX '+control.name" @input="fxChange(control.key as 'bassDb'|'midDb'|'trebleDb'|'reverbWet',$event)">
+    </label>
+    <label><span><strong>Không gian Reverb</strong><output>{{(fxSettings.roomMs/1000).toFixed(2)}} giây</output></span>
+     <input type="range" min="350" max="2200" step="50" :value="fxSettings.roomMs"
+       :disabled="disabled||nativeTrack||originalAudio||!fxSettings.enabled"
+       aria-label="FX Không gian Reverb" @change="fxChange('roomMs',$event)">
+    </label>
+   </div>
+   <div class="mx-fx-actions">
+    <button type="button" :disabled="disabled||nativeTrack||originalAudio"
+      :aria-pressed="!fxBypassed" @click="emit('fx-compare')">{{fxBypassed?'A/B FX: Nguyên bản (dry)':'A/B FX: Có hiệu ứng'}}</button>
+    <button type="button" :disabled="disabled||nativeTrack||originalAudio" @click="emit('fx-save')">Lưu FX phiên này</button>
+    <button type="button" :disabled="disabled||!fxCanUndo" @click="emit('fx-undo')">Undo FX</button>
+    <button type="button" :disabled="disabled||!fxCanRedo" @click="emit('fx-redo')">Redo FX</button>
+    <button type="button" :disabled="disabled||nativeTrack||originalAudio" @click="emit('fx-reset')">Reset FX</button>
+   </div>
+   <p class="mx-piano-hint">EQ và Reverb nghe trực tiếp trên WebAudio theo track, không ghi được vào file .mid hay tự động vào video MP4. “Lưu FX” chỉ giữ thiết lập trong phiên hiện tại; A/B FX không ảnh hưởng A/B MIDI phía dưới.</p>
+  </section>
   <div class="mx-audio-compare">
     <button type="button" :disabled="disabled" :aria-pressed="active" @click="emit('compare')">{{active?'A/B: Đang nghe bản chỉnh':'A/B: Nghe bản gốc'}}</button>
     <button type="button" :disabled="disabled" @click="emit('reset')"><i class="fas fa-undo"></i> Reset nút chỉnh</button>
@@ -131,7 +186,7 @@ function volumeInput(e:Event){
     <button type="button" :disabled="disabled" @click="emit('pedal',pedalMode)">Áp dụng pedal CC64</button>
   </div>
   <p v-if="status" class="mx-audio-status" role="status">{{status}}</p>
-  <p class="mx-audio-disclaimer">Piano Performance, Velocity, Humanize, Legato, Length và Pan nghe thử không phá nốt gốc. Khi áp dụng, thay đổi MIDI có thể hoàn tác. CC64 tác động tới độ ngân khi phát WebAudio và được xuất cùng MIDI; Reverb/EQ nằm ở giai đoạn D.</p>
+  <p class="mx-audio-disclaimer">Piano Performance, Velocity, Humanize, Legato, Length và Pan nghe thử không phá nốt gốc. Khi áp dụng, thay đổi MIDI có thể hoàn tác. CC64 tác động tới độ ngân khi phát WebAudio và được xuất cùng MIDI; FX Giai đoạn D chỉ nghe trên WebAudio và lưu trong phiên, không xuất theo MIDI.</p>
  </section>
 </template>
 <style scoped>
@@ -151,6 +206,11 @@ function volumeInput(e:Event){
 .mx-piano-feel-mode{display:grid;gap:5px;margin-bottom:11px;font-size:11px}
 .mx-piano-feel select{width:100%;background:#162637;color:#fff;border:1px solid #53687f;border-radius:5px;padding:7px}
 .mx-piano-hint{font-size:10px;color:#9fb3c9;line-height:1.5;margin:8px 0 0}
+.mx-track-fx{margin-top:13px;padding:10px;border:1px solid #476d86;border-radius:7px;background:#152838}
+.mx-track-fx h4{font-size:12px;color:#b7dafa;margin:0 0 9px}
+.mx-track-fx-enable{display:flex;align-items:center;gap:8px;font-size:11px;margin:6px 0 10px}
+.mx-track-fx-enable input{accent-color:#5ca6de}
+.mx-fx-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
 .mx-audio-compare,.mx-audio-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
 .mx-audio-inspector button{padding:7px 8px;font-size:11px;border:1px solid #5a7088;border-radius:5px;background:#25374a;color:#eff3fc;cursor:pointer}
 .mx-audio-inspector button:disabled{opacity:.45;cursor:default}

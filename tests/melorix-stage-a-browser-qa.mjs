@@ -24,13 +24,19 @@ try{
   const connect=AudioNode.prototype.connect
   const taps=[]
   const panNodes=[]
+  const filterNodes=[]
+  const convolverNodes=[]
+  const createFilter=AudioContext.prototype.createBiquadFilter
+  const createVerb=AudioContext.prototype.createConvolver
+  AudioContext.prototype.createBiquadFilter=function(...args){const n=createFilter.apply(this,args);filterNodes.push(n);return n}
+  AudioContext.prototype.createConvolver=function(...args){const n=createVerb.apply(this,args);convolverNodes.push(n);return n}
   const createPan=AudioContext.prototype.createStereoPanner
   AudioContext.prototype.createStereoPanner=function(...args){
    const node=createPan.apply(this,args)
    panNodes.push(node)
    return node
   }
-  window.__audioQA={taps,panNodes,peak:()=>Math.max(0,...taps.map(({analyser})=>{
+  window.__audioQA={taps,panNodes,filterNodes,convolverNodes,peak:()=>Math.max(0,...taps.map(({analyser})=>{
    const values=new Float32Array(analyser.fftSize)
    analyser.getFloatTimeDomainData(values)
    return Math.max(...values.map(Math.abs))
@@ -169,6 +175,52 @@ try{
  await trackPicker.selectOption(ids[0])
  assert.equal(await feel.inputValue(),'natural','Stage C track 0 unaffected by track 1 Undo')
  assert.deepEqual(errors,[],'No Chromium errors in Stage C piano controls')
+ // Stage D: real per-track WebAudio EQ, Reverb/A-B, committed session undo/redo.
+ await trackPicker.selectOption(ids[0])
+ const fxEnable=page.getByRole('checkbox',{name:'Bật EQ Reverb track'})
+ assert.equal(await fxEnable.isChecked(),false,'Stage D starts disabled')
+ await fxEnable.check()
+ const bass=page.getByRole('slider',{name:'FX Bass 180 Hz'})
+ await bass.evaluate(el=>{el.value='8';el.dispatchEvent(new Event('input',{bubbles:true}))})
+ await page.waitForFunction(()=>window.__audioQA.filterNodes.some(n=>n.type==='lowshelf'&&n.gain.value>6),null,{timeout:6000})
+ // Browser AudioParam has identity only in-page. Capture index, not an unserializable node.
+ const firstIndex=await page.evaluate(()=>window.__audioQA.filterNodes.findIndex(n=>n.type==='lowshelf'&&n.gain.value>6))
+ assert.ok(firstIndex>=0,'First FX EQ filter exists')
+ await page.getByRole('slider',{name:'FX Reverb Wet'}).evaluate(el=>{el.value='42';el.dispatchEvent(new Event('input',{bubbles:true}))})
+ await page.getByRole('slider',{name:'FX Không gian Reverb'}).evaluate(el=>{el.value='1600';el.dispatchEvent(new Event('change',{bubbles:true}))})
+ await page.waitForFunction(()=>window.__audioQA.convolverNodes.some(n=>n.buffer&&Math.abs(n.buffer.duration-1.6)<.08),null,{timeout:6000})
+ await page.getByRole('button',{name:'Lưu FX phiên này'}).click()
+ assert.equal(await page.getByRole('button',{name:'Undo FX'}).isEnabled(),true)
+ await trackPicker.selectOption(ids[1])
+ assert.equal(await fxEnable.isChecked(),false,'FX enabled on RH must not enable LH')
+ await fxEnable.check()
+ await bass.evaluate(el=>{el.value='-6';el.dispatchEvent(new Event('input',{bubbles:true}))})
+ await page.waitForFunction(()=>window.__audioQA.filterNodes.some(n=>n.type==='lowshelf'&&n.gain.value< -4),null,{timeout:6000})
+ await page.getByRole('button',{name:'Lưu FX phiên này'}).click()
+ await page.getByRole('button',{name:'Undo FX'}).click()
+ assert.equal(await fxEnable.isChecked(),false,'Undo FX restores only LH')
+ await page.getByRole('button',{name:'Redo FX'}).click()
+ assert.equal(await fxEnable.isChecked(),true,'Redo FX restores LH')
+ await trackPicker.selectOption(ids[0])
+ assert.equal(await fxEnable.isChecked(),true,'RH FX stays enabled after LH Undo/Redo')
+ assert.equal(await bass.inputValue(),'8','RH FX slider value persists')
+ const fxAB=page.locator('.mx-fx-actions button[aria-pressed]')
+ await fxAB.click()
+ await page.waitForFunction(idx=>Math.abs(window.__audioQA.filterNodes[idx].gain.value)<.5,firstIndex,{timeout:6000})
+ assert.equal(await fxAB.getAttribute('aria-pressed'),'false','Track FX A/B bypass')
+ await fxAB.click()
+ await page.waitForFunction(idx=>window.__audioQA.filterNodes[idx].gain.value>6,firstIndex,{timeout:6000})
+ assert.equal(await fxAB.getAttribute('aria-pressed'),'true','Track FX A/B restores EQ')
+ await page.getByRole('button',{name:'Reset FX'}).click()
+ assert.equal(await fxEnable.isChecked(),false,'Reset FX only clears draft')
+ await page.getByRole('button',{name:'Undo FX'}).click()
+ assert.equal(await fxEnable.isChecked(),false,'Undo FX removes RH saved setting')
+ await page.getByRole('button',{name:'Redo FX'}).click()
+ assert.equal(await fxEnable.isChecked(),true,'Redo FX restores RH saved setting')
+ await trackPicker.selectOption(ids[1])
+ assert.equal(await bass.inputValue(),'-6','LH FX still independent')
+ assert.deepEqual(errors,[],'No Chromium errors in real Stage D WebAudio FX')
+ console.log('PASS Chromium MELORIX Stage D: real BiquadFilter + Convolver graph, two-track EQ/room/Wet/A-B/FX undo-redo')
  console.log('PASS Chromium MELORIX Stage C: per-track piano feel, dynamics/chord roll, A/B, Apply, Undo')
  console.log('PASS Chromium MELORIX Stage B.2: independent MIDI track sliders, A/B, Undo and CC64 presets')
  console.log('PASS Chromium MELORIX Stage B: UI track Inspector, Velocity edit, A/B, apply MIDI, Undo/Redo, CC64')
