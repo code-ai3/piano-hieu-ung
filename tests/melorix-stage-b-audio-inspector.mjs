@@ -30,6 +30,6 @@ assert.deepEqual(notes[0],{trackId:1,midi:60,time:0,duration:.2,velocity:.4},'pr
 const vue=readFileSync('src/views/PianoView.vue','utf8')
 const inspector=readFileSync('src/components/MelorixAudioInspector.vue','utf8')
 assert.ok(vue.includes('pan:committedPanByTrack.value[id]??0'), 'Reset must preserve committed MIDI CC10 pan')
-for(const t of ['audibleNotes.value','const panner=ctx.createStereoPanner()','panner.connect(getAudioMaster(ctx))','shapeTrackNotes(allNotes.value,id,setting)','suggestAutoPedal(','track.addCC({number:10','inspectorUndo.value','inspectorRedo.value','<MelorixAudioInspector','openAudioInspector(part.id)'])assert.ok(vue.includes(t),'missing integration: '+t)
+for(const t of ['audibleNotes.value','const panner=ctx.createStereoPanner()','panner.connect(getAudioMaster(ctx))','shapeTrackNotes(allNotes.value,id,setting)','suggestAutoPedal(','track.addCC({number:10','inspectorUndoByTrack.value','inspectorRedoByTrack.value','<MelorixAudioInspector','openAudioInspector(part.id)'])assert.ok(vue.includes(t),'missing integration: '+t)
 for(const t of ['Velocity','Humanize Timing','Legato','Pan (web)','A/B','Undo','Redo','Áp dụng pedal CC64'])assert.ok(inspector.includes(t),'missing inspector control: '+t)
 console.log('PASS Stage B: per-track dynamics/timing/legato/CC64, reversible A/B, real stereo pan and MIDI export wiring')
