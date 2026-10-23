@@ -12,6 +12,8 @@ import type { VideoFormat, PortraitKeyboard } from '@/util/video-format'
 import { SplendidGrandPiano } from 'smplr'
 import { renderMultiTrackAudio } from '@/util/melorix-offline-mix'
 import { ExpressiveAudioMaster, expressedVelocity } from '@/util/melorix-expressive-audio'
+import {DEFAULT_PIANO_FEEL,normalizedPianoFeel,hasPianoFeel,shapePianoTrackNotes,pianoFeelPreview} from '@/util/melorix-stage-c-piano'
+import type {PianoFeelSettings} from '@/util/melorix-stage-c-piano'
 import {exportMidiProgram} from '@/util/melorix-midi-program-export'
 import {removeMidiTrack,omitTrackSetting} from '@/util/melorix-track-actions'
 import type { ExpressionMode } from '@/util/melorix-expressive-audio'
@@ -273,6 +275,7 @@ const assignedTrackPresets=ref<Record<number,TrackInstrument>>({})
 const trackVolumeLevels=ref<Record<number,number>>({})
 const committedPanByTrack=ref<Record<number,number>>({})
 const performanceByTrack=ref<Record<number,PerformanceSettings>>({})
+const pianoFeelByTrack=ref<Record<number,PianoFeelSettings>>({})
 const performancePreviewByTrack=ref<Record<number,boolean>>({})
 const inspectorStatusByTrack=ref<Record<number,string>>({})
 const inspectorUndoByTrack=ref<Record<number,TrackAudioSnapshot[]>>({})
@@ -284,12 +287,15 @@ function setInspectorStatus(id:number,message:string){
 }
 const selectedAudioTrack=computed(()=>midiParts.value.find(part=>part.id===selectedTrackId.value)||null)
 const selectedPerformance=computed(()=>selectedTrackId.value===null?{...DEFAULT_PERFORMANCE}:performanceByTrack.value[selectedTrackId.value]??{...DEFAULT_PERFORMANCE,pan:committedPanByTrack.value[selectedTrackId.value]??0})
+const selectedPianoFeel=computed(()=>selectedTrackId.value===null?{...DEFAULT_PIANO_FEEL}:pianoFeelByTrack.value[selectedTrackId.value]??{...DEFAULT_PIANO_FEEL})
 const selectedPreviewOn=computed(()=>selectedTrackId.value===null?true:previewOn(selectedTrackId.value))
 const selectedUndoCount=computed(()=>selectedTrackId.value===null?0:(inspectorUndoByTrack.value[selectedTrackId.value]?.length??0))
 const selectedRedoCount=computed(()=>selectedTrackId.value===null?0:(inspectorRedoByTrack.value[selectedTrackId.value]?.length??0))
 const selectedInspectorStatus=computed(()=>selectedTrackId.value===null?'':inspectorStatusByTrack.value[selectedTrackId.value]??'')
 const selectedPedalMode=computed(()=>selectedTrackId.value===null?'natural' as PedalMode:pedalModeByTrack.value[selectedTrackId.value]??'natural')
-const audibleNotes=computed(()=>audioInspectorPreview(notes.value,performanceByTrack.value,performancePreviewByTrack.value,pedalByTrack.value))
+const audibleNotes=computed(()=>pianoFeelPreview(
+ audioInspectorPreview(notes.value,performanceByTrack.value,performancePreviewByTrack.value,pedalByTrack.value),
+ pianoFeelByTrack.value,performancePreviewByTrack.value,midiTempo.value))
 const expressionMode=ref<ExpressionMode>('natural')
 let audioMaster:ExpressiveAudioMaster|null=null
 function getAudioMaster(ctx:AudioContext):AudioNode{
@@ -360,6 +366,7 @@ function restoreInspectorSnapshot(id:number,snapshot:TrackAudioSnapshot){
  pedalByTrack.value={...pedalByTrack.value,[id]:snapshot.pedal.map(p=>({...p}))}
  committedPanByTrack.value={...committedPanByTrack.value,[id]:snapshot.pan}
  performanceByTrack.value={...performanceByTrack.value,[id]:{...DEFAULT_PERFORMANCE,pan:snapshot.pan}}
+ pianoFeelByTrack.value={...pianoFeelByTrack.value,[id]:{...DEFAULT_PIANO_FEEL}}
  performancePreviewByTrack.value={...performancePreviewByTrack.value,[id]:true}
  duration.value=allNotes.value.reduce((end,n)=>Math.max(end,n.time+n.duration),0)
  lastScheduledIdx=0;refreshTrackPan(id);updateNoteRange()
@@ -378,6 +385,13 @@ function updatePerformanceSetting(key:PerformanceKey,value:number){
  if(key==='pan')refreshTrackPan(id)
  setInspectorStatus(id,'Đang nghe thử riêng track này. Bấm A/B để đối chiếu; Áp dụng để ghi MIDI.')
 }
+function updatePianoFeel(value:PianoFeelSettings){
+ const id=selectedTrackId.value
+ if(id===null||exporting.value)return
+ pianoFeelByTrack.value={...pianoFeelByTrack.value,[id]:normalizedPianoFeel(value)}
+ performancePreviewByTrack.value={...performancePreviewByTrack.value,[id]:true}
+ setInspectorStatus(id,'Đang nghe thử Piano Performance riêng track này. Bấm A/B để so sánh; Áp dụng để ghi MIDI.')
+}
 function toggleAudioComparison(){
  const id=selectedTrackId.value
  if(id===null||exporting.value)return
@@ -391,6 +405,7 @@ function resetAudioInspector(){
  const id=selectedTrackId.value
  if(id===null||exporting.value)return
  performanceByTrack.value={...performanceByTrack.value,[id]:{...DEFAULT_PERFORMANCE,pan:committedPanByTrack.value[id]??0}}
+ pianoFeelByTrack.value={...pianoFeelByTrack.value,[id]:{...DEFAULT_PIANO_FEEL}}
  performancePreviewByTrack.value={...performancePreviewByTrack.value,[id]:true}
  refreshTrackPan(id)
  setInspectorStatus(id,'Đã Reset điều chỉnh tạm của track này. MIDI/CC64/Pan đã lưu không đổi.')
@@ -399,21 +414,29 @@ function applyInspectorToMidi(){
  const id=selectedTrackId.value
  if(id===null||exporting.value)return
  const setting=selectedPerformance.value
- if(!hasNoteExpression(setting)&&setting.pan===(committedPanByTrack.value[id]??0)){
+ const feel=selectedPianoFeel.value
+ const hasB=hasNoteExpression(setting)
+ const hasC=hasPianoFeel(feel)
+ if(!hasB&&!hasC&&setting.pan===(committedPanByTrack.value[id]??0)){
   setInspectorStatus(id,'Track này chưa có thay đổi mới để áp dụng.');return
  }
  pushInspectorUndo(id)
  interruptInspectorPlayback()
- if(hasNoteExpression(setting)){
-  allNotes.value=shapeTrackNotes(allNotes.value,id,setting).sort((a,b)=>a.time-b.time||a.midi-b.midi)
+ if(hasB||hasC){
+  // Stage B and C are composed once onto the committed MIDI.
+  // No destructive editing occurs during Preview / A-B listening.
+  const afterB=hasB?shapeTrackNotes(allNotes.value,id,setting):allNotes.value
+  const afterC=hasC?shapePianoTrackNotes(afterB,id,feel,midiTempo.value):afterB
+  allNotes.value=[...afterC].sort((a,b)=>a.time-b.time||a.midi-b.midi||a.trackId-b.trackId)
   duration.value=allNotes.value.reduce((end,n)=>Math.max(end,n.time+n.duration),0)
  }
  committedPanByTrack.value={...committedPanByTrack.value,[id]:setting.pan}
  performanceByTrack.value={...performanceByTrack.value,[id]:{...DEFAULT_PERFORMANCE,pan:setting.pan}}
+ pianoFeelByTrack.value={...pianoFeelByTrack.value,[id]:{...DEFAULT_PIANO_FEEL}}
  performancePreviewByTrack.value={...performancePreviewByTrack.value,[id]:true}
  refreshTrackPan(id)
  lastScheduledIdx=0;updateNoteRange()
- setInspectorStatus(id,'Đã áp dụng biểu cảm và Pan CC10 CHỈ cho track này. Có thể Undo riêng.')
+ setInspectorStatus(id,'Đã áp dụng biểu cảm Piano Performance / Pan CC10 CHỈ cho track này. Có thể Undo riêng.')
 }
 function setSelectedPedalMode(mode:PedalMode){
  const id=selectedTrackId.value
@@ -791,6 +814,7 @@ function deleteMidiTrack(id:number){
  trackVolumeLevels.value=omitTrackSetting(trackVolumeLevels.value,id)
  committedPanByTrack.value=omitTrackSetting(committedPanByTrack.value,id)
  performanceByTrack.value=omitTrackSetting(performanceByTrack.value,id)
+ pianoFeelByTrack.value=omitTrackSetting(pianoFeelByTrack.value,id)
  inspectorUndoByTrack.value=omitTrackSetting(inspectorUndoByTrack.value,id)
  inspectorRedoByTrack.value=omitTrackSetting(inspectorRedoByTrack.value,id)
  inspectorStatusByTrack.value=omitTrackSetting(inspectorStatusByTrack.value,id)
@@ -1373,6 +1397,7 @@ function processMidi(midi: Midi) {
   clearTrackAudioOutputs()
   trackVolumeLevels.value={}
   performanceByTrack.value={}
+  pianoFeelByTrack.value={}
   inspectorUndoByTrack.value={};inspectorRedoByTrack.value={}
   inspectorStatusByTrack.value={};performancePreviewByTrack.value={}
   pedalModeByTrack.value={}
@@ -3030,11 +3055,11 @@ watch(() => currentTime.value, (t) => {
           :track-id="selectedAudioTrack.id" :track-name="selectedAudioTrack.name"
           :tracks="midiParts.map(part=>({id:part.id,name:part.name}))"
           :pedal-mode="selectedPedalMode"
-          :settings="selectedPerformance" :volume="trackVolumePercent(selectedAudioTrack.id)"
+          :settings="selectedPerformance" :piano-feel="selectedPianoFeel" :volume="trackVolumePercent(selectedAudioTrack.id)"
           :active="selectedPreviewOn" :disabled="exporting" :can-undo="selectedUndoCount>0" :can-redo="selectedRedoCount>0"
           :native-track="vst3AssignedTrackIds.has(selectedAudioTrack.id)" :original-audio="originalAudioActive()" :status="selectedInspectorStatus"
           @track="openAudioInspector" @pedal-mode="setSelectedPedalMode"
-          @update-setting="updatePerformanceSetting" @volume="setTrackVolumePercent(selectedAudioTrack.id,$event)"
+          @update-setting="updatePerformanceSetting" @piano-feel="updatePianoFeel" @volume="setTrackVolumePercent(selectedAudioTrack.id,$event)"
           @compare="toggleAudioComparison" @apply="applyInspectorToMidi" @pedal="applyInspectorPedal"
           @reset="resetAudioInspector" @undo="undoInspectorChange" @redo="redoInspectorChange" />
         <section class="mx-panel">

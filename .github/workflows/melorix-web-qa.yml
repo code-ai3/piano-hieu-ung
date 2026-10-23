@@ -8,6 +8,7 @@ on:
       - feature/melorix-stage-a-audio-stability
       - feature/melorix-stage-b-audio-inspector
       - feature/melorix-stage-b-per-track-inspector
+      - feature/melorix-stage-c-piano-performance
       - feature/melorix-mp4-multitrack-audio
       - feature/melorix-track-select-delete
       - feature/melorix-piano-roll-draw-delete
