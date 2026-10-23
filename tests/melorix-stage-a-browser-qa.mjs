@@ -125,7 +125,7 @@ try{
  await trackPicker.selectOption(ids[0])
  await page.getByRole('slider',{name:'Lực đánh MIDI'}).evaluate(el=>{el.value='150';el.dispatchEvent(new Event('input',{bubbles:true}))})
  await page.waitForFunction(()=>document.querySelector('input[aria-label="Lực đánh MIDI"]')?.value==='150')
- const abTrack=page.getByRole('button',{name:/A\\/B:/})
+ const abTrack=page.locator('.mx-audio-compare button[aria-pressed]')
  await abTrack.click()
  assert.equal(await abTrack.getAttribute('aria-pressed'),'false','track 0 A/B original')
  await page.getByRole('combobox',{name:'Phong cách pedal'}).selectOption('light')
