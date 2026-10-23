@@ -246,6 +246,23 @@ try{
  await restoredPicker.selectOption(ids[1])
  assert.equal(await page.getByRole('slider',{name:'FX Bass 180 Hz'}).inputValue(),'-6')
  assert.deepEqual(errors,[],'No JS errors during MELORIX project save/restore')
+ // Stage E: render the restored MIDI mix to a real PCM16 WAV.
+ await fileMenu.locator('summary').click()
+ const [wavDownload]=await Promise.all([
+  page.waitForEvent('download',{timeout:110000}),
+  page.getByRole('button',{name:/Xuất WAV bản phối/}).click()
+ ])
+ const wavPath=await wavDownload.path()
+ assert.ok(wavPath,'WAV export must provide a downloadable file')
+ const wavBytes=readFileSync(wavPath)
+ assert.equal(wavBytes.toString('ascii',0,4),'RIFF')
+ assert.equal(wavBytes.toString('ascii',8,12),'WAVE')
+ assert.equal(wavBytes.toString('ascii',36,40),'data')
+ assert.ok(wavBytes.length>44100,'WAV must contain rendered song audio, not a header only')
+ let wavPeak=0
+ for(let i=44;i+2<=wavBytes.length;i+=512)wavPeak=Math.max(wavPeak,Math.abs(wavBytes.readInt16LE(i)))
+ assert.ok(wavPeak>40,'Rendered WAV PCM must be audible, not silent')
+ console.log('PASS Chromium MELORIX Stage E WAV: real downloaded PCM16 audio, nonzero signal, exported offline mix')
  console.log('PASS Chromium MELORIX Stage E: .melorix browser download/upload, two-track FX roundtrip')
  console.log('PASS Chromium MELORIX Stage D: real BiquadFilter + Convolver graph, two-track EQ/room/Wet/A-B/FX undo-redo')
  console.log('PASS Chromium MELORIX Stage C: per-track piano feel, dynamics/chord roll, A/B, Apply, Undo')
