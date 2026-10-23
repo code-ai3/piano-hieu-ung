@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import type {PerformanceKey,PerformanceSettings} from '@/util/melorix-stage-b-performance'
 import type {PedalMode} from '@/util/melorix-auto-pedal'
+import {pianoFeelPreset,normalizedPianoFeel} from '@/util/melorix-stage-c-piano'
+import type {PianoFeelPreset,PianoFeelSettings} from '@/util/melorix-stage-c-piano'
 const props=defineProps<{
  trackId:number
  trackName:string
  tracks:{id:number;name:string}[]
  pedalMode:PedalMode
  settings:PerformanceSettings
+ pianoFeel:PianoFeelSettings
  volume:number
  active:boolean
  disabled:boolean
@@ -20,6 +23,7 @@ const emit=defineEmits<{
  (e:'track',id:number):void
  (e:'pedal-mode',mode:PedalMode):void
  (e:'update-setting',key:PerformanceKey,value:number):void
+ (e:'piano-feel',settings:PianoFeelSettings):void
  (e:'volume',value:number):void
  (e:'compare'):void
  (e:'apply'):void
@@ -31,6 +35,14 @@ const emit=defineEmits<{
 function emitNumber(key:PerformanceKey,e:Event){
  const number=Number((e.target as HTMLInputElement).value)
  if(Number.isFinite(number))emit('update-setting',key,number)
+}
+function pianoFeelSelect(e:Event){
+ const value=(e.target as HTMLSelectElement).value as PianoFeelPreset
+ emit('piano-feel',pianoFeelPreset(value))
+}
+function pianoFeelNumber(key:'dynamics'|'chordRollMs',e:Event){
+ const number=Number((e.target as HTMLInputElement).value)
+ if(Number.isFinite(number))emit('piano-feel',normalizedPianoFeel({...props.pianoFeel,[key]:number}))
 }
 function selectTrack(e:Event){
  const id=Number((e.target as HTMLSelectElement).value)
@@ -75,6 +87,30 @@ function volumeInput(e:Event){
     <input type="range" min="-100" max="100" step="1" :value="settings.pan" :disabled="disabled" aria-label="Pan trái phải Audio Inspector" @input="emitNumber('pan',$event)">
    </label>
   </div>
+  <div class="mx-piano-feel">
+   <h4><i class="fas fa-music"></i> Piano Performance — Giai đoạn C</h4>
+   <label class="mx-piano-feel-mode">
+    <span>Phong cách diễn tấu piano</span>
+    <select :value="pianoFeel.preset" :disabled="disabled" aria-label="Phong cách diễn tấu piano" @change="pianoFeelSelect">
+     <option value="original">Nguyên bản MIDI (tắt)</option>
+     <option value="natural">Tự nhiên — cân bằng</option>
+     <option value="expressive">Biểu cảm — rõ sắc thái</option>
+    </select>
+   </label>
+   <div class="mx-audio-controls">
+    <label><span><strong>Độ nhấn câu nhạc</strong><output>{{pianoFeel.dynamics}}%</output></span>
+     <input type="range" min="0" max="100" step="1" :value="pianoFeel.dynamics"
+      :disabled="disabled||pianoFeel.preset==='original'" aria-label="Độ nhấn câu nhạc"
+      @input="pianoFeelNumber('dynamics',$event)">
+    </label>
+    <label><span><strong>Độ rải hợp âm</strong><output>{{pianoFeel.chordRollMs}} ms</output></span>
+     <input type="range" min="0" max="24" step="1" :value="pianoFeel.chordRollMs"
+      :disabled="disabled||pianoFeel.preset==='original'" aria-label="Độ rải hợp âm"
+      @input="pianoFeelNumber('chordRollMs',$event)">
+    </label>
+   </div>
+   <p class="mx-piano-hint">Độ nhấn theo câu nhạc và độ rải nốt hợp âm rất nhỏ, tính trên MIDI đang phát. A/B so sánh từng track; chỉ ghi vào MIDI khi bấm Áp dụng.</p>
+  </div>
   <div class="mx-audio-compare">
     <button type="button" :disabled="disabled" :aria-pressed="active" @click="emit('compare')">{{active?'A/B: Đang nghe bản chỉnh':'A/B: Nghe bản gốc'}}</button>
     <button type="button" :disabled="disabled" @click="emit('reset')"><i class="fas fa-undo"></i> Reset nút chỉnh</button>
@@ -95,7 +131,7 @@ function volumeInput(e:Event){
     <button type="button" :disabled="disabled" @click="emit('pedal',pedalMode)">Áp dụng pedal CC64</button>
   </div>
   <p v-if="status" class="mx-audio-status" role="status">{{status}}</p>
-  <p class="mx-audio-disclaimer">Velocity, Humanize, Legato, Length và Pan nghe thử không phá nốt gốc. Khi áp dụng, thay đổi MIDI có thể hoàn tác. CC64 tác động tới độ ngân khi phát WebAudio và được xuất cùng MIDI; Reverb/EQ nằm ở giai đoạn D.</p>
+  <p class="mx-audio-disclaimer">Piano Performance, Velocity, Humanize, Legato, Length và Pan nghe thử không phá nốt gốc. Khi áp dụng, thay đổi MIDI có thể hoàn tác. CC64 tác động tới độ ngân khi phát WebAudio và được xuất cùng MIDI; Reverb/EQ nằm ở giai đoạn D.</p>
  </section>
 </template>
 <style scoped>
@@ -110,6 +146,11 @@ function volumeInput(e:Event){
 .mx-audio-controls label>span{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#dce3ed}
 .mx-audio-controls output{color:#eeb078}
 .mx-audio-controls input{width:100%;accent-color:#ed9551}
+.mx-piano-feel{margin-top:13px;padding:10px;border:1px solid #45596e;border-radius:7px;background:#1a2938}
+.mx-piano-feel h4{margin:0 0 10px;font-size:12px;color:#f3cc99}
+.mx-piano-feel-mode{display:grid;gap:5px;margin-bottom:11px;font-size:11px}
+.mx-piano-feel select{width:100%;background:#162637;color:#fff;border:1px solid #53687f;border-radius:5px;padding:7px}
+.mx-piano-hint{font-size:10px;color:#9fb3c9;line-height:1.5;margin:8px 0 0}
 .mx-audio-compare,.mx-audio-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
 .mx-audio-inspector button{padding:7px 8px;font-size:11px;border:1px solid #5a7088;border-radius:5px;background:#25374a;color:#eff3fc;cursor:pointer}
 .mx-audio-inspector button:disabled{opacity:.45;cursor:default}
