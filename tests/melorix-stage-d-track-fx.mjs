@@ -25,7 +25,7 @@ for(const token of ['new TrackFxRack(ctx,getAudioMaster(ctx),currentTrackFx(id))
  'fxPreviewByTrack.value={};fxSavedByTrack.value={};fxBypassByTrack.value={}',
  '@fx-update="updateTrackFx"','@fx-save="saveTrackFx"'])
  assert.ok(vue.includes(token),'Stage D integration missing: '+token)
-for(const token of ['EQ / Reverb riêng track','FX Bass 180 Hz','Lưu FX phiên này',
+for(const token of ['EQ / Reverb riêng track','Bass 180 Hz','Lưu FX phiên này',
  'Undo FX','Redo FX','A/B FX: Nguyên bản','@change="fxChange(\'roomMs\',$event)"'])
  assert.ok(inspector.includes(token),'Stage D UI missing: '+token)
 const packageJson=JSON.parse(readFileSync('package.json','utf8'))
