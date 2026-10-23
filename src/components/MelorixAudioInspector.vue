@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import {ref} from 'vue'
 import type {PerformanceKey,PerformanceSettings} from '@/util/melorix-stage-b-performance'
 import type {PedalMode} from '@/util/melorix-auto-pedal'
 const props=defineProps<{
+ trackId:number
  trackName:string
+ tracks:{id:number;name:string}[]
+ pedalMode:PedalMode
  settings:PerformanceSettings
  volume:number
  active:boolean
@@ -15,6 +17,8 @@ const props=defineProps<{
  status:string
 }>()
 const emit=defineEmits<{
+ (e:'track',id:number):void
+ (e:'pedal-mode',mode:PedalMode):void
  (e:'update-setting',key:PerformanceKey,value:number):void
  (e:'volume',value:number):void
  (e:'compare'):void
@@ -24,11 +28,15 @@ const emit=defineEmits<{
  (e:'undo'):void
  (e:'redo'):void
 }>()
-const mode=ref<PedalMode>('natural')
 function emitNumber(key:PerformanceKey,e:Event){
  const number=Number((e.target as HTMLInputElement).value)
  if(Number.isFinite(number))emit('update-setting',key,number)
 }
+function selectTrack(e:Event){
+ const id=Number((e.target as HTMLSelectElement).value)
+ if(Number.isInteger(id))emit('track',id)
+}
+function pedalModeInput(e:Event){emit('pedal-mode',(e.target as HTMLSelectElement).value as PedalMode)}
 function volumeInput(e:Event){
  const number=Number((e.target as HTMLInputElement).value)
  if(Number.isFinite(number))emit('volume',number)
@@ -38,7 +46,13 @@ function volumeInput(e:Event){
 <template>
  <section class="mx-audio-inspector mx-panel" aria-label="Audio Inspector">
   <h3><i class="fas fa-sliders-h"></i> Audio Inspector</h3>
-  <div class="mx-audio-track"><strong>{{trackName}}</strong><span>Điều chỉnh theo từng track</span></div>
+  <label class="mx-audio-track-switch">
+   <span>Chọn track cần chỉnh riêng</span>
+   <select aria-label="Track đang chỉnh âm thanh" :value="trackId" :disabled="disabled" @change="selectTrack">
+    <option v-for="track in tracks" :key="track.id" :value="track.id">{{track.name}}</option>
+   </select>
+  </label>
+  <div class="mx-audio-track"><strong>{{trackName}}</strong><span>Mỗi track có Velocity, Pan, A/B, Pedal và Undo/Redo độc lập.</span></div>
   <p v-if="originalAudio" class="mx-audio-note">Đang nghe bản thu gốc: chuyển sang chế độ MIDI để nghe tác dụng các nút này.</p>
   <p v-if="nativeTrack" class="mx-audio-note">Preview biểu cảm và Pan chỉ phát trên WebAudio. Muốn Kontakt nhận Velocity/Timing/Length, bấm Áp dụng vào MIDI. Mixer/Pan Kontakt riêng chưa có.</p>
   <div class="mx-audio-controls">
@@ -72,13 +86,13 @@ function volumeInput(e:Event){
   </div>
   <div class="mx-audio-pedal">
     <label>Auto Pedal CC64
-      <select v-model="mode" :disabled="disabled" aria-label="Phong cách pedal">
+      <select :value="pedalMode" :disabled="disabled" aria-label="Phong cách pedal" @change="pedalModeInput">
        <option value="light">Nhẹ nhàng</option>
        <option value="natural">Tự nhiên</option>
        <option value="deep">Ngân vang</option>
       </select>
     </label>
-    <button type="button" :disabled="disabled" @click="emit('pedal',mode)">Áp dụng pedal CC64</button>
+    <button type="button" :disabled="disabled" @click="emit('pedal',pedalMode)">Áp dụng pedal CC64</button>
   </div>
   <p v-if="status" class="mx-audio-status" role="status">{{status}}</p>
   <p class="mx-audio-disclaimer">Velocity, Humanize, Legato, Length và Pan nghe thử không phá nốt gốc. Khi áp dụng, thay đổi MIDI có thể hoàn tác. CC64 tác động tới độ ngân khi phát WebAudio và được xuất cùng MIDI; Reverb/EQ nằm ở giai đoạn D.</p>
@@ -87,6 +101,8 @@ function volumeInput(e:Event){
 <style scoped>
 .mx-audio-inspector{padding-bottom:13px}
 .mx-audio-inspector h3{display:flex;gap:8px;align-items:center}
+.mx-audio-track-switch{display:grid;gap:5px;margin:7px 0 10px;font-size:11px;color:#d9e5f3}
+.mx-audio-track-switch select{width:100%;background:#19293b;color:#fff;border:1px solid #6b879f;border-radius:6px;padding:8px}
 .mx-audio-track{display:flex;flex-direction:column;gap:3px;font-size:12px;margin:8px 0}
 .mx-audio-track span{font-size:10px;color:#9aacc0}
 .mx-audio-controls{display:grid;gap:9px}

@@ -77,14 +77,16 @@ export function shapeTrackNotes(
 }
 export function audioInspectorPreview(
  notes:readonly MidiNoteEvent[],byTrack:Readonly<Record<number,PerformanceSettings>>,
- enabled:boolean,pedals:Readonly<Record<number,PedalPoint[]>>={}
+ enabled:boolean|Readonly<Record<number,boolean>>,pedals:Readonly<Record<number,PedalPoint[]>>={}
 ):MidiNoteEvent[]{
  let result=[...notes]
- // A/B bypasses pending expression while retaining CC64 already saved in MIDI.
- const ids=new Set<number>([...Object.keys(pedals).map(Number),...(enabled?Object.keys(byTrack).map(Number):[])])
+ // A/B is independent for each track. A track in "original" mode retains
+ // its own committed CC64, while other tracks keep their preview expression.
+ const ids=new Set<number>([...Object.keys(pedals).map(Number),...Object.keys(byTrack).map(Number)])
  for(const id of ids){
   if(!Number.isInteger(id))continue
-  result=shapeTrackNotes(result,id,enabled?byTrack[id]??{...DEFAULT_PERFORMANCE}:{...DEFAULT_PERFORMANCE},pedals[id]??[],true)
+  const previewEnabled=typeof enabled==='boolean'?enabled:enabled[id]!==false
+  result=shapeTrackNotes(result,id,previewEnabled?byTrack[id]??{...DEFAULT_PERFORMANCE}:{...DEFAULT_PERFORMANCE},pedals[id]??[],true)
  }
  return result.sort((a,b)=>a.time-b.time||a.trackId-b.trackId||a.midi-b.midi)
 }
