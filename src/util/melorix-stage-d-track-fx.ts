@@ -62,9 +62,9 @@ export class TrackFxRack {
  readonly dry:GainNode
  readonly wet:GainNode
  readonly output:GainNode
- private ctx:AudioContext
+ private ctx:BaseAudioContext
  private lastRoom=-1
- constructor(ctx:AudioContext,destination:AudioNode,settings:TrackFxSettings=DEFAULT_TRACK_FX){
+ constructor(ctx:BaseAudioContext,destination:AudioNode,settings:TrackFxSettings=DEFAULT_TRACK_FX,immediate=false){
   this.ctx=ctx
   this.input=ctx.createGain()
   this.bass=ctx.createBiquadFilter()
@@ -80,11 +80,11 @@ export class TrackFxRack {
   this.treble.connect(this.dry);this.dry.connect(this.output)
   this.treble.connect(this.verb);this.verb.connect(this.wet);this.wet.connect(this.output)
   this.output.connect(destination)
-  this.set(settings,false)
+  this.set(settings,false,immediate)
  }
- set(input:TrackFxSettings,bypass=false){
+ set(input:TrackFxSettings,bypass=false,immediate=false){
   const s=normalizeTrackFx(input),t=this.ctx.currentTime
-  const ramp=(a:AudioParam,v:number)=>a.setTargetAtTime(v,t,.018)
+  const ramp=(a:AudioParam,v:number)=>immediate?a.setValueAtTime(v,t):a.setTargetAtTime(v,t,.018)
   const active=s.enabled&&!bypass
   ramp(this.bass.gain,active?s.bassDb:0)
   ramp(this.mid.gain,active?s.midDb:0)

@@ -45,7 +45,7 @@ assert.ok(view.indexOf('if(useKontaktAudio.value&&kontaktAudioBuffer.value)')<
  view.indexOf('}else if(originalAudioActive()&&currentTrack.value?.originalAudioUrl)'),
  'Explicit Kontakt recording must retain export priority')
 assert.ok(view.indexOf('}else if(originalAudioActive()&&currentTrack.value?.originalAudioUrl)')<
- view.indexOf('const mix=await renderMultiTrackAudio('),
+ view.indexOf('const mix=await renderEditedMidiMix(exportSeconds)'),
  'Local source must render instead of GM when present')
 for(const mark of [
  'this.input.connect(this.dryOriginal)',

@@ -164,7 +164,7 @@ function volumeInput(e:Event){
     <button type="button" :disabled="disabled||!fxCanRedo" @click="emit('fx-redo')">Redo FX</button>
     <button type="button" :disabled="disabled||nativeTrack||originalAudio" @click="emit('fx-reset')">Reset FX</button>
    </div>
-   <p class="mx-piano-hint">EQ và Reverb nghe trực tiếp trên WebAudio theo track, không ghi được vào file .mid hay tự động vào video MP4. “Lưu FX” chỉ giữ thiết lập trong phiên hiện tại; A/B FX không ảnh hưởng A/B MIDI phía dưới.</p>
+   <p class="mx-piano-hint">EQ và Reverb theo track có thể xuất trong WAV/MP4 bản phối MIDI. Lưu thành file .melorix để mở lại FX; “Lưu FX phiên này” chỉ giữ trong phiên hiện tại. MIDI .mid và Kontakt native không chứa các hiệu ứng âm thanh này.</p>
   </section>
   <div class="mx-audio-compare">
     <button type="button" :disabled="disabled" :aria-pressed="active" @click="emit('compare')">{{active?'A/B: Đang nghe bản chỉnh':'A/B: Nghe bản gốc'}}</button>
@@ -186,7 +186,7 @@ function volumeInput(e:Event){
     <button type="button" :disabled="disabled" @click="emit('pedal',pedalMode)">Áp dụng pedal CC64</button>
   </div>
   <p v-if="status" class="mx-audio-status" role="status">{{status}}</p>
-  <p class="mx-audio-disclaimer">Piano Performance, Velocity, Humanize, Legato, Length và Pan nghe thử không phá nốt gốc. Khi áp dụng, thay đổi MIDI có thể hoàn tác. CC64 tác động tới độ ngân khi phát WebAudio và được xuất cùng MIDI; FX Giai đoạn D chỉ nghe trên WebAudio và lưu trong phiên, không xuất theo MIDI.</p>
+  <p class="mx-audio-disclaimer">Piano Performance, Velocity, Humanize, Legato, Length và Pan nghe thử không phá nốt gốc. Khi áp dụng, thay đổi MIDI có thể hoàn tác. CC64 tác động tới độ ngân khi phát WebAudio và được xuất cùng MIDI; FX Giai đoạn D có trong bản phối WAV/MP4 từ MIDI; muốn lưu thiết lập để mở lại, dùng Tệp → Lưu dự án (.melorix).</p>
  </section>
 </template>
 <style scoped>

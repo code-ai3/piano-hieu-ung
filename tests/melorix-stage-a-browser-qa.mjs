@@ -2,7 +2,7 @@ import {chromium} from 'playwright-core'
 import midiModule from '@tonejs/midi'
 const {Midi}=midiModule
 import {spawn} from 'node:child_process'
-import {existsSync} from 'node:fs'
+import {existsSync,readFileSync} from 'node:fs'
 import assert from 'node:assert/strict'
 const chrome=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium'].find(existsSync)
 assert.ok(chrome,'Chromium/Chrome required for browser audio QA')
@@ -220,6 +220,50 @@ try{
  await trackPicker.selectOption(ids[1])
  assert.equal(await bass.inputValue(),'-6','LH FX still independent')
  assert.deepEqual(errors,[],'No Chromium errors in real Stage D WebAudio FX')
+ // Stage E: save full editable project to disk and reload through actual browser UI.
+ const fileMenu=page.locator('.mx-menu details').first()
+ await fileMenu.locator('summary').click()
+ const [projectDownload]=await Promise.all([
+  page.waitForEvent('download',{timeout:12000}),
+  page.getByRole('button',{name:'Lưu dự án (.melorix)'}).click()
+ ])
+ const projectPath=await projectDownload.path()
+ assert.ok(projectPath,'MELORIX project download path')
+ const projectFile=readFileSync(projectPath)
+ const project=JSON.parse(projectFile.toString())
+ assert.equal(project.format,'melorix-project')
+ assert.equal(project.version,1)
+ assert.ok(project.parts.length>=2,'Project contains multiple tracks')
+ assert.equal(project.fx[ids[0]].bassDb,8,'RH Bass saved into project')
+ assert.equal(project.fx[ids[1]].bassDb,-6,'LH Bass saved into project')
+ const inputProject=page.locator('input[accept=".melorix,application/json"]')
+ await inputProject.setInputFiles({name:'stage-e.melorix',mimeType:'application/json',buffer:projectFile})
+ await page.waitForFunction(()=>document.body.textContent?.includes('Đã mở dự án MELORIX'),null,{timeout:10000})
+ const restoredPicker=page.getByRole('combobox',{name:'Track đang chỉnh âm thanh'})
+ await restoredPicker.selectOption(ids[0])
+ assert.equal(await page.getByRole('checkbox',{name:'Bật EQ Reverb track'}).isChecked(),true)
+ assert.equal(await page.getByRole('slider',{name:'FX Bass 180 Hz'}).inputValue(),'8')
+ await restoredPicker.selectOption(ids[1])
+ assert.equal(await page.getByRole('slider',{name:'FX Bass 180 Hz'}).inputValue(),'-6')
+ assert.deepEqual(errors,[],'No JS errors during MELORIX project save/restore')
+ // Stage E: render the restored MIDI mix to a real PCM16 WAV.
+ await fileMenu.locator('summary').click()
+ const [wavDownload]=await Promise.all([
+  page.waitForEvent('download',{timeout:110000}),
+  page.getByRole('button',{name:/Xuất WAV bản phối/}).click()
+ ])
+ const wavPath=await wavDownload.path()
+ assert.ok(wavPath,'WAV export must provide a downloadable file')
+ const wavBytes=readFileSync(wavPath)
+ assert.equal(wavBytes.toString('ascii',0,4),'RIFF')
+ assert.equal(wavBytes.toString('ascii',8,12),'WAVE')
+ assert.equal(wavBytes.toString('ascii',36,40),'data')
+ assert.ok(wavBytes.length>44100,'WAV must contain rendered song audio, not a header only')
+ let wavPeak=0
+ for(let i=44;i+2<=wavBytes.length;i+=512)wavPeak=Math.max(wavPeak,Math.abs(wavBytes.readInt16LE(i)))
+ assert.ok(wavPeak>40,'Rendered WAV PCM must be audible, not silent')
+ console.log('PASS Chromium MELORIX Stage E WAV: real downloaded PCM16 audio, nonzero signal, exported offline mix')
+ console.log('PASS Chromium MELORIX Stage E: .melorix browser download/upload, two-track FX roundtrip')
  console.log('PASS Chromium MELORIX Stage D: real BiquadFilter + Convolver graph, two-track EQ/room/Wet/A-B/FX undo-redo')
  console.log('PASS Chromium MELORIX Stage C: per-track piano feel, dynamics/chord roll, A/B, Apply, Undo')
  console.log('PASS Chromium MELORIX Stage B.2: independent MIDI track sliders, A/B, Undo and CC64 presets')

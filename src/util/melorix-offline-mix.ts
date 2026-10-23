@@ -5,6 +5,8 @@ import {isInstrumentPreset,playSynthVoice} from './melorix-instruments'
 import type {InstrumentPreset} from './melorix-instruments'
 import {ExpressiveAudioMaster,expressedVelocity} from './melorix-expressive-audio'
 import type {ExpressionMode} from './melorix-expressive-audio'
+import {TrackFxRack,DEFAULT_TRACK_FX} from './melorix-stage-d-track-fx'
+import type {TrackFxSettings} from './melorix-stage-d-track-fx'
 import {samplePitchRate} from './melorix-local-wav'
 import {nearestErhuSample} from './melorix-erhu-sample-cache'
 
@@ -14,6 +16,9 @@ export type MixConfig={
  programs:Readonly<Record<number,number>>
  presets:Readonly<Record<number,string>>
  volumes:Readonly<Record<number,number>>
+ pans?:Readonly<Record<number,number>>
+ fx?:Readonly<Record<number,TrackFxSettings>>
+ fxBypass?:Readonly<Record<number,boolean>>
  wavSamples:ReadonlyMap<string,{buffer:AudioBuffer,root:number}>
  erhuSamples:ReadonlyMap<number,AudioBuffer>
  seconds:number
@@ -65,7 +70,14 @@ export async function renderMultiTrackAudio(opts:MixConfig):Promise<MixResult>{
   await Promise.all(groups.map(async ({part,notes})=>{
    const volume=clamp(opts.volumes[part.id]??100,0,100)/100
    if(volume===0)return
-   const gain=ctx.createGain();gain.gain.value=volume;gain.connect(master.input)
+   const gain=ctx.createGain();gain.gain.value=volume
+   // Same Stage D Biquad/Convolver rack as the realtime WebAudio track.
+   // Offline context uses immediate parameters at t=0 to avoid unwanted fade-in.
+   const panner=ctx.createStereoPanner()
+   panner.pan.value=clamp(opts.pans?.[part.id]??0,-100,100)/100
+   const fx=new TrackFxRack(ctx,master.input,opts.fx?.[part.id]??DEFAULT_TRACK_FX,true)
+   fx.set(opts.fx?.[part.id]??DEFAULT_TRACK_FX,opts.fxBypass?.[part.id]===true,true)
+   gain.connect(panner);panner.connect(fx.input)
    const preset=opts.presets[part.id]
    const voice=gmVoiceForTrack({name:part.name,instrument:part.instrument,
     program:opts.programs[part.id],channel:part.channel,
