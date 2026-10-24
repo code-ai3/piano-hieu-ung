@@ -1201,7 +1201,19 @@ const exportProgress = ref(0)
 const exportEta = ref(0)   // 剩余秒数
 const exportLength = ref<ExportLength>('preview15')
 const selectedExportSeconds = computed(() => exportDurationSeconds(duration.value, exportLength.value))
-const exportPhase = ref<'preparing' | 'rendering'>('preparing')
+// H.1: Audio decoding and WebAudio offline rendering expose NO percent API.
+// Display their phase and elapsed time honestly, only show true frame progress.
+const exportPhase = ref<'preparing'|'audio'|'encoding'|'rendering'|'finalizing'>('preparing')
+const exportElapsed=ref(0)
+const exportCancelRequested=ref(false)
+function requestExportCancel(){if(exporting.value)exportCancelRequested.value=true}
+function throwIfExportCancelled(){
+ if(exportCancelRequested.value)throw Error('MELORIX_EXPORT_CANCELLED')
+}
+function onExportModalVisibility(open:boolean){
+ // The close/X/backdrop must not silently hide an active encode; use Hủy.
+ if(!exporting.value)showExport.value=open
+}
 const exportAudioNotice=ref('')
 const uploadingWav=ref(false)
 
@@ -1277,6 +1289,11 @@ async function exportVideo() {
   exportEta.value = 0
   exportPhase.value = 'preparing'
   exportAudioNotice.value=''
+  exportCancelRequested.value=false
+  exportElapsed.value=0
+  const started=performance.now()
+  // This timer is an elapsed clock, NEVER a fake audio-render percentage.
+  const elapsedClock=setInterval(()=>{exportElapsed.value=Math.floor((performance.now()-started)/1000)},500)
   let fileWriter: FileSystemWritableFileStream | null = null
   try {
     const { width: w, height: h, fps } = formatDimensions.value
@@ -1305,6 +1322,8 @@ async function exportVideo() {
     // Run after File System Access selection because its streaming path uses less RAM.
     enforceExportBudget([exportSeconds,'mp4',(navigator as any).deviceMemory,Boolean(fileWriter)])
 
+    exportPhase.value='audio'
+    throwIfExportCancelled()
     // The real Kontakt soundtrack replaces the internal piano only if selected.
     // Web MIDI carries no audio; captured/imported audio is decoded separately.
     let audioBuf: AudioBuffer
@@ -1325,6 +1344,8 @@ async function exportVideo() {
         :'Đã dựng bản phối từ đúng biểu cảm MIDI đang nghe, cùng mẫu piano, Volume/Pan và EQ/Reverb.'
     }
 
+    throwIfExportCancelled()
+    exportPhase.value='encoding'
     // F.1: stop invalid/silent renders before MP4 encoding; identical
     // uniform peak protection applies to WAV and MP4.
     const audioStats=prepareExportAudio(audioBuf)
@@ -1362,19 +1383,22 @@ async function exportVideo() {
     const as = new AudioSampleSource({ codec: 'aac', bitrate: 256000 })
     output.addAudioTrack(as)
     await output.start()
-
+    throwIfExportCancelled()
     // Preserve all rendered audio channels, including stereo. Mediabunny splits long buffers.
     for (const audioSample of AudioSample.fromAudioBuffer(audioBuf, 0)) {
-      try { await as.add(audioSample) }
-      finally { audioSample.close() }
+      try {
+        throwIfExportCancelled()
+        await as.add(audioSample)
+      } finally { audioSample.close() }
     }
     as.close()
-
+    throwIfExportCancelled()
     // 离屏 canvas 渲染（独立于 DOM）+ 边渲边编码
     const offCanvas = document.createElement('canvas')
     exportPhase.value = 'rendering'
     const t0 = performance.now()
     for (let frame = 0; frame < totalFrames; frame++) {
+      throwIfExportCancelled()
       currentTime.value = previewClockForMusicalTime(musicalTimeAtFrame(frame, fps), speed.value)
       const t2 = musicalTimeAtFrame(frame, fps)
       const ks: Record<number, boolean> = {}
@@ -1394,12 +1418,17 @@ async function exportVideo() {
       }
     }
     vs.close()
+    throwIfExportCancelled()
+    exportPhase.value='finalizing'
     await output.finalize()
+    throwIfExportCancelled()
 
     if (fileWriter) {
+      throwIfExportCancelled()
       await fileWriter.close()
       fileWriter = null
     } else {
+      throwIfExportCancelled()
       // BufferTarget：把 buffer 当下载
       const buf = (target as InstanceType<typeof BufferTarget>).buffer!
       const blob = new Blob([buf], { type: 'video/mp4' })
@@ -1409,20 +1438,23 @@ async function exportVideo() {
       setTimeout(() => URL.revokeObjectURL(url), 30_000)
     }
   } catch (e) {
-    console.error(e)
+    if(!exportCancelRequested.value)console.error(e)
     if (fileWriter) {
       try { await fileWriter.abort() } catch (abortError) { console.warn('Could not abort incomplete export', abortError) }
     }
-    uploadError.value = e instanceof Error
-      ? 'Không thể xuất MP4: '+e.message
+    uploadError.value = exportCancelRequested.value
+      ? 'Đã hủy xuất MP4. Không lưu video chưa hoàn tất.'
+      : e instanceof Error ? 'Không thể xuất MP4: '+e.message
       : t('piano.videoExportError')
   } finally {
+    clearInterval(elapsedClock)
     // Always restore the preview timestamp, including failed/aborted exports.
     currentTime.value = savedTime
     keyState.value = {}
     exporting.value = false
     exportProgress.value = 0
     exportEta.value = 0
+    exportCancelRequested.value=false
     showExport.value = false
   }
 }
@@ -3193,7 +3225,7 @@ watch(() => currentTime.value, (t) => {
     </Modal>
 
     <!-- Video format is shared by the preview canvas and the export canvas. -->
-    <Modal v-model:show="showExport" :title="t('piano.exportVideo')">
+    <Modal :show="showExport" @update:show="onExportModalVisibility" :title="t('piano.exportVideo')">
       <div class="flex flex-col gap-4 p-4 text-black/85 dark:text-white/90">
         <template v-if="!exporting">
           <p class="text-sm font-medium">{{ t('piano.videoRatioLabel') }}</p>
@@ -3257,17 +3289,35 @@ watch(() => currentTime.value, (t) => {
           </Btn>
         </template>
         <template v-else>
-          <p class="text-sm text-black/70 dark:text-white/80 m-0 flex items-center gap-2">
+          <p role="status" aria-live="polite" class="text-sm text-black/70 dark:text-white/80 m-0 flex items-center gap-2">
             <i class="fas fa-spinner fa-spin text-primary-500"></i>
-            <span>{{ exportPhase === 'preparing' ? t('piano.exportPreparingAudio') : t('piano.exporting') }}</span>
+            <span v-if="exportCancelRequested">Đang hủy xuất MP4…</span>
+            <span v-else-if="exportPhase==='preparing'">Đang chuẩn bị file và kiểm tra bộ nhớ…</span>
+            <span v-else-if="exportPhase==='audio'">Đang nạp mẫu và dựng âm thanh (không có % từ WebAudio)…</span>
+            <span v-else-if="exportPhase==='encoding'">Đang mã hóa âm thanh AAC…</span>
+            <span v-else-if="exportPhase==='finalizing'">Đang hoàn tất và ghi file MP4…</span>
+            <span v-else>Đang dựng hình video MP4…</span>
           </p>
-          <div class="w-full h-2 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
+          <div v-if="exportPhase==='rendering'" class="w-full h-2 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden"
+               role="progressbar" aria-label="Tiến độ dựng khung hình" :aria-valuenow="Math.round(exportProgress*100)" aria-valuemin="0" aria-valuemax="100">
             <div class="h-full bg-primary-500 transition-all duration-200" :style="{ width: Math.round(exportProgress * 100) + '%' }"></div>
           </div>
-          <div class="flex justify-between text-xs text-black/60 dark:text-white/60 tabular-nums">
-            <span>{{ Math.round(exportProgress * 100) }}%</span>
-            <span v-if="exportEta > 0">{{ t('piano.etaPrefix') }} {{ fmtTime(Math.ceil(exportEta)) }}</span>
+          <div v-else class="w-full h-2 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden"
+               role="progressbar" aria-label="Đang xử lý âm thanh hoặc hoàn tất file">
+            <div class="h-full w-1/3 bg-primary-500 animate-pulse"></div>
           </div>
+          <div class="flex justify-between text-xs text-black/60 dark:text-white/60 tabular-nums">
+            <span v-if="exportPhase==='rendering'">Khung hình: {{ Math.round(exportProgress * 100) }}%</span>
+            <span v-else>Đã xử lý {{ fmtTime(exportElapsed) }}</span>
+            <span v-if="exportPhase==='rendering' && exportEta > 0">{{ t('piano.etaPrefix') }} {{ fmtTime(Math.ceil(exportEta)) }}</span>
+          </div>
+          <p v-if="exportCancelRequested && exportPhase==='audio'" role="status" class="text-xs opacity-65">
+            Yêu cầu hủy đã nhận. WebAudio cần hoàn tất bước dựng âm thanh hiện tại trước khi dừng.
+          </p>
+          <button type="button" class="rounded-lg border border-black/20 dark:border-white/30 px-3 py-2 text-sm"
+                  :disabled="exportCancelRequested" @click="requestExportCancel">
+            {{ exportCancelRequested ? 'Đã nhận yêu cầu hủy' : 'Hủy xuất MP4' }}
+          </button>
         </template>
       </div>
     </Modal>
