@@ -1,13 +1,26 @@
-// MELORIX H.3 — real MP4/WAV parity and falling-note frame QA (Linux Chromium).
+// MELORIX H.3 — real MP4/WAV parity and falling-note frame QA (Linux + Windows Chromium).
 // This runs on a 14-second fixture; H.2 separately covers full 3/5-minute exports.
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright-core'
 import { spawn, execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 
-const chrome=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium'].find(existsSync)
-assert.ok(chrome,'Chromium is required for real MP4 QA')
-assert.ok(existsSync('/usr/bin/ffmpeg')||existsSync('/bin/ffmpeg'),'FFmpeg is required')
+const chromeCandidates=process.platform==='win32'
+ ? [
+    process.env.CHROME_PATH,
+    ...[process.env.PROGRAMFILES,process.env['PROGRAMFILES(X86)'],process.env.LOCALAPPDATA]
+      .filter(Boolean).flatMap(root=>[
+        root+'\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe',
+        root+'\\\\Microsoft\\\\Edge\\\\Application\\\\msedge.exe'
+      ])
+   ]
+ : ['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium']
+const chrome=chromeCandidates.find(candidate=>candidate&&existsSync(candidate))
+assert.ok(chrome,'Chrome/Chromium/Edge browser required for MP4 QA')
+for(const program of ['ffmpeg','ffprobe']){
+ try{execFileSync(program,['-version'],{stdio:'ignore',timeout:15000})}
+ catch{throw new Error(program+' is required in CI PATH for REAL MP4 QA')}
+}
 const host='http://127.0.0.1:4187'
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','preview','--host','127.0.0.1','--port','4187'],{stdio:'ignore'})
 let browser
@@ -169,7 +182,7 @@ try{
   videoSeconds,audioSeconds,driftMs:Math.round(Math.abs(videoSeconds-audioSeconds)*1000),
   actualFrameCount,visualPairs,mp4WavEnvelopeCorrelation:shifts[0],
   mp4Peak,onsetSeconds,pan:{bass:[leftBass,rightBass],bell:[leftBell,rightBell]},
-  mp4Bytes:mp4Bytes.length
+  mp4Bytes:mp4Bytes.length,runnerPlatform:process.platform,browserPath:chrome
  }))
 }finally{
  try{await browser?.close()}catch{}
