@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MELORIX — Nghiệm thu H.3D–E trên Windows</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:dark;background:#111621;color:#eef3fc}
+*{box-sizing:border-box}body{margin:0}main{max-width:1100px;margin:auto;padding:22px 18px 50px}
+h1{font-size:1.6rem;margin:8px 0}h2{font-size:1.1rem;margin:0 0 12px}
+p,li{line-height:1.58}a{color:#8fc8ff}a:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid #facb82;outline-offset:2px}
+.muted{color:#b8c2d2;font-size:.94rem}.notice{border-left:3px solid #f0c07d;padding:9px 14px;background:#2d261d;border-radius:4px}
+.panel{border:1px solid #39485b;border-radius:16px;padding:20px;margin:16px 0;background:#1c2635}
+.layout{display:grid;grid-template-columns:1fr 1fr;gap:17px}.field{display:block;margin:12px 0}input[type=file],input[type=text],input[type=number],textarea{width:100%;padding:10px;border:1px solid #5c6e85;background:#111a29;color:#fff;border-radius:8px}
+button{border:1px solid #66768c;background:#29354a;color:#fff;padding:10px 14px;border-radius:9px;cursor:pointer}
+button:hover{background:#3a4962}button.primary{background:#245aa7;border-color:#3f8ced;font-weight:700}
+video{width:100%;aspect-ratio:16/9;object-fit:contain;background:#090b10;border-radius:12px}
+audio{width:100%}.metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.metric{padding:10px;background:#111a29;border-radius:8px}.metric strong{display:block;margin-top:4px}
+.check{display:flex;align-items:flex-start;gap:10px;padding:12px 0;border-bottom:1px solid #364458;line-height:1.5}.check input{margin-top:5px;width:19px;height:19px}
+.actions{display:flex;flex-wrap:wrap;gap:9px;margin:14px 0}
+#status{padding:12px;border-radius:8px;border:1px solid #63758b}
+summary{cursor:pointer;font-weight:700}@media(max-width:700px){.layout{grid-template-columns:1fr}.metrics{grid-template-columns:1fr}}
+</style>
+</head>
+<body><main>
+<p><a href="/">← Quay lại MELORIX</a></p>
+<h1>MELORIX · H.3D–E</h1>
+<p class="muted">Nghiệm thu bản nhạc thật trên Windows — nốt rơi, âm thanh WAV/MP4, pedal, hiệu ứng và độ ổn định.</p>
+<p class="notice"><strong>Chỉ chạy cục bộ trong trình duyệt:</strong> tệp MP4/WAV được mở từ máy bạn, không được tải lên máy chủ. Kết quả bên dưới là <strong>đánh giá thủ công của người thử</strong>, không phải chứng nhận tự động Kontakt 8 hoặc hiệu năng laptop.</p>
+<section class="panel">
+<h2>1. Xuất cùng một bài trong MELORIX</h2>
+<p>Mở <a href="/">MELORIX bản thử</a>, nạp bài MIDI/project thật dài 3–5 phút, lưu một bản WAV (FX) và MP4 1080p cùng lần chỉnh. Giữ nguyên Velocity, Pedal, Volume, Pan, EQ/Reverb theo từng track. Nếu dùng Kontakt 8, hãy thu hoặc nhập <em>audio Kontakt thật</em> trước khi xuất; Web không tự chạy plugin VST3 của Windows.</p>
+<div class="layout">
+<label class="field">Chọn file MP4 đã xuất <input id="mp4File" type="file" accept="video/mp4,.mp4"></label>
+<label class="field">Chọn file WAV cùng bản phối <input id="wavFile" type="file" accept="audio/wav,.wav"></label>
+</div>
+<div class="metrics" aria-live="polite">
+<div class="metric">Video <strong id="metaVideo">Chưa chọn</strong></div>
+<div class="metric">Âm thanh WAV <strong id="metaAudio">Chưa chọn</strong></div>
+<div class="metric">Chênh thời lượng <strong id="metaDrift">Chưa đủ dữ liệu</strong></div>
+</div>
+</section>
+<section class="panel">
+<h2>2. Xem MP4 và nghe WAV</h2>
+<div class="layout">
+<div><p class="muted">MP4 (hình nốt rơi + AAC)</p><video id="video" controls playsinline preload="metadata"></video></div>
+<div><p class="muted">WAV (bản đối chứng)</p><audio id="wav" controls preload="metadata"></audio>
+<p class="muted">Dùng loa hoặc soundcard mà bạn thường phối nhạc. Nghe đoạn đầu, giữa, cuối; thử tai nghe nếu muốn đối chiếu Pan.</p>
+<div class="actions"><button id="seekStart" type="button">Đầu bài</button><button id="seekMiddle" type="button">Giữa bài</button><button id="seekEnd" type="button">Gần cuối bài</button></div>
+<button id="playMp4" type="button">Phát MP4</button>
+<button id="playWav" type="button">Phát WAV tại cùng mốc</button>
+<button id="stop" type="button">Tạm dừng cả hai</button>
+<p id="playMsg" class="muted" role="status">Chọn tệp trước khi phát. Hai nút phát lần lượt để so bằng tai, không phải phép đo tự động độ lệch mili-giây.</p>
+</div>
+</div>
+</section>
+<section class="panel">
+<h2>3. Nghiệm thu thực tế</h2>
+<p class="muted">Chỉ đánh dấu khi chính bạn đã kiểm tra. Nếu phát hiện lỗi, hãy để trống mục đó và ghi nhận ở ô ghi chú.</p>
+<label class="check"><input type="checkbox" data-check="visual"><span>Nốt rơi, phím đàn và hiệu ứng phát sáng hiển thị đúng ở đầu, giữa và cuối bài; không bị đứng hình.</span></label>
+<label class="check"><input type="checkbox" data-check="sound"><span>MP4 có âm thanh, không mất tiếng, rè, vỡ tiếng hoặc nghe kém rõ bất thường so với WAV.</span></label>
+<label class="check"><input type="checkbox" data-check="expression"><span>Velocity mạnh/nhẹ và trường độ nốt nghe tự nhiên, không thành các nốt bằng nhau.</span></label>
+<label class="check"><input type="checkbox" data-check="pedal"><span>Pedal CC64/độ ngân hoạt động đúng các track đã chỉnh, không bị cắt cụt hoặc ngân vô hạn.</span></label>
+<label class="check"><input type="checkbox" data-check="effects"><span>EQ, Reverb, Volume và Pan theo từng track tương đương WAV trong các đoạn so sánh.</span></label>
+<label class="check"><input type="checkbox" data-check="stability"><span>Xuất MP4 hoàn tất trên Windows, file mở/tua bình thường; không treo trình duyệt hoặc báo hết RAM.</span></label>
+<label class="check"><input type="checkbox" id="kontaktUsed"><span>Bài thử có dùng âm thanh Kontakt 8 thật (nếu không dùng, bỏ trống).</span></label>
+<label class="check"><input type="checkbox" id="kontaktVerified"><span>Nếu có dùng Kontakt: đã xác minh âm sắc từ file thu Kontakt trong MP4, không bị đổi thành GM.</span></label>
+<div class="layout">
+<label class="field">Thời gian xuất MP4 trên máy bạn (phút, tùy chọn) <input id="elapsedMin" type="number" min="0" step="0.1" placeholder="Ví dụ: 12.5"></label>
+<label class="field">Bộ nhớ sử dụng cao nhất quan sát được (MiB, tùy chọn) <input id="memoryMiB" type="number" min="0" step="1" placeholder="Nếu đã đo qua Task Manager"></label>
+</div>
+<label class="field">Ghi chú lỗi/đánh giá chất lượng (không bắt buộc)
+<textarea id="notes" rows="4" placeholder="Ví dụ: từ phút 2:10 pedal track Piano hơi khô, hay MP4 trễ tiếng..."></textarea></label>
+<div id="status" role="status" aria-live="polite">Chưa đủ bằng chứng nghiệm thu. Chọn file và đánh dấu các mục đã thử.</div>
+<div class="actions">
+<button class="primary" id="exportReport" type="button">Lưu báo cáo nghiệm thu JSON</button>
+<button id="copySummary" type="button">Sao chép tóm tắt</button>
+</div>
+<p class="muted">Báo cáo chỉ lưu trên thiết bị theo lựa chọn của bạn; không có tài khoản hay nút tự động gửi tệp. Gửi file JSON hoặc nội dung tóm tắt vào cuộc trò chuyện nếu muốn đối chiếu kết quả.</p>
+</section>
+<details class="panel"><summary>Tiêu chí nghiệm thu và giới hạn</summary>
+<p>Điều kiện H.3D/E PASS thủ công: đã chọn MP4/WAV của cùng bản phối, xác minh metadata, tất cả 6 mục nghe/nhìn/ổn định đã đánh dấu, đồng thời mục Kontakt được đánh dấu nếu có dùng nguồn thu Kontakt thật. Đây chỉ là tự xác nhận của người dùng, không phải phép đo A/V chuẩn hoặc native VST3 host QA.</p>
+<p>Windows GitHub runner chỉ kiểm pipeline kỹ thuật độc lập, không có soundcard riêng, driver ASIO, Kontakt 8 hay thư viện NKI trên máy người dùng. Nếu trình duyệt không phát được file, cần kiểm định riêng codec/OS.</p>
+</details>
+</main>
+<script>
+(()=>{
+const $=id=>document.getElementById(id),video=$('video'),wav=$('wav');
+let mp4URL=null,wavURL=null;const revoke=x=>{if(x)URL.revokeObjectURL(x)};
+const info={mp4:null,wav:null};
+const format=t=>Number.isFinite(t)?t.toFixed(2)+' giây':'Không đọc được';
+function display(){
+ $('metaVideo').textContent=info.mp4?(`${info.mp4.width}×${info.mp4.height} · ${format(info.mp4.duration)} · ${(info.mp4.size/1048576).toFixed(1)} MiB`):'Chưa chọn';
+ $('metaAudio').textContent=info.wav?(`${format(info.wav.duration)} · ${(info.wav.size/1048576).toFixed(1)} MiB`):'Chưa chọn';
+ $('metaDrift').textContent=info.mp4&&info.wav&&Number.isFinite(info.mp4.duration)&&Number.isFinite(info.wav.duration)?
+  Math.round(Math.abs(info.mp4.duration-info.wav.duration)*1000)+' ms (metadata)': 'Chưa đủ dữ liệu';
+ updateStatus();
+}
+function updateStatus(){
+ const passed=Array.from(document.querySelectorAll('[data-check]')).filter(x=>x.checked).length;
+ const media=!!(info.mp4&&info.wav&&Number.isFinite(info.mp4.duration)&&Number.isFinite(info.wav.duration));
+ const kontakt=!$('kontaktUsed').checked||$('kontaktVerified').checked;
+ $('status').textContent=media&&passed===6&&kontakt?
+ 'ĐỦ TIÊU CHÍ TỰ XÁC NHẬN H.3D/E — cần lưu báo cáo để đối chiếu, không phải QA Kontakt native tự động.':
+ `H.3D/E đang HOLD: đã xác nhận ${passed}/6 hạng mục; MP4/WAV: ${media?'đã đọc':'chưa đủ'}; Kontakt (nếu dùng): ${kontakt?'không thiếu xác nhận':'chưa xác nhận'}.`;
+}
+$('mp4File').addEventListener('change',event=>{
+ const f=event.target.files?.[0];revoke(mp4URL);info.mp4=null;
+ video.removeAttribute('src');video.load();
+ if(f){mp4URL=URL.createObjectURL(f);info.mp4={name:f.name,size:f.size,duration:NaN,width:null,height:null};video.src=mp4URL}
+ display();
+});
+$('wavFile').addEventListener('change',event=>{
+ const f=event.target.files?.[0];revoke(wavURL);info.wav=null;
+ wav.removeAttribute('src');wav.load();
+ if(f){wavURL=URL.createObjectURL(f);info.wav={name:f.name,size:f.size,duration:NaN};wav.src=wavURL}
+ display();
+});
+video.addEventListener('loadedmetadata',()=>{if(info.mp4){info.mp4.duration=video.duration;info.mp4.width=video.videoWidth;info.mp4.height=video.videoHeight}display()});
+wav.addEventListener('loadedmetadata',()=>{if(info.wav)info.wav.duration=wav.duration;display()});
+function seek(p){const d=Number.isFinite(video.duration)?video.duration:Number.isFinite(wav.duration)?wav.duration:0;
+ if(!d)return;const t=Math.max(0,p*d);
+ if(Number.isFinite(video.duration))video.currentTime=Math.min(t,Math.max(0,video.duration-.1));
+ if(Number.isFinite(wav.duration))wav.currentTime=Math.min(t,Math.max(0,wav.duration-.1));
+}
+$('seekStart').addEventListener('click',()=>seek(.04));
+$('seekMiddle').addEventListener('click',()=>seek(.5));
+$('seekEnd').addEventListener('click',()=>seek(.93));
+$('playMp4').addEventListener('click',async()=>{wav.pause();try{await video.play()}catch{$('playMsg').textContent='Không phát được MP4 — kiểm tra tệp/codec.'}});
+$('playWav').addEventListener('click',async()=>{video.pause();try{await wav.play()}catch{$('playMsg').textContent='Không phát được WAV — kiểm tra tệp/codec.'}});
+$('stop').addEventListener('click',()=>{video.pause();wav.pause()});
+document.querySelectorAll('[data-check],#kontaktUsed,#kontaktVerified').forEach(x=>x.addEventListener('change',updateStatus));
+function report(){
+ const checks=Object.fromEntries(Array.from(document.querySelectorAll('[data-check]')).map(el=>[el.dataset.check,el.checked]));
+ const complete=Object.values(checks).every(Boolean)&&info.mp4&&info.wav&&
+  Number.isFinite(info.mp4.duration)&&Number.isFinite(info.wav.duration)&&
+  (!$('kontaktUsed').checked||$('kontaktVerified').checked);
+ return {
+  schema:'melorix-h3-uat-v1',generatedAt:new Date().toISOString(),
+  source:'user-self-assessment-local-browser',status:complete?'USER_SELF_REPORTED_PASS':'HOLD',
+  platform:navigator.userAgent,
+  files:{mp4:info.mp4,wav:info.wav},
+  durationDifferenceMs:info.mp4&&info.wav&&Number.isFinite(info.mp4.duration)&&Number.isFinite(info.wav.duration)?
+   Math.round(Math.abs(info.mp4.duration-info.wav.duration)*1000):null,
+  checks, kontaktAudioUsed:$('kontaktUsed').checked,kontaktAudioVerified:$('kontaktVerified').checked,
+  encodeMinutes:$('elapsedMin').value===''?null:Number($('elapsedMin').value),
+  observedMemoryMiB:$('memoryMiB').value===''?null:Number($('memoryMiB').value),
+  notes:$('notes').value.trim()
+ };
+}
+$('exportReport').addEventListener('click',()=>{
+ const blob=new Blob([JSON.stringify(report(),null,2)],{type:'application/json'});
+ const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='melorix-h3-windows-uat.json';a.click();
+ setTimeout(()=>URL.revokeObjectURL(url),5000);
+});
+$('copySummary').addEventListener('click',async()=>{
+ const r=report();
+ const out=`MELORIX H3 Windows: ${r.status}; ${Object.values(r.checks).filter(Boolean).length}/6 mục; video=${r.files.mp4?.name??'chưa có'}, WAV=${r.files.wav?.name??'chưa có'}; Kontakt=${r.kontaktAudioUsed?'Có':'Không'}; lỗi/ghi chú: ${r.notes||'không có'}.`;
+ try{await navigator.clipboard.writeText(out);$('playMsg').textContent='Đã sao chép tóm tắt.'}
+ catch{$('playMsg').textContent='Trình duyệt không cấp quyền sao chép. Dùng nút Lưu JSON.'}
+});
+window.addEventListener('pagehide',()=>{revoke(mp4URL);revoke(wavURL)});
+display();
+})();
+</script>
+</body></html>
