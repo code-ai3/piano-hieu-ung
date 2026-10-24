@@ -29,7 +29,7 @@ export class ExpressiveAudioMaster{
  private dryProcessed:GainNode
  private filter:BiquadFilterNode
  private mode:ExpressionMode
- constructor(ctx:BaseAudioContext,mode:ExpressionMode){
+ constructor(ctx:BaseAudioContext,mode:ExpressionMode,immediate=false){
   this.mode=mode
   this.input=ctx.createGain()
   const compressor=ctx.createDynamicsCompressor()
@@ -68,15 +68,21 @@ export class ExpressiveAudioMaster{
   verb.connect(this.filter)
   this.filter.connect(this.wet)
   this.wet.connect(compressor)
-  this.setMode(ctx,mode)
+  this.setMode(ctx,mode,immediate)
  }
- setMode(ctx:BaseAudioContext,mode:ExpressionMode){
+ setMode(ctx:BaseAudioContext,mode:ExpressionMode,immediate=false){
   this.mode=mode
+  // Offline render starts at audio time zero; its first transient must not
+  // lose attack energy to realtime-friendly 18–40ms ramp-up.
+  const set=(param:AudioParam,value:number,tau:number)=>{
+   if(immediate)param.setValueAtTime(value,ctx.currentTime)
+   else param.setTargetAtTime(value,ctx.currentTime,tau)
+  }
   const wet=mode==='original'?0:mode==='natural'?.18:.31
-  this.dryOriginal.gain.setTargetAtTime(mode==='original'?1:0,ctx.currentTime,.018)
-  this.dryProcessed.gain.setTargetAtTime(mode==='original'?0:1,ctx.currentTime,.018)
-  this.wet.gain.setTargetAtTime(wet,ctx.currentTime,.04)
-  this.filter.frequency.setTargetAtTime(mode==='warm'?3000:4200,ctx.currentTime,.04)
+  set(this.dryOriginal.gain,mode==='original'?1:0,.018)
+  set(this.dryProcessed.gain,mode==='original'?0:1,.018)
+  set(this.wet.gain,wet,.04)
+  set(this.filter.frequency,mode==='warm'?3000:4200,.04)
  }
  get currentMode(){return this.mode}
  disconnect(){this.input.disconnect();this.wet.disconnect();this.filter.disconnect();this.dryOriginal.disconnect();this.dryProcessed.disconnect()}

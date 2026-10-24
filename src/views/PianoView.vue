@@ -1207,7 +1207,8 @@ function renderEditedMidiMix(seconds:number){
   wavSamples:localMixWavSamples(),
   erhuSamples:erhuWebSampler.getDecodedSamples(),
   seconds,tempo:midiTempo.value,expression:expressionMode.value,
-  requireBundledPiano:true
+  requireBundledPiano:true,
+  requireExactInstrument:true
  })
 }
 async function exportWavMix(){
