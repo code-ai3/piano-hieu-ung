@@ -341,6 +341,34 @@ try{
  assert.ok(decoded.length>12000,'Decoded AAC must contain audible duration')
  assert.ok(maxAmp>30&&energy>1e6,'MP4 audio is silent')
  assert.deepEqual(errors,[],'No WebAudio/MP4 export JS errors')
+ // Stage H.1: cooperative cancel during the WebAudio offline-render phase.
+ // Artificially delay one offline render so the cancel button is testable.
+ // The product still waits for in-flight WebAudio rendering to finish before
+ // discarding the MP4, rather than claiming it can interrupt browser DSP.
+ await page.evaluate(()=>{
+  const original=OfflineAudioContext.prototype.startRendering
+  OfflineAudioContext.prototype.startRendering=function(...args){
+   return new Promise((resolve,reject)=>setTimeout(()=>
+    original.apply(this,args).then(resolve,reject),2200))
+  }
+ })
+ let h1Downloads=0
+ page.on('download',()=>{h1Downloads++})
+ await fileMenu.evaluate(el=>{el.open=true})
+ await page.getByRole('button',{name:'Xuất video MP4'}).click()
+ const h1Start=page.locator('.modal-open .modal-body button:has(i.fa-download)').first()
+ await h1Start.waitFor()
+ await h1Start.click()
+ const audioStatus=page.getByRole('status').filter({hasText:/Đang nạp mẫu và dựng âm thanh/})
+ await audioStatus.waitFor({timeout:12000})
+ assert.ok((await page.locator('.modal-open').innerText()).includes('không có % từ WebAudio'))
+ assert.equal(await page.getByRole('progressbar',{name:'Tiến độ dựng khung hình'}).count(),0,
+  'Audio rendering must NOT display fake 0% video-frame progress')
+ await page.getByRole('button',{name:'Hủy xuất MP4'}).click()
+ assert.ok((await page.locator('.modal-open').innerText()).includes('Đang hủy xuất MP4'))
+ await page.waitForFunction(()=>document.body.innerText.includes('Đã hủy xuất MP4. Không lưu video chưa hoàn tất.'),null,{timeout:25000})
+ assert.equal(h1Downloads,0,'Cancelling during audio render must not trigger MP4 download')
+ console.log('PASS Chromium MELORIX Stage H.1: elapsed/audio phase no fake percent; cancel during WebAudio; no partial MP4 download')
  console.log('PASS Chromium MELORIX Stage F: actual MP4 download, H264/AAC streams, nonzero decoded audio and A/V sync')
  console.log('PASS Chromium MELORIX Stage E WAV: real downloaded PCM16 audio, nonzero signal, exported offline mix')
  console.log('PASS Chromium MELORIX Stage E: .melorix browser download/upload, two-track FX roundtrip')

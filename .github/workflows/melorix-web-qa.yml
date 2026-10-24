@@ -17,6 +17,7 @@ on:
       - feature/melorix-g1-audio-fidelity
       - feature/melorix-g2-gm-source-parity
       - feature/melorix-g3-multi-instrument-parity
+      - feature/melorix-h1-mp4-export-control
       - feature/melorix-mp4-multitrack-audio
       - feature/melorix-track-select-delete
       - feature/melorix-piano-roll-draw-delete
