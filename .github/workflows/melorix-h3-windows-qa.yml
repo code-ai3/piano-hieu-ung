@@ -1,0 +1,47 @@
+name: MELORIX H.3D Windows MP4/WAV QA
+
+on:
+  push:
+    branches:
+      - feature/melorix-h3de-windows-real-uat
+  pull_request:
+    branches:
+      - feature/melorix-h3-mp4-av-fidelity
+
+permissions:
+  contents: read
+
+jobs:
+  windows-h3d:
+    name: Windows Chrome/Edge — real MP4 WAV export fidelity
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - name: Checkout Windows QA source
+        uses: actions/checkout@v4
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact app dependencies
+        run: npm ci
+      - name: Install ephemeral browser QA driver
+        run: npm install --no-save --package-lock=false playwright-core@1.55.0
+      - name: Verify H3D QA script parses
+        run: node --check tests/melorix-stage-h3-mp4-av-browser-qa.mjs
+      - name: Build Vite web preview
+        run: npm run build-only
+      - name: Ensure FFmpeg and ffprobe on ephemeral Windows runner
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue) -or -not (Get-Command ffprobe -ErrorAction SilentlyContinue)) {
+            choco install ffmpeg --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          ffmpeg -version | Select-Object -First 1
+          ffprobe -version | Select-Object -First 1
+      - name: Export real MP4 and WAV under Windows and decode H264 AAC
+        env:
+          CI: 'true'
+        run: node tests/melorix-stage-h3-mp4-av-browser-qa.mjs

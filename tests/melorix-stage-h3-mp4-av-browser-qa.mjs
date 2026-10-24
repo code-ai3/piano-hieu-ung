@@ -1,13 +1,27 @@
-// MELORIX H.3 — real MP4/WAV parity and falling-note frame QA (Linux Chromium).
+// MELORIX H.3 — real MP4/WAV parity and falling-note frame QA (Linux + Windows Chromium).
 // This runs on a 14-second fixture; H.2 separately covers full 3/5-minute exports.
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright-core'
 import { spawn, execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
-const chrome=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium'].find(existsSync)
-assert.ok(chrome,'Chromium is required for real MP4 QA')
-assert.ok(existsSync('/usr/bin/ffmpeg')||existsSync('/bin/ffmpeg'),'FFmpeg is required')
+const chromeCandidates=process.platform==='win32'
+ ? [
+    process.env.CHROME_PATH,
+    ...[process.env.PROGRAMFILES,process.env['PROGRAMFILES(X86)'],process.env.LOCALAPPDATA]
+      .filter(Boolean).flatMap(root=>[
+        join(root,'Google','Chrome','Application','chrome.exe'),
+        join(root,'Microsoft','Edge','Application','msedge.exe')
+      ])
+   ]
+ : ['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium']
+const chrome=chromeCandidates.find(candidate=>candidate&&existsSync(candidate))
+assert.ok(chrome,'Chrome/Chromium/Edge browser required for MP4 QA')
+for(const program of ['ffmpeg','ffprobe']){
+ try{execFileSync(program,['-version'],{stdio:'ignore',timeout:15000})}
+ catch{throw new Error(program+' is required in CI PATH for REAL MP4 QA')}
+}
 const host='http://127.0.0.1:4187'
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','preview','--host','127.0.0.1','--port','4187'],{stdio:'ignore'})
 let browser
@@ -163,13 +177,35 @@ try{
  const onsetSeconds=firstLoud<0?-1:.1+firstLoud*.1
  assert.ok(onsetSeconds>=.2&&onsetSeconds<1.0,'AAC first note onset differs from MIDI timing')
 
- assert.deepEqual(errors,[],'JavaScript errors during MP4/WAV export')
+ // H.3E: verify the user's local-only UAT page can read the REAL exported files.
+ // The automated run intentionally leaves every subjective listening checkbox
+ // blank; it MUST NOT pretend to certify the user's Windows soundcard/Kontakt.
+ await page.goto(host+'/h3-windows-uat.html',{waitUntil:'domcontentloaded'})
+ await page.getByRole('heading',{name:'MELORIX · H.3D–E'}).waitFor()
+ await page.locator('#mp4File').setInputFiles(mp4Path)
+ await page.locator('#wavFile').setInputFiles(wavPath)
+ await page.waitForFunction(()=>{
+  const v=document.querySelector('#metaVideo')?.textContent??''
+  const a=document.querySelector('#metaAudio')?.textContent??''
+  return v.includes('1920×1080')&&a.includes('giây')
+ },null,{timeout:30000})
+ assert.match(await page.locator('#status').innerText(),/HOLD/,'No automated human-audio PASS permitted')
+ const reportEvent=page.waitForEvent('download')
+ await page.locator('#exportReport').click()
+ const userReport=JSON.parse(readFileSync(await (await reportEvent).path(),'utf8'))
+ assert.equal(userReport.schema,'melorix-h3-uat-v1')
+ assert.equal(userReport.status,'HOLD','UAT must remain HOLD until a person really listens')
+ assert.equal(userReport.files.mp4.width,1920)
+ assert.equal(userReport.files.mp4.height,1080)
+ console.log('PASS Windows H.3E local UAT file reader and HOLD-by-default report')
+
+ assert.deepEqual(errors,[],'JavaScript errors during MP4/WAV export or local UAT')
  console.log('PASS Chromium MELORIX Stage H.3 MP4/WAV/falling-note A/V QA',JSON.stringify({
   codecs:[video.codec_name,audio.codec_name],resolution:[video.width,video.height],fps,
   videoSeconds,audioSeconds,driftMs:Math.round(Math.abs(videoSeconds-audioSeconds)*1000),
   actualFrameCount,visualPairs,mp4WavEnvelopeCorrelation:shifts[0],
   mp4Peak,onsetSeconds,pan:{bass:[leftBass,rightBass],bell:[leftBell,rightBell]},
-  mp4Bytes:mp4Bytes.length
+  mp4Bytes:mp4Bytes.length,runnerPlatform:process.platform,browserPath:chrome
  }))
 }finally{
  try{await browser?.close()}catch{}
