@@ -2,6 +2,13 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {audioInspectorPreview,DEFAULT_PERFORMANCE} from '../src/util/melorix-stage-b-performance.ts'
 import {pianoFeelPreview,pianoFeelPreset} from '../src/util/melorix-stage-c-piano.ts'
+import {synthVoicePlan} from '../src/util/melorix-instruments.ts'
+const soft=synthVoicePlan('music-box',60,35,.5).strength
+const medium=synthVoicePlan('music-box',60,80,.5).strength
+const loud=synthVoicePlan('music-box',60,127,.5).strength
+assert.ok(soft<medium&&medium<loud,
+ 'Web Synth must respect real MIDI velocities: soft < medium < loud')
+assert.ok(soft<.3&&loud===1,'MIDI 35/127 normalized, MIDI 127 at unity')
 const notes=[
  {midi:48,name:'C3',time:0,duration:.28,velocity:.52,trackId:0},
  {midi:60,name:'C4',time:0,duration:.22,velocity:.55,trackId:0},

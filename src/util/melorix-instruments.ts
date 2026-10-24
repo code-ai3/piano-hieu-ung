@@ -27,7 +27,9 @@ export function makeInstrumentTrack(parts:readonly MidiPart[],preset:InstrumentP
 // synthesized timbres, not recorded acoustic Kontakt/VST instruments.
 export function synthVoicePlan(preset:InstrumentPreset,midi:number,velocity:number,duration:number){
  const freq=440*Math.pow(2,(Math.max(0,Math.min(127,Math.round(midi)))-69)/12)
- const strength=Math.max(.001,Math.min(1,Number.isFinite(velocity)?velocity:95))
+ // The Web MIDI and offline note schedulers both pass velocity 0..127.
+ // Normalize once; previously every note with velocity > 1 became 100% loud.
+ const strength=Math.max(.001,Math.min(1,(Number.isFinite(velocity)?velocity:95)/127))
  const length=Math.max(.05,Number.isFinite(duration)?duration:0.5)
  switch(preset){
   case 'organ': return {freq,strength,length,wave:'sine' as OscillatorType,second:'triangle' as OscillatorType,blend:.28,attack:.018,decay:.06,sustain:.8,release:.15}
