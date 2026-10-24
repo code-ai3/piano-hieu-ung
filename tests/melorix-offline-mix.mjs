@@ -13,7 +13,7 @@ assert.match(mixer, /gmKey==='acoustic_grand_piano'/)
 assert.equal(gmVoiceForTrack({channel:10,name:'Drums'}).percussion,true)
 const source=readFileSync(new URL('../src/views/PianoView.vue',import.meta.url),'utf8')
 for(const item of [
- 'renderMultiTrackAudio({','notes:notes.value','parts:midiParts.value',
+ 'renderMultiTrackAudio({','notes:audibleNotes.value','parts:midiParts.value',
  'programs:importedMidiPrograms.value','presets:assignedTrackPresets.value',
  'volumes:trackVolumeLevels.value','erhuSamples:erhuWebSampler.getDecodedSamples()',
  'tempo:midiTempo.value','expression:expressionMode.value',
