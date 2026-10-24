@@ -68,12 +68,20 @@ try{
    const offline=audioFingerprint(mono,buffer.sampleRate)
    const comparison=compareAudioFingerprints(live,offline)
    reports.push({name,key,program,live,offline,comparison,fallbacks:rendered.fallbacks})
+   // Isolate the next sampled voice from the previous voice's release tail.
+   // Realtime live capture must not include overlap from the previous GM instrument.
+   engine.stop()
+   await new Promise(resolve=>setTimeout(resolve,400))
    }
    return reports
   }finally{engine.stop();processor.disconnect();bus.disconnect();await ctx.close()}
  })
  assert.deepEqual(errors,[])
  assert.equal(report.length,5,'Test Bright Piano, Guitar, Bass, Violin and Strings')
+ console.log('MELORIX G.3 isolated GM PCM diagnostics',JSON.stringify(report.map(x=>({
+  name:x.name,centroidRatio:x.comparison.centroidRatio,attackRatio:x.comparison.attackRatio,
+  tailRatio:x.comparison.tailRatio,livePeak:x.live.peak,offlinePeak:x.offline.peak
+ }))))
  for(const voice of report){
   assert.deepEqual(voice.fallbacks,[],'No GM substitute: '+voice.name)
   assert.ok(voice.live.peak>.001&&voice.offline.peak>.001,'Sampled voice not silent: '+voice.name)
