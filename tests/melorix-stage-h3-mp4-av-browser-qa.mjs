@@ -177,7 +177,29 @@ try{
  const onsetSeconds=firstLoud<0?-1:.1+firstLoud*.1
  assert.ok(onsetSeconds>=.2&&onsetSeconds<1.0,'AAC first note onset differs from MIDI timing')
 
- assert.deepEqual(errors,[],'JavaScript errors during MP4/WAV export')
+ // H.3E: verify the user's local-only UAT page can read the REAL exported files.
+ // The automated run intentionally leaves every subjective listening checkbox
+ // blank; it MUST NOT pretend to certify the user's Windows soundcard/Kontakt.
+ await page.goto(host+'/h3-windows-uat.html',{waitUntil:'domcontentloaded'})
+ await page.getByRole('heading',{name:'MELORIX · H.3D–E'}).waitFor()
+ await page.locator('#mp4File').setInputFiles(mp4Path)
+ await page.locator('#wavFile').setInputFiles(wavPath)
+ await page.waitForFunction(()=>{
+  const v=document.querySelector('#metaVideo')?.textContent??''
+  const a=document.querySelector('#metaAudio')?.textContent??''
+  return v.includes('1920×1080')&&a.includes('giây')
+ },null,{timeout:30000})
+ assert.match(await page.locator('#status').innerText(),/HOLD/,'No automated human-audio PASS permitted')
+ const reportEvent=page.waitForEvent('download')
+ await page.locator('#exportReport').click()
+ const userReport=JSON.parse(readFileSync(await (await reportEvent).path(),'utf8'))
+ assert.equal(userReport.schema,'melorix-h3-uat-v1')
+ assert.equal(userReport.status,'HOLD','UAT must remain HOLD until a person really listens')
+ assert.equal(userReport.files.mp4.width,1920)
+ assert.equal(userReport.files.mp4.height,1080)
+ console.log('PASS Windows H.3E local UAT file reader and HOLD-by-default report')
+
+ assert.deepEqual(errors,[],'JavaScript errors during MP4/WAV export or local UAT')
  console.log('PASS Chromium MELORIX Stage H.3 MP4/WAV/falling-note A/V QA',JSON.stringify({
   codecs:[video.codec_name,audio.codec_name],resolution:[video.width,video.height],fps,
   videoSeconds,audioSeconds,driftMs:Math.round(Math.abs(videoSeconds-audioSeconds)*1000),
