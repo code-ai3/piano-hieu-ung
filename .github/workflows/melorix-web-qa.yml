@@ -16,6 +16,7 @@ on:
       - feature/melorix-f3-export-playback-parity
       - feature/melorix-g1-audio-fidelity
       - feature/melorix-g2-gm-source-parity
+      - feature/melorix-g3-multi-instrument-parity
       - feature/melorix-mp4-multitrack-audio
       - feature/melorix-track-select-delete
       - feature/melorix-piano-roll-draw-delete
@@ -77,3 +78,5 @@ jobs:
         run: node tests/melorix-stage-g-browser-qa.mjs
       - name: Validate GM live/offline PCM spectral and envelope parity
         run: node tests/melorix-stage-g2-browser-qa.mjs
+      - name: Compare five representative GM instruments live vs offline PCM
+        run: node tests/melorix-stage-g3-browser-qa.mjs
