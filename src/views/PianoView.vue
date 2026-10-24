@@ -18,6 +18,7 @@ import {TrackFxRack,DEFAULT_TRACK_FX,normalizeTrackFx,trackFxEqual} from '@/util
 import {parseMelorixProject,serializeMelorixProject} from '@/util/melorix-stage-e-project'
 import type {MelorixProject} from '@/util/melorix-stage-e-project'
 import {audioBufferToWav} from '@/util/melorix-wav-export'
+import {prepareExportAudio,verifyExportSync} from '@/util/melorix-stage-f-export-signal'
 import type {TrackFxSettings} from '@/util/melorix-stage-d-track-fx'
 import {exportMidiProgram} from '@/util/melorix-midi-program-export'
 import {removeMidiTrack,omitTrackSetting} from '@/util/melorix-track-actions'
@@ -1209,6 +1210,7 @@ async function exportWavMix(){
   const totalSeconds=Math.min(1200,Math.max(0,duration.value))
   if(!totalSeconds)throw Error('Bài MIDI chưa có thời lượng')
   const mix=await renderEditedMidiMix(totalSeconds)
+  const wavStats=prepareExportAudio(mix.audioBuffer)
   const wav=audioBufferToWav(mix.audioBuffer)
   const blob=new Blob([wav],{type:'audio/wav'})
   const url=URL.createObjectURL(blob)
@@ -1217,6 +1219,7 @@ async function exportWavMix(){
   document.body.appendChild(a);a.click();a.remove()
   setTimeout(()=>URL.revokeObjectURL(url),30000)
   uploadError.value='Đã xuất WAV bản phối MIDI với EQ/Reverb từng track. Không dùng bản thu gốc/Kontakt; thời lượng tối đa 20 phút.'
+  if(wavStats.gain<1)uploadError.value+=' Đã hạ đỉnh âm lượng tránh clipping.'
   if(mix.fallbacks.length)uploadError.value+=' Âm sắc dự phòng: '+mix.fallbacks.join(', ')
  }catch(error){console.error(error);uploadError.value='Không xuất được WAV: '+String(error)}
  finally{exporting.value=false;uploadingWav.value=false}
@@ -1279,6 +1282,12 @@ async function exportVideo() {
         :'Đã dựng âm thanh đa track với Volume, Pan, EQ/Reverb và biểu cảm đang chọn.'
     }
 
+    // F.1: stop invalid/silent renders before MP4 encoding; identical
+    // uniform peak protection applies to WAV and MP4.
+    const audioStats=prepareExportAudio(audioBuf)
+    const exportSync=verifyExportSync(audioStats.durationSeconds,exportSeconds,fps)
+    if(exportSync.frameCount!==totalFrames)throw Error('Thời lượng khung hình MP4 không khớp âm thanh')
+    if(audioStats.gain<1)exportAudioNotice.value+=' Đã hạ đỉnh âm lượng để tránh clipping.'
     // mediabunny output：流式写盘用 StreamTarget，否则用 BufferTarget
     const target: any = fileWriter
       ? new StreamTarget(new WritableStream<{ type: 'write', data: Uint8Array, position: number }>({
@@ -1289,6 +1298,24 @@ async function exportVideo() {
 
     const vs = new VideoSampleSource({ codec: 'avc', bitrate: 8_000_000 })
     output.addVideoTrack(vs)
+    // WebCodecs AAC is unavailable on some Chrome/Linux installations.
+    // Load the free self-hosted FFmpeg/WASM AAC encoder only when the exact
+    // native stereo/bitrate/sample-rate configuration is unsupported.
+    let nativeAac=false
+    const nativeEncoder=(window as any).AudioEncoder
+    if(nativeEncoder?.isConfigSupported){
+      try{
+        const support=await nativeEncoder.isConfigSupported({
+          codec:'mp4a.40.2',bitrate:256000,
+          numberOfChannels:audioBuf.numberOfChannels,sampleRate:audioBuf.sampleRate
+        })
+        nativeAac=Boolean(support?.supported)
+      }catch{}
+    }
+    if(!nativeAac){
+      const {registerAacEncoder}=await import('@mediabunny/aac-encoder')
+      registerAacEncoder()
+    }
     const as = new AudioSampleSource({ codec: 'aac', bitrate: 256000 })
     output.addAudioTrack(as)
     await output.start()
@@ -1343,7 +1370,9 @@ async function exportVideo() {
     if (fileWriter) {
       try { await fileWriter.abort() } catch (abortError) { console.warn('Could not abort incomplete export', abortError) }
     }
-    uploadError.value = t('piano.videoExportError')
+    uploadError.value = e instanceof Error
+      ? 'Không thể xuất MP4: '+e.message
+      : t('piano.videoExportError')
   } finally {
     // Always restore the preview timestamp, including failed/aborted exports.
     currentTime.value = savedTime
