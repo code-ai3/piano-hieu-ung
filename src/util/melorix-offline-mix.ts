@@ -24,6 +24,8 @@ export type MixConfig={
  seconds:number
  tempo:number
  expression:ExpressionMode
+ // MP4/WAV must never silently replace the bundled piano samples with basic oscillators.
+ requireBundledPiano?:boolean
 }
 export type MixResult={audioBuffer:AudioBuffer;fallbacks:string[]}
 const storage={fetch:(url:string)=>fetch(url.replace('#','%23'))}
@@ -103,15 +105,25 @@ export async function renderMultiTrackAudio(opts:MixConfig):Promise<MixResult>{
     return
    }
    if(kind==='piano'){
+    // Use the very same sample library configuration as live WebAudio playback:
+    // 100% sample output, 0.65s decay time, source and per-track FX chain.
+    let sampled=false
     try{
-     const piano=SplendidGrandPiano(ctx,{baseUrl:'/samples/sfzinstruments-splendid-grand-piano/samples',
+     const piano=SplendidGrandPiano(ctx,{
+      volume:100,decayTime:.65,
+      baseUrl:'/samples/sfzinstruments-splendid-grand-piano/samples',
       destination:gain,storage:storage as any,scheduler,
-      notesToLoad:{notes:[...new Set(notes.map(n=>n.midi))]}} as any)
-     if(await loadWithin(piano.load)){
-      for(const n of notes)piano.start({note:n.midi,velocity:noteVelocity(n),time:Math.max(.005,n.time),duration:Math.max(.06,n.duration)})
-      return
+      notesToLoad:{notes:[...new Set(notes.map(n=>n.midi))]}
+     } as any)
+     if(await loadWithin(piano.load,20000)){
+      for(const n of notes)piano.start({note:n.midi,velocity:noteVelocity(n),
+       time:Math.max(.005,n.time),duration:Math.max(.06,n.duration)})
+      sampled=true
      }
     }catch(error){console.warn('Piano export sample missing',error)}
+    if(sampled)return
+    if(opts.requireBundledPiano)
+     throw Error('Không tải được mẫu Splendid Grand Piano khi xuất. MELORIX dừng xuất để tránh tự đổi sang tiếng tổng hợp kém chất lượng. Kiểm tra mạng/mẫu âm thanh rồi thử lại.')
    }
    try{
     const instrument=Soundfont(ctx,{destination:gain,scheduler,

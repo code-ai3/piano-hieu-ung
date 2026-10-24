@@ -13,6 +13,7 @@ on:
       - feature/melorix-stage-e-project-fx-export
       - feature/melorix-stage-f-export-validation
       - feature/melorix-stage-f2-long-render-fx-qa
+      - feature/melorix-f3-export-playback-parity
       - feature/melorix-mp4-multitrack-audio
       - feature/melorix-track-select-delete
       - feature/melorix-piano-roll-draw-delete

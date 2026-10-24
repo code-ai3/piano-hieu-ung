@@ -98,6 +98,27 @@ try{
  const abDelta=relativeDifference(wet,dry)
  assert.ok(abDelta>.025,'FX ON/OFF must audibly alter exported PCM waveform')
  console.log('STAGE F2 WAV A/B',JSON.stringify({fxOn:wetStats,fxOff:dryStats,relativeDifference:abDelta}))
+ // F.3 fidelity regression: the exported WAV must follow the same uncommitted
+ // Velocity A/B currently audible in WebAudio (not the raw MIDI note list).
+ await picker.selectOption('3')
+ const performanceAB=page.locator('.mx-audio-compare button[aria-pressed]').first()
+ assert.equal(await performanceAB.getAttribute('aria-pressed'),'true')
+ const velocitySlider=page.getByRole('slider',{name:'Lực đánh MIDI'})
+ await velocitySlider.evaluate(el=>{el.value='175';el.dispatchEvent(new Event('input',{bubbles:true}))})
+ assert.equal(await velocitySlider.inputValue(),'175')
+ const performanceLoud=await exportWav()
+ const louder=waveform(performanceLoud)
+ assert.ok(louder.rms>dryStats.rms*1.08,
+  'Uncommitted expressive velocity must change exported audio as it does WebAudio playback')
+ await performanceAB.click()
+ assert.equal(await performanceAB.getAttribute('aria-pressed'),'false')
+ const performanceOriginal=await exportWav()
+ const originalWave=waveform(performanceOriginal)
+ assert.ok(originalWave.rms<louder.rms*.95,
+  'Per-track A/B off must bypass the uncommitted expression in exported audio')
+ console.log('PASS Chromium MELORIX F.3: uncommitted B/C preview expression is honored by exported WAV',JSON.stringify({
+  originalRms:originalWave.rms,livePreviewRms:louder.rms,relativeDifference:relativeDifference(performanceLoud,performanceOriginal)
+ }))
  // A/B must preserve track 9 settings and render the same duration.
  await picker.selectOption('9')
  assert.equal(await page.getByRole('checkbox',{name:'Bật EQ Reverb track'}).isChecked(),false)

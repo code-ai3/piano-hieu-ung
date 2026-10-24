@@ -1189,8 +1189,16 @@ function localMixWavSamples(){
  return samples
 }
 function renderEditedMidiMix(seconds:number){
+ // Export the EXACT WebAudio performance currently auditioned, including
+ // uncommitted B/C expression preview and CC64 sustain. Using notes.value
+ // here used to discard human timing, velocity contours and legato.
+ const missingNative=[...new Set(notes.value.filter(n=>
+  newNativeTrackIds.value.has(n.trackId)||vst3AssignedTrackIds.value.has(n.trackId)
+ ).map(n=>n.trackId))]
+ if(midiBridge.externalOnly||missingNative.length)
+  throw Error('Một số track đang phát bằng Kontakt/VST3/Web MIDI, không thể tái tạo đúng tiếng này bằng WebAudio khi xuất. Hãy thu hoặc nhập âm thanh Kontakt trước khi xuất MP4; không tự thay bằng GM piano.')
  return renderMultiTrackAudio({
-  notes:notes.value,parts:midiParts.value,
+  notes:audibleNotes.value,parts:midiParts.value,
   programs:importedMidiPrograms.value,presets:assignedTrackPresets.value,
   volumes:trackVolumeLevels.value,
   pans:Object.fromEntries(midiParts.value.map(p=>[p.id,effectiveTrackPan(p.id)])),
@@ -1198,7 +1206,8 @@ function renderEditedMidiMix(seconds:number){
   fxBypass:fxBypassByTrack.value,
   wavSamples:localMixWavSamples(),
   erhuSamples:erhuWebSampler.getDecodedSamples(),
-  seconds,tempo:midiTempo.value,expression:expressionMode.value
+  seconds,tempo:midiTempo.value,expression:expressionMode.value,
+  requireBundledPiano:true
  })
 }
 async function exportWavMix(){
@@ -1221,7 +1230,7 @@ async function exportWavMix(){
   a.href=url;a.download=(currentTrack.value?.name||'MELORIX').replace(/[\\/:*?"<>|]/g,'_')+'-mix-fx.wav'
   document.body.appendChild(a);a.click();a.remove()
   setTimeout(()=>URL.revokeObjectURL(url),30000)
-  uploadError.value='Đã xuất WAV bản phối MIDI với EQ/Reverb từng track. Không dùng bản thu gốc/Kontakt; thời lượng tối đa 20 phút.'
+  uploadError.value='Đã xuất WAV từ biểu cảm đang nghe (Velocity/Legato/Pedal/Piano Feel) và EQ/Reverb theo track. Không dùng bản thu gốc/Kontakt.'
   if(wavStats.gain<1)uploadError.value+=' Đã hạ đỉnh âm lượng tránh clipping.'
   if(mix.fallbacks.length)uploadError.value+=' Âm sắc dự phòng: '+mix.fallbacks.join(', ')
  }catch(error){console.error(error);uploadError.value='Không xuất được WAV: '+String(error)}
@@ -1286,7 +1295,7 @@ async function exportVideo() {
       audioBuf=mix.audioBuffer
       exportAudioNotice.value=mix.fallbacks.length
         ?'Đã xuất bản phối đa track; các nhạc cụ dùng tiếng tổng hợp dự phòng: '+mix.fallbacks.join(', ')
-        :'Đã dựng âm thanh đa track với Volume, Pan, EQ/Reverb và biểu cảm đang chọn.'
+        :'Đã dựng bản phối từ đúng biểu cảm MIDI đang nghe, cùng mẫu piano, Volume/Pan và EQ/Reverb.'
     }
 
     // F.1: stop invalid/silent renders before MP4 encoding; identical
