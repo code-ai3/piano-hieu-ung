@@ -115,7 +115,10 @@ export async function renderMultiTrackAudio(opts:MixConfig):Promise<MixResult>{
       destination:gain,storage:storage as any,scheduler,
       notesToLoad:{notes:[...new Set(notes.map(n=>n.midi))]}
      } as any)
-     if(await loadWithin(piano.load,20000)){
+     // Recent smplr versions expose .ready; older builds keep .load.
+     // Wait for the actual sampled instrument to finish loading.
+     const loaded=piano.ready??piano.load
+     if(loaded&&await loadWithin(Promise.resolve(loaded),20000)){
       for(const n of notes)piano.start({note:n.midi,velocity:noteVelocity(n),
        time:Math.max(.005,n.time),duration:Math.max(.06,n.duration)})
       sampled=true

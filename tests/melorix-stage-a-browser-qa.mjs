@@ -256,10 +256,18 @@ try{
  assert.deepEqual(errors,[],'No JS errors during MELORIX project save/restore')
  // Stage E: render the restored MIDI mix to a real PCM16 WAV.
  await fileMenu.locator('summary').click()
- const [wavDownload]=await Promise.all([
-  page.waitForEvent('download',{timeout:110000}),
-  page.getByRole('button',{name:/Xuất WAV bản phối/}).click()
- ])
+ let wavDownload
+ try{
+  ;[wavDownload]=await Promise.all([
+   page.waitForEvent('download',{timeout:60000}),
+   page.getByRole('button',{name:/Xuất WAV bản phối/}).click()
+  ])
+ }catch(error){
+  const statuses=await page.locator('[role="status"]').allTextContents()
+  throw Error('WAV export cannot be silently substituted: '+JSON.stringify({
+   statuses,error:String(error),consoleErrors:errors
+  }))
+ }
  const wavPath=await wavDownload.path()
  assert.ok(wavPath,'WAV export must provide a downloadable file')
  const wavBytes=readFileSync(wavPath)
