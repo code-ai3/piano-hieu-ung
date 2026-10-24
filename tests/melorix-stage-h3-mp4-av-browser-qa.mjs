@@ -4,14 +4,15 @@ import assert from 'node:assert/strict'
 import { chromium } from 'playwright-core'
 import { spawn, execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 const chromeCandidates=process.platform==='win32'
  ? [
     process.env.CHROME_PATH,
     ...[process.env.PROGRAMFILES,process.env['PROGRAMFILES(X86)'],process.env.LOCALAPPDATA]
       .filter(Boolean).flatMap(root=>[
-        root+'\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe',
-        root+'\\\\Microsoft\\\\Edge\\\\Application\\\\msedge.exe'
+        join(root,'Google','Chrome','Application','chrome.exe'),
+        join(root,'Microsoft','Edge','Application','msedge.exe')
       ])
    ]
  : ['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium']
