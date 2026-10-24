@@ -19,6 +19,7 @@ on:
       - feature/melorix-g3-multi-instrument-parity
       - feature/melorix-h1-mp4-export-control
       - feature/melorix-h2-long-mp4-performance
+      - feature/melorix-h3-mp4-av-fidelity
       - feature/melorix-mp4-multitrack-audio
       - feature/melorix-track-select-delete
       - feature/melorix-piano-roll-draw-delete
@@ -82,6 +83,8 @@ jobs:
         run: node tests/melorix-stage-g2-browser-qa.mjs
       - name: Compare five representative GM instruments live vs offline PCM
         run: node tests/melorix-stage-g3-browser-qa.mjs
+      - name: Validate real H.3 MP4 visuals, audio versus WAV and track pan
+        run: node tests/melorix-stage-h3-mp4-av-browser-qa.mjs
 
   long-mp4-1080p:
     name: Long MP4 1080p, ${{ matrix.seconds }} seconds (H.2)
