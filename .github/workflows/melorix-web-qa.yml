@@ -15,6 +15,7 @@ on:
       - feature/melorix-stage-f2-long-render-fx-qa
       - feature/melorix-f3-export-playback-parity
       - feature/melorix-g1-audio-fidelity
+      - feature/melorix-g2-gm-source-parity
       - feature/melorix-mp4-multitrack-audio
       - feature/melorix-track-select-delete
       - feature/melorix-piano-roll-draw-delete
@@ -74,3 +75,5 @@ jobs:
         run: node tests/melorix-stage-f2-browser-qa.mjs
       - name: Verify missing GM/WAV samples cannot silently change exported timbre
         run: node tests/melorix-stage-g-browser-qa.mjs
+      - name: Validate GM live/offline PCM spectral and envelope parity
+        run: node tests/melorix-stage-g2-browser-qa.mjs

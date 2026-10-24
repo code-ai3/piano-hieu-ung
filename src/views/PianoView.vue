@@ -11,6 +11,7 @@ import type { VelocityVisualMode } from '@/util/velocity-effects'
 import type { VideoFormat, PortraitKeyboard } from '@/util/video-format'
 import { SplendidGrandPiano } from 'smplr'
 import { renderMultiTrackAudio } from '@/util/melorix-offline-mix'
+import { gmSampleLoader } from '@/util/melorix-gm-sample-cache'
 import { ExpressiveAudioMaster, expressedVelocity } from '@/util/melorix-expressive-audio'
 import {DEFAULT_PIANO_FEEL,normalizedPianoFeel,hasPianoFeel,shapePianoTrackNotes,pianoFeelPreview} from '@/util/melorix-stage-c-piano'
 import type {PianoFeelSettings} from '@/util/melorix-stage-c-piano'
@@ -1208,7 +1209,8 @@ function renderEditedMidiMix(seconds:number){
   erhuSamples:erhuWebSampler.getDecodedSamples(),
   seconds,tempo:midiTempo.value,expression:expressionMode.value,
   requireBundledPiano:true,
-  requireExactInstrument:true
+  requireExactInstrument:true,
+  gmLiveLoader:audioCtx.value?gmSampleLoader(audioCtx.value):undefined
  })
 }
 async function exportWavMix(){

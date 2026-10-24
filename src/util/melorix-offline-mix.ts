@@ -9,6 +9,8 @@ import {TrackFxRack,DEFAULT_TRACK_FX} from './melorix-stage-d-track-fx'
 import type {TrackFxSettings} from './melorix-stage-d-track-fx'
 import {samplePitchRate} from './melorix-local-wav'
 import {nearestErhuSample} from './melorix-erhu-sample-cache'
+import {gmSampleLoader,gmSampleStorage} from './melorix-gm-sample-cache'
+import type {GmSampleLoader} from './melorix-gm-sample-cache'
 
 export type MixConfig={
  notes:readonly MidiNoteEvent[]
@@ -29,6 +31,8 @@ export type MixConfig={
  // When true, failing to load the chosen WAV/Erhu/GM samples is a hard error.
  // SoundFont failure must never silently change a rich instrument to a beep.
  requireExactInstrument?:boolean
+ // Reuse the decoded GM buffers already auditioned by the active AudioContext.
+ gmLiveLoader?:GmSampleLoader
 }
 export type MixResult={audioBuffer:AudioBuffer;fallbacks:string[]}
 const storage={fetch:(url:string)=>fetch(url.replace('#','%23'))}
@@ -137,6 +141,7 @@ export async function renderMultiTrackAudio(opts:MixConfig):Promise<MixResult>{
    }
    try{
     const instrument=Soundfont(ctx,{destination:gain,scheduler,
+     loader:opts.gmLiveLoader??gmSampleLoader(ctx),storage:gmSampleStorage(),
      ...(voice.percussion
       ?{instrumentUrl:'https://paulrosen.github.io/midi-js-soundfonts/FluidR3_GM/percussion-mp3.js'}
       :{kit:'FluidR3_GM',instrument:voice.key})})
