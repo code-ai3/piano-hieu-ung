@@ -1298,6 +1298,24 @@ async function exportVideo() {
 
     const vs = new VideoSampleSource({ codec: 'avc', bitrate: 8_000_000 })
     output.addVideoTrack(vs)
+    // WebCodecs AAC is unavailable on some Chrome/Linux installations.
+    // Load the free self-hosted FFmpeg/WASM AAC encoder only when the exact
+    // native stereo/bitrate/sample-rate configuration is unsupported.
+    let nativeAac=false
+    const nativeEncoder=(window as any).AudioEncoder
+    if(nativeEncoder?.isConfigSupported){
+      try{
+        const support=await nativeEncoder.isConfigSupported({
+          codec:'mp4a.40.2',bitrate:256000,
+          numberOfChannels:audioBuf.numberOfChannels,sampleRate:audioBuf.sampleRate
+        })
+        nativeAac=Boolean(support?.supported)
+      }catch{}
+    }
+    if(!nativeAac){
+      const {registerAacEncoder}=await import('@mediabunny/aac-encoder')
+      registerAacEncoder()
+    }
     const as = new AudioSampleSource({ codec: 'aac', bitrate: 256000 })
     output.addAudioTrack(as)
     await output.start()
