@@ -113,7 +113,7 @@ export async function renderMultiTrackAudio(opts:MixConfig):Promise<MixResult>{
       volume:100,decayTime:.65,
       baseUrl:'/samples/sfzinstruments-splendid-grand-piano/samples',
       destination:gain,storage:storage as any,scheduler,
-      notesToLoad:{notes:[...new Set(notes.map(n=>n.midi))]}
+      notesToLoad:{notes:[...new Set(notes.map(n=>n.midi))],velocityRange:[1,127]}
      } as any)
      // Recent smplr versions expose .ready; older builds keep .load.
      // Wait for the actual sampled instrument to finish loading.

@@ -45,5 +45,6 @@ assert.ok(view.includes('midiBridge.externalOnly||missingNative.length'),
  'Native Kontakt/VST3 mix cannot be silently substituted with GM')
 assert.ok(mixer.includes('volume:100,decayTime:.65'),'Sample piano configuration must match live playback')
 assert.ok(mixer.includes('piano.ready??piano.load'),'Sampled piano load must await smplr ready promise')
+assert.ok(mixer.includes('velocityRange:[1,127]'),'smplr 0.26 requires velocityRange alongside notesToLoad to avoid TypeError')
 assert.ok(mixer.includes('if(opts.requireBundledPiano)'),'Piano fallback must be explicit and guarded')
 console.log('PASS MELORIX F.3: realtime B/C expression -> offline export note parity, sampled piano config, native guard')
