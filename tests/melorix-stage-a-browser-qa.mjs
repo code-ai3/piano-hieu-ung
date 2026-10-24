@@ -279,7 +279,7 @@ try{
  await page.evaluate(()=>{try{Object.defineProperty(window,'showSaveFilePicker',{configurable:true,value:undefined})}catch{}})
  await fileMenu.evaluate(el=>{el.open=true})
  await page.getByRole('button',{name:'Xuất video MP4'}).click()
- const exportButton=page.locator('button:has(i.fa-download)').last()
+ const exportButton=page.locator('.modal-open .modal-body button:has(i.fa-download)').first()
  await exportButton.waitFor({timeout:6000})
  const videoDownloadPromise=page.waitForEvent('download',{timeout:55000})
  await exportButton.click()
