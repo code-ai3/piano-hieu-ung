@@ -18,6 +18,10 @@ try{
  browser=await chromium.launch({executablePath:chrome,headless:true,args:['--no-sandbox','--autoplay-policy=no-user-gesture-required']})
  const page=await browser.newPage({viewport:{width:1440,height:900}})
  const errors=[]
+ const sampleDiagnostics=[]
+ page.on('response',r=>{if(r.url().includes('/samples/')&&r.status()>=400)sampleDiagnostics.push('HTTP '+r.status()+': '+r.url())})
+ page.on('requestfailed',r=>{if(r.url().includes('/samples/'))sampleDiagnostics.push('REQUEST '+r.failure()?.errorText+': '+r.url())})
+ page.on('console',m=>{if(m.type()==='warning'&&m.text().includes('Piano export'))sampleDiagnostics.push(m.text())})
  page.on('pageerror',e=>errors.push(e.message))
  page.on('console',m=>{if(m.type()==='error')errors.push('console: '+m.text())})
  await page.addInitScript(()=>{
@@ -265,7 +269,7 @@ try{
  }catch(error){
   const statuses=await page.locator('[role="status"]').allTextContents()
   throw Error('WAV export cannot be silently substituted: '+JSON.stringify({
-   statuses,error:String(error),consoleErrors:errors
+   statuses,error:String(error),sampleDiagnostics:sampleDiagnostics.slice(-15),consoleErrors:errors
   }))
  }
  const wavPath=await wavDownload.path()
