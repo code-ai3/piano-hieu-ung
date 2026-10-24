@@ -26,6 +26,9 @@ export type MixConfig={
  expression:ExpressionMode
  // MP4/WAV must never silently replace the bundled piano samples with basic oscillators.
  requireBundledPiano?:boolean
+ // When true, failing to load the chosen WAV/Erhu/GM samples is a hard error.
+ // SoundFont failure must never silently change a rich instrument to a beep.
+ requireExactInstrument?:boolean
 }
 export type MixResult={audioBuffer:AudioBuffer;fallbacks:string[]}
 const storage={fetch:(url:string)=>fetch(url.replace('#','%23'))}
@@ -45,7 +48,7 @@ function playWav(ctx:OfflineAudioContext,buffer:AudioBuffer,root:number,n:MidiNo
  gain.gain.setValueAtTime(.0001,start)
  gain.gain.linearRampToValueAtTime(level,start+.012)
  gain.gain.setValueAtTime(level,start+length)
- gain.gain.exponentialRampToValueAtTime(.0001,start+length+.1)
+ gain.gain.linearRampToValueAtTime(.0001,start+length+.1)
  src.connect(gain);gain.connect(out)
  src.start(start);src.stop(start+length+.12)
 }
@@ -65,7 +68,7 @@ export async function renderMultiTrackAudio(opts:MixConfig):Promise<MixResult>{
  if(!(opts.seconds>0&&Number.isFinite(opts.seconds)))throw Error('Invalid export duration')
  const fallbacks=new Set<string>()
  const result=await renderOffline(async ctx=>{
-  const master=new ExpressiveAudioMaster(ctx,opts.expression)
+  const master=new ExpressiveAudioMaster(ctx,opts.expression,true)
   const groups=opts.parts.filter(p=>p.enabled).map(part=>({
    part,notes:opts.notes.filter(n=>n.trackId===part.id&&n.time<opts.seconds&&n.duration>0)
   })).filter(group=>group.notes.length>0)
@@ -90,7 +93,11 @@ export async function renderMultiTrackAudio(opts:MixConfig):Promise<MixResult>{
    if(kind==='wav'){
     const sample=opts.wavSamples.get(preset)
     if(sample){for(const n of notes)playWav(ctx,sample.buffer,sample.root,n,noteVelocity(n),gain);return}
+    if(opts.requireExactInstrument)
+     throw Error('Thiếu mẫu WAV '+part.name+'. Hãy gắn lại nhạc cụ trước khi xuất; MELORIX không tự đổi sang tiếng GM.')
    }
+   if(kind==='erhu'&&opts.requireExactInstrument&&!opts.erhuSamples.size)
+    throw Error('Thiếu bộ WAV Erhu cho '+part.name+'. Hãy nạp lại các mẫu trước khi xuất.')
    if(kind==='erhu'&&opts.erhuSamples.size){
     const roots=[...opts.erhuSamples.keys()]
     for(const n of notes){
@@ -139,6 +146,8 @@ export async function renderMultiTrackAudio(opts:MixConfig):Promise<MixResult>{
      return
     }
    }catch(error){console.warn('GM export sample missing',voice.key,error)}
+   if(opts.requireExactInstrument)
+    throw Error('Không nạp được SoundFont '+voice.key+' cho track '+part.name+'. Đã dừng xuất để tránh thay nhạc cụ bằng tiếng tổng hợp. Kiểm tra mạng hoặc chọn nhạc cụ Web Synth có sẵn.')
    fallbacks.add(part.name)
    for(const n of notes)fallback(ctx,n,noteVelocity(n),voice,gain)
   }))
