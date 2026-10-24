@@ -52,8 +52,8 @@ for(const mark of [
  'this.dryOriginal.connect(ctx.destination)',
  'this.input.connect(this.dryProcessed)',
  'this.dryProcessed.connect(compressor)',
- "this.dryOriginal.gain.setTargetAtTime(mode==='original'?1:0",
- "this.dryProcessed.gain.setTargetAtTime(mode==='original'?0:1",
+ "set(this.dryOriginal.gain,mode==='original'?1:0",
+ "set(this.dryProcessed.gain,mode==='original'?0:1",
  "const wet=mode==='original'?0",
 ])assert.ok(expression.includes(mark),'Original MIDI must bypass processing: '+mark)
 assert.match(css,/\.mx-original-audio-toggle/)
