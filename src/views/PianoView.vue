@@ -21,6 +21,7 @@ import type {MelorixProject} from '@/util/melorix-stage-e-project'
 import {audioBufferToWav} from '@/util/melorix-wav-export'
 import {prepareExportAudio,verifyExportSync} from '@/util/melorix-stage-f-export-signal'
 import {enforceExportBudget} from '@/util/melorix-stage-f2-export-budget'
+import {makeExportNoteFrameIndex} from '@/util/melorix-stage-h2-frame-index'
 import type {TrackFxSettings} from '@/util/melorix-stage-d-track-fx'
 import {exportMidiProgram} from '@/util/melorix-midi-program-export'
 import {removeMidiTrack,omitTrackSetting} from '@/util/melorix-track-actions'
@@ -1395,18 +1396,23 @@ async function exportVideo() {
     throwIfExportCancelled()
     // 离屏 canvas 渲染（独立于 DOM）+ 边渲边编码
     const offCanvas = document.createElement('canvas')
+    // Index visible notes once per export. O(events + visible notes) per frame
+    // rather than scanning every note for all 9,000+ frames of a long song.
+    const frameNotes=makeExportNoteFrameIndex(notes.value)
+    const lookahead=(videoFormat.value==='portrait'?5:4)/speed.value
     exportPhase.value = 'rendering'
     const t0 = performance.now()
     for (let frame = 0; frame < totalFrames; frame++) {
       throwIfExportCancelled()
       currentTime.value = previewClockForMusicalTime(musicalTimeAtFrame(frame, fps), speed.value)
       const t2 = musicalTimeAtFrame(frame, fps)
+      const frameIndex=frameNotes.at(t2,lookahead)
       const ks: Record<number, boolean> = {}
-      for (const n of notes.value) {
+      for (const n of frameIndex.visibleNotes) {
         if (n.time <= t2 && n.time + n.duration > t2) ks[n.midi] = true
       }
       keyState.value = ks
-      draw(offCanvas, w, h)
+      draw(offCanvas, w, h, frameIndex)
       const sample = new VideoSample(offCanvas, { timestamp: frame / fps, duration: 1 / fps })
       await vs.add(sample)
       sample.close()
@@ -2078,7 +2084,8 @@ async function startChordAudition(pitches:number[]){
 }
 
 // ---- Canvas 渲染 ----
-function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: number) {
+function draw(targetCanvas?: HTMLCanvasElement,targetW?:number,targetH?:number,
+ exportFrame?:ReturnType<ReturnType<typeof makeExportNoteFrameIndex>['at']>) {
   const canvas = targetCanvas || canvasRef.value
   if (!canvas) return
   const ctx = canvas.getContext('2d')!
@@ -2137,7 +2144,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
   const [ar, ag, ab] = hexRgb(noteActiveColor.value)
 
   // ---- 音符掉落（仅钢琴+电子琴音色） ----
-  for (const n of notes.value) {
+  for (const n of (exportFrame?.visibleNotes??notes.value)) {
     const [ar, ag, ab] = (trackRgbMap.value.get(n.trackId) || hexRgb(noteActiveColor.value))
     const noteEnd = n.time + n.duration
     // 燃烧时长 = 音符播放时长：接触后随发声同步燃尽
@@ -2244,7 +2251,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
   if (noteEffect.value === 'smoke') {
   ctx.save()
   ctx.globalCompositeOperation = 'lighter'
-  for (const n of notes.value) {
+  for (const n of (exportFrame?.visibleNotes??notes.value)) {
     const [ar, ag, ab] = (trackRgbMap.value.get(n.trackId) || hexRgb(noteActiveColor.value))
     const age = targetTime - n.time
     const burnDur = Math.max(0.05, n.duration)
@@ -2360,10 +2367,17 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
   // 构建每个键的最新按下时间（取自 notes，无需额外状态）
   const latestPress: Record<number, number> = {}
   const latestPower: Record<number, number> = {}
-  for (const n of notes.value) {
-    if (n.time <= targetTime && (latestPress[n.midi] === undefined || n.time >= latestPress[n.midi])) {
-      latestPress[n.midi] = n.time
-      latestPower[n.midi] = visualPower(n.velocity)
+  if(exportFrame){
+    for(const [midi,note] of exportFrame.latestPress){
+      latestPress[midi]=note.time
+      latestPower[midi]=visualPower(note.velocity)
+    }
+  }else{
+    for (const n of notes.value) {
+      if (n.time <= targetTime && (latestPress[n.midi] === undefined || n.time >= latestPress[n.midi])) {
+        latestPress[n.midi] = n.time
+        latestPower[n.midi] = visualPower(n.velocity)
+      }
     }
   }
   // 白键
@@ -2493,7 +2507,7 @@ function draw(targetCanvas?: HTMLCanvasElement, targetW?: number, targetH?: numb
   ctx.fillRect(0, notesAreaH, cw, downH)
 
   // 激活音符接触点：白 → 激活色径向扩散（仅钢琴族）
-  for (const n of notes.value) {
+  for (const n of (exportFrame?.visibleNotes??notes.value)) {
 
     const t2 = currentTime.value / speed.value
     if (!(n.time <= t2 && n.time + n.duration > t2 && n.midi >= min && n.midi <= max)) continue
