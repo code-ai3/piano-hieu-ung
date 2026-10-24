@@ -64,7 +64,7 @@ try{
    const buffer=rendered.audioBuffer
    const left=buffer.getChannelData(0),right=buffer.getChannelData(1)
    const mono=new Float32Array(buffer.length)
-   for(let i=0;i<mono.length;i++)mono[i]=(left[i]+right[i])/Math.SQRT2
+   for(let i=0;i<mono.length;i++)mono[i]=(left[i]+right[i])/2
    const offline=audioFingerprint(mono,buffer.sampleRate)
    const comparison=compareAudioFingerprints(live,offline)
    reports.push({name,key,program,live,offline,comparison,fallbacks:rendered.fallbacks})
@@ -77,8 +77,8 @@ try{
  for(const voice of report){
   assert.deepEqual(voice.fallbacks,[],'No GM substitute: '+voice.name)
   assert.ok(voice.live.peak>.001&&voice.offline.peak>.001,'Sampled voice not silent: '+voice.name)
-  assert.ok(voice.comparison.centroidRatio>.35,'Very different timbre: '+voice.name)
-  assert.ok(voice.comparison.attackRatio>.17,'Different attack: '+voice.name)
+  assert.ok(voice.comparison.centroidRatio>.85,'Very different timbre: '+voice.name)
+  assert.ok(voice.comparison.attackRatio>.82,'Different attack: '+voice.name)
   assert.ok(voice.comparison.lowBandDifference<.5,'Low-frequency mismatch: '+voice.name)
   assert.ok(voice.comparison.midBandDifference<.5,'Mid-frequency mismatch: '+voice.name)
  }
