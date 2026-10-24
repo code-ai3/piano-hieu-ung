@@ -1,7 +1,7 @@
 import {chromium} from 'playwright-core'
 import midiModule from '@tonejs/midi'
 const {Midi}=midiModule
-import {spawn} from 'node:child_process'
+import {spawn,execFileSync} from 'node:child_process'
 import {existsSync,readFileSync} from 'node:fs'
 import assert from 'node:assert/strict'
 const chrome=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium'].find(existsSync)
@@ -262,6 +262,59 @@ try{
  let wavPeak=0
  for(let i=44;i+2<=wavBytes.length;i+=512)wavPeak=Math.max(wavPeak,Math.abs(wavBytes.readInt16LE(i)))
  assert.ok(wavPeak>40,'Rendered WAV PCM must be audible, not silent')
+ // Stage F.1: exercise *actual MP4 export* using a short, deterministic two-track project.
+ // The established WAV test above is preserved as Stage E regression.
+ const shortProject={...project,
+  name:'Stage F MP4 fixture',
+  notes:[
+   {trackId:Number(ids[0]),name:'C4',midi:60,time:.2,duration:.45,velocity:.82},
+   {trackId:Number(ids[1]),name:'G3',midi:55,time:.65,duration:.48,velocity:.74}
+  ],
+  presets:{...project.presets,[ids[0]]:'music-box',[ids[1]]:'organ'},
+  fx:{...project.fx}
+ }
+ await inputProject.setInputFiles({name:'stage-f.melorix',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(shortProject))})
+ await page.waitForFunction(()=>document.body.textContent?.includes('Đã mở dự án MELORIX'),null,{timeout:10000})
+ // Disable File System Access picker in the browser test; exercise download fallback.
+ await page.evaluate(()=>{try{Object.defineProperty(window,'showSaveFilePicker',{configurable:true,value:undefined})}catch{}})
+ await fileMenu.evaluate(el=>{el.open=true})
+ await page.getByRole('button',{name:'Xuất video MP4'}).click()
+ const exportButton=page.locator('button:has(i.fa-download)').last()
+ await exportButton.waitFor({timeout:6000})
+ const [videoDownload]=await Promise.all([
+  page.waitForEvent('download',{timeout:150000}),
+  exportButton.click()
+ ])
+ const videoPath=await videoDownload.path()
+ assert.ok(videoPath,'MP4 export must download a real file')
+ const mp4Bytes=readFileSync(videoPath)
+ assert.ok(mp4Bytes.length>12000,'MP4 must not be empty')
+ assert.equal(mp4Bytes.toString('ascii',4,8),'ftyp','MP4 file header')
+ const probe=JSON.parse(execFileSync('ffprobe',
+  ['-v','error','-show_streams','-show_format','-of','json',videoPath],
+  {encoding:'utf8',timeout:25000}))
+ const vstream=probe.streams.find(x=>x.codec_type==='video')
+ const astream=probe.streams.find(x=>x.codec_type==='audio')
+ assert.ok(vstream&&astream,'Exported MP4 requires both video and audio tracks')
+ assert.ok(Number(vstream.width)>=640&&Number(vstream.height)>=360,'Video frame dimensions')
+ assert.equal(astream.codec_name,'aac','Audio codec must be AAC')
+ const vd=Number(vstream.duration??probe.format.duration)
+ const ad=Number(astream.duration??probe.format.duration)
+ assert.ok(vd>=1&&vd<3&&ad>=1&&ad<3,'Fixture export clip duration')
+ assert.ok(Math.abs(vd-ad)<.15,'Audio/video duration mismatch exceeds 150ms')
+ const decoded=execFileSync('ffmpeg',
+  ['-v','error','-i',videoPath,'-map','0:a:0','-f','s16le','-ac','1','-ar','8000','-'],
+  {timeout:30000,maxBuffer:3_000_000})
+ let maxAmp=0,energy=0
+ for(let i=0;i+2<=decoded.length;i+=2){
+  const v=decoded.readInt16LE(i)
+  maxAmp=Math.max(maxAmp,Math.abs(v))
+  energy+=v*v
+ }
+ assert.ok(decoded.length>12000,'Decoded AAC must contain audible duration')
+ assert.ok(maxAmp>30&&energy>1e6,'MP4 audio is silent')
+ assert.deepEqual(errors,[],'No WebAudio/MP4 export JS errors')
+ console.log('PASS Chromium MELORIX Stage F: actual MP4 download, H264/AAC streams, nonzero decoded audio and A/V sync')
  console.log('PASS Chromium MELORIX Stage E WAV: real downloaded PCM16 audio, nonzero signal, exported offline mix')
  console.log('PASS Chromium MELORIX Stage E: .melorix browser download/upload, two-track FX roundtrip')
  console.log('PASS Chromium MELORIX Stage D: real BiquadFilter + Convolver graph, two-track EQ/room/Wet/A-B/FX undo-redo')
