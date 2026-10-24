@@ -638,6 +638,30 @@ async function prepareAudioContext():Promise<AudioContext>{
  await unlockWebAudio(ctx)
  return ctx
 }
+async function ensureGmReadyForPlayback(ctx:AudioContext,request:number){
+ const engine=getGmEngine(ctx)
+ const selected=midiParts.value.filter(part=>{
+  if(!part.enabled || !notes.value.some(n=>n.trackId===part.id))return false
+  const choice=assignedTrackPresets.value[part.id]
+  if((choice===undefined||choice==='piano')&&gmVoiceForId(part.id).key==='acoustic_grand_piano')return false
+  const preset=trackPreset(part.id)
+  return choice===undefined||(isPublishedTrackInstrument(preset)&&!(preset==='library:erhu-hmoob-nplog'&&erhuWebSampler.ready))
+ })
+ if(!selected.length)return
+ if(request!==playRequest)return
+ let timer:ReturnType<typeof setTimeout>|undefined
+ const ready=Promise.all(selected.map(async part=>{
+  const voice=gmVoiceForId(part.id)
+  try{await engine.whenReady(voice,part.id)}
+  catch{throw Error('Không nạp được GM '+voice.key+' trên track '+part.name+'. Hãy kiểm tra mạng và thử lại.')}
+ }))
+ try{
+  await Promise.race([
+   ready,
+   new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error('Mẫu GM chưa tải xong sau 18 giây. Hãy kiểm tra mạng rồi thử lại.')),18000)})
+  ])
+ }finally{if(timer!==undefined)clearTimeout(timer)}
+}
 function preloadGmForEnabledTracks(){
  const ctx=audioCtx.value
  if(!ctx)return
@@ -1847,6 +1871,8 @@ async function play() {
     }else if(!midiBridge.externalOnly){
       const ctx=await prepareAudioContext()
       preloadGmForEnabledTracks()
+      await ensureGmReadyForPlayback(ctx,request)
+      if(request!==playRequest)return
       void erhuWebSampler.init()
       if(!piano)void initPiano().catch(e=>console.warn('Grand piano preload:',e))
       if(ctx.state!=='running')throw Error('AudioContext not running')
