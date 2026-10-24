@@ -12,6 +12,7 @@ on:
       - feature/melorix-stage-d-track-fx
       - feature/melorix-stage-e-project-fx-export
       - feature/melorix-stage-f-export-validation
+      - feature/melorix-stage-f2-long-render-fx-qa
       - feature/melorix-mp4-multitrack-audio
       - feature/melorix-track-select-delete
       - feature/melorix-piano-roll-draw-delete
@@ -67,3 +68,5 @@ jobs:
           ffprobe -version | head -n 1
       - name: Verify real WebAudio sample signal and transport in Chromium
         run: node tests/melorix-stage-a-browser-qa.mjs
+      - name: Verify 3-minute WAV render memory and per-track FX A/B in Chromium
+        run: node tests/melorix-stage-f2-browser-qa.mjs

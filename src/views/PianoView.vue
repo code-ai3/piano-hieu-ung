@@ -19,6 +19,7 @@ import {parseMelorixProject,serializeMelorixProject} from '@/util/melorix-stage-
 import type {MelorixProject} from '@/util/melorix-stage-e-project'
 import {audioBufferToWav} from '@/util/melorix-wav-export'
 import {prepareExportAudio,verifyExportSync} from '@/util/melorix-stage-f-export-signal'
+import {enforceExportBudget} from '@/util/melorix-stage-f2-export-budget'
 import type {TrackFxSettings} from '@/util/melorix-stage-d-track-fx'
 import {exportMidiProgram} from '@/util/melorix-midi-program-export'
 import {removeMidiTrack,omitTrackSetting} from '@/util/melorix-track-actions'
@@ -1209,6 +1210,8 @@ async function exportWavMix(){
  try{
   const totalSeconds=Math.min(1200,Math.max(0,duration.value))
   if(!totalSeconds)throw Error('Bài MIDI chưa có thời lượng')
+  // Estimate memory before the browser allocates a long OfflineAudioContext.
+  enforceExportBudget([totalSeconds,'wav',(navigator as any).deviceMemory])
   const mix=await renderEditedMidiMix(totalSeconds)
   const wavStats=prepareExportAudio(mix.audioBuffer)
   const wav=audioBufferToWav(mix.audioBuffer)
@@ -1261,6 +1264,10 @@ async function exportVideo() {
         fileWriter = null
       }
     }
+
+    // Budget includes PCM render, encoder staging and BufferTarget (when no streaming).
+    // Run after File System Access selection because its streaming path uses less RAM.
+    enforceExportBudget([exportSeconds,'mp4',(navigator as any).deviceMemory,Boolean(fileWriter)])
 
     // The real Kontakt soundtrack replaces the internal piano only if selected.
     // Web MIDI carries no audio; captured/imported audio is decoded separately.
