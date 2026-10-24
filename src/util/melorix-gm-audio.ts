@@ -2,6 +2,7 @@
 // Guarantee a Web Audio voice even if remote soundfont samples cannot be fetched.
 // FluidR3 GM samples: CC BY 3.0 (attribution required).
 import { Soundfont } from 'smplr'
+import {gmSampleLoader,gmSampleStorage} from './melorix-gm-sample-cache.ts'
 import type { SynthVoice } from './melorix-instruments'
 
 export const GM_SOUNDFONT_NAMES = `
@@ -157,8 +158,10 @@ export class GmWebAudio {
   const destination=this.destinationForTrack(trackId)
   try{
    const instrument=voice.percussion
-    ?Soundfont(this.ctx,{instrumentUrl:'https://paulrosen.github.io/midi-js-soundfonts/FluidR3_GM/percussion-mp3.js',destination})
-    :Soundfont(this.ctx,{instrument:voice.key,kit:'FluidR3_GM',destination})
+    ?Soundfont(this.ctx,{instrumentUrl:'https://paulrosen.github.io/midi-js-soundfonts/FluidR3_GM/percussion-mp3.js',
+      destination,loader:gmSampleLoader(this.ctx),storage:gmSampleStorage()})
+    :Soundfont(this.ctx,{instrument:voice.key,kit:'FluidR3_GM',
+      destination,loader:gmSampleLoader(this.ctx),storage:gmSampleStorage()})
    const entry:Entry={instrument,ready:false,failed:false}
    this.cache.set(key,entry)
    const pending=instrument.load
@@ -167,6 +170,14 @@ export class GmWebAudio {
     console.warn('General MIDI sample unavailable, using local sound:',voice.key,error)
    })
   }catch(error){console.warn('General MIDI preload failed:',voice.key,error)}
+ }
+ async whenReady(voice:GMVoice,trackId=-1):Promise<void>{
+  this.preload(voice,trackId)
+  const entry=this.cache.get(this.cacheKey(voice,trackId))
+  if(!entry)throw Error('Không tạo được nhạc cụ GM: '+voice.key)
+  // No fallback sound when the caller explicitly waits for sampled GM.
+  await Promise.resolve(entry.instrument.ready??entry.instrument.load)
+  if(entry.failed)throw Error('Không nạp được mẫu GM: '+voice.key)
  }
  play(voice:GMVoice,note:number,velocity:number,when:number,duration:number,trackId=-1):SynthVoice{
   const entry=this.cache.get(this.cacheKey(voice,trackId))

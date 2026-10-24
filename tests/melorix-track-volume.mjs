@@ -25,7 +25,7 @@ for(const label of [
 ]) assert.ok(view.includes(label),'Missing volume routing: '+label)
 assert.match(gm,/private cacheKey\(voice:GMVoice,trackId:number\)/)
 assert.match(gm,/this\.cache\.set\(key,entry\)/)
-assert.match(gm,/instrument:voice\.key,kit:'FluidR3_GM',destination/)
+assert.match(gm,/instrument:voice\.key,kit:'FluidR3_GM',\s*destination,loader:gmSampleLoader/)
 assert.match(gm,/fallbackDrum\(this\.ctx,note,velocity,when,destination\)/)
 assert.match(gm,/fallbackTone\(this\.ctx,note,velocity,when,duration,voice\.program,destination\)/)
 assert.match(synth,/amp\.connect\(destination\)/)
