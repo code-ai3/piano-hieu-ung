@@ -9,8 +9,8 @@ import {TrackFxRack,DEFAULT_TRACK_FX} from './melorix-stage-d-track-fx'
 import type {TrackFxSettings} from './melorix-stage-d-track-fx'
 import {samplePitchRate} from './melorix-local-wav'
 import {nearestErhuSample} from './melorix-erhu-sample-cache'
-import {gmSampleLoader,gmSampleStorage} from './melorix-gm-sample-cache'
-import type {GmSampleLoader} from './melorix-gm-sample-cache'
+import {gmSampleLoader,gmSampleStorage} from './melorix-gm-sample-cache.ts'
+import type {GmSampleLoader} from './melorix-gm-sample-cache.ts'
 
 export type MixConfig={
  notes:readonly MidiNoteEvent[]

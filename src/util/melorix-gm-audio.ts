@@ -2,7 +2,7 @@
 // Guarantee a Web Audio voice even if remote soundfont samples cannot be fetched.
 // FluidR3 GM samples: CC BY 3.0 (attribution required).
 import { Soundfont } from 'smplr'
-import {gmSampleLoader,gmSampleStorage} from './melorix-gm-sample-cache'
+import {gmSampleLoader,gmSampleStorage} from './melorix-gm-sample-cache.ts'
 import type { SynthVoice } from './melorix-instruments'
 
 export const GM_SOUNDFONT_NAMES = `
