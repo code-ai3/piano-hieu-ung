@@ -281,10 +281,17 @@ try{
  await page.getByRole('button',{name:'Xuất video MP4'}).click()
  const exportButton=page.locator('button:has(i.fa-download)').last()
  await exportButton.waitFor({timeout:6000})
- const [videoDownload]=await Promise.all([
-  page.waitForEvent('download',{timeout:150000}),
-  exportButton.click()
- ])
+ const videoDownloadPromise=page.waitForEvent('download',{timeout:55000})
+ await exportButton.click()
+ await page.waitForTimeout(7000)
+ const exportDiagnostic=await page.evaluate(()=>({
+  status:[...document.querySelectorAll('[role="alert"],[role="status"]')].map(x=>x.textContent?.trim()).filter(Boolean).slice(-12),
+  exportText:document.body.innerText.slice(-2500)
+ }))
+ console.log('Stage F MP4 diagnostic',JSON.stringify({exportDiagnostic,errors}))
+ assert.ok(!exportDiagnostic.exportText.includes('Không thể xuất MP4:'),
+  'Stage F MP4 export error: '+JSON.stringify(exportDiagnostic))
+ const videoDownload=await videoDownloadPromise
  const videoPath=await videoDownload.path()
  assert.ok(videoPath,'MP4 export must download a real file')
  const mp4Bytes=readFileSync(videoPath)
