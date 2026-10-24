@@ -50,7 +50,7 @@ try{
  const modal=page.locator('.modal-open')
  await modal.waitFor()
  await modal.locator('select:has(option[value="full"])').selectOption('full')
- await page.evaluate(()=>{try{Object.defineProperty(navigator,'deviceMemory',{configurable:true,value:8})}catch{}})
+ await page.evaluate(()=>{try{Object.defineProperty(navigator,'deviceMemory',{configurable:true,value:4})}catch{}})
  let peakRssMiB=0,peakJsHeapMiB=0,peakCpuPct=0
  function sampleProcesses(){
   try{
