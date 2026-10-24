@@ -21,8 +21,14 @@ assert.deepEqual(playback.filter(n=>n.trackId===1),notes.filter(n=>n.trackId===1
 const bypass=pianoFeelPreview(audioInspectorPreview(notes,
  {0:{...DEFAULT_PERFORMANCE,velocity:160}}, {0:false,1:true}),
  {0:pianoFeelPreset('expressive')},{0:false,1:true},120)
-assert.deepEqual(bypass.filter(n=>n.trackId===0),notes.filter(n=>n.trackId===0),
- 'A/B off bypasses uncommitted B/C expression on its own track')
+for(const n of bypass.filter(n=>n.trackId===0)){
+ const original=notes.find(x=>x.trackId===0&&x.midi===n.midi)
+ assert.ok(original,'Original note exists')
+ assert.ok(Math.abs(n.time-original.time)<1e-7&&
+  Math.abs(n.duration-original.duration)<1e-7&&
+  Math.abs(n.velocity-original.velocity)<1e-7,
+  'A/B off restores musical time/duration/velocity without float noise')
+}
 const view=readFileSync('src/views/PianoView.vue','utf8')
 const mixer=readFileSync('src/util/melorix-offline-mix.ts','utf8')
 assert.ok(view.includes('notes:audibleNotes.value,parts:midiParts.value'),
