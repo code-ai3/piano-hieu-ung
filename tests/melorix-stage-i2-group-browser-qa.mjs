@@ -29,6 +29,17 @@ try{
  const errors=[]
  page.on('pageerror',e=>errors.push(e.message))
  await page.goto(host,{waitUntil:'domcontentloaded'})
+ await page.evaluate(()=>{
+  window.__i2Trace=[]
+  for(const name of ['pointerdown','pointermove','pointerup','pointercancel']){
+   window.addEventListener(name,e=>{
+    if(e.target?.closest?.('.mx-roll-grid'))window.__i2Trace.push({
+      type:name,alt:e.altKey,x:e.clientX,y:e.clientY,target:e.target.className,
+      buttons:e.buttons
+    })
+   },true)
+  }
+ })
  await page.locator('.mx-track-side-item').first().waitFor()
  const project={format:'melorix-project',version:1,name:'I2 group edits QA',tempo:120,
   parts:[
@@ -78,6 +89,12 @@ try{
  await page.mouse.move(oy.x+11,oy.y+oy.height*.5)
  await page.mouse.down()
  await page.mouse.move(oy.x+94,oy.y+oy.height*.5,{steps:12})
+ console.log('DEBUG I2 before mouseup',await page.evaluate(()=>({
+  notes:document.querySelectorAll('.mx-roll-note').length,
+  selection:document.querySelectorAll('.mx-roll-note.selected').length,
+  trace:window.__i2Trace?.slice(-18),
+  piano:document.querySelector('.mx-roll')?.getAttribute('aria-label')
+ })))
  await page.mouse.up()
  await page.keyboard.up('Alt')
  assert.equal(await row.count(),5,'Alt+drag must copy exactly 2 notes')
