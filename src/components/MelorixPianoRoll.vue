@@ -6,6 +6,7 @@ import { midiDrawRange } from '@/util/melorix-note-draw'
 import {suggestAutoPedal,pedalIntervals} from '@/util/melorix-auto-pedal'
 import type {PedalMode,PedalPoint} from '@/util/melorix-auto-pedal'
 import { playheadLeft, rulerSeekTime } from '@/util/piano-roll-playhead'
+import { clampPianoRollZoom, fitPianoRollZoom, pianoRollRulerStep, pianoRollScrollForTime, pianoRollTimeAtCenter, stepPianoRollZoom } from '@/util/melorix-stage-i1-piano-navigation'
 import { cloneNotes, sameNotes, copyMidiNotes, pasteMidiNotes, moveMidiNotes, selectMidiInBox } from '@/util/piano-roll-selection'
 import { midiGridStep, quantizeMidiNotes } from '@/util/piano-roll-quantize'
 import { setMidiVelocities, shiftMidiVelocities, rampMidiVelocities, humanizeMidiVelocities, drawMidiVelocityLine, velocityNumber } from '@/util/piano-roll-velocity'
@@ -46,6 +47,43 @@ function followPlayhead(force=false){
  else if(!props.playing&&props.currentTime<.03)el.scrollLeft=0
 }
 const pixelsPerSecond=ref(40)
+// I.1: simple viewport navigation; edits and audio stay on their existing paths.
+function setZoomAroundViewport(next:number){
+ const e=scroll.value
+ const time=e?pianoRollTimeAtCenter(e.scrollLeft,e.clientWidth,pixelsPerSecond.value,KEY_W):props.currentTime
+ pixelsPerSecond.value=clampPianoRollZoom(next)
+ followPlayback.value=false
+ void nextTick(()=>{
+  const viewport=scroll.value
+  if(viewport)viewport.scrollLeft=pianoRollScrollForTime(time,pixelsPerSecond.value,viewport.clientWidth,KEY_W)
+ })
+}
+function onZoomInput(e:Event){setZoomAroundViewport(Number((e.target as HTMLInputElement).value))}
+function zoomBy(direction:-1|1){setZoomAroundViewport(stepPianoRollZoom(pixelsPerSecond.value,direction))}
+function fitAllNotes(){
+ const viewport=scroll.value
+ if(!viewport)return
+ const end=Math.max(props.duration,0,...draft.value.map(n=>n.time+n.duration))
+ pixelsPerSecond.value=fitPianoRollZoom(0,end,viewport.clientWidth,KEY_W)
+ followPlayback.value=false
+ void nextTick(()=>{if(scroll.value){scroll.value.scrollLeft=0;centerKeys()}})
+}
+function fitSelectedNotes(){
+ const viewport=scroll.value
+ const items=selectedIndices.value.map(i=>draft.value[i]).filter((n):n is MidiNoteEvent=>Boolean(n))
+ if(!viewport||!items.length)return
+ const first=Math.min(...items.map(n=>n.time))
+ const last=Math.max(...items.map(n=>n.time+n.duration))
+ const low=Math.min(...items.map(n=>n.midi)),high=Math.max(...items.map(n=>n.midi))
+ pixelsPerSecond.value=fitPianoRollZoom(first,last,viewport.clientWidth,KEY_W)
+ followPlayback.value=false
+ void nextTick(()=>{
+  const el=scroll.value;if(!el)return
+  el.scrollLeft=pianoRollScrollForTime(first,pixelsPerSecond.value,el.clientWidth,KEY_W,.07)
+  el.scrollTop=Math.max(0,(HIGH-(low+high)/2)*ROW-el.clientHeight/2)
+ })
+}
+function jumpToPlayhead(){followPlayback.value=true;followPlayhead(true)}
 const snapDivision=ref(16)
 const quantDivision=ref(16)
 const quantStrength=ref(100)
@@ -93,7 +131,10 @@ let auditionPointerId:number|null=null
 const totalWidth=computed(()=>Math.max(1100,(Math.max(props.duration,...draft.value.map(n=>n.time+n.duration),0)+5)*pixelsPerSecond.value))
 const gridWidth=computed(()=>totalWidth.value+KEY_W)
 const snap=computed(()=>midiGridStep(props.bpm,snapDivision.value))
-const ticks=computed(()=>Array.from({length:Math.min(2000,Math.ceil(totalWidth.value/pixelsPerSecond.value/2)+1)},(_,i)=>i*2))
+const ticks=computed(()=>{
+ const step=pianoRollRulerStep(pixelsPerSecond.value)
+ return Array.from({length:Math.min(2000,Math.ceil(totalWidth.value/pixelsPerSecond.value/step)+1)},(_,i)=>i*step)
+})
 // Editor keyboard pitch list
 const keyList=Array.from({length:HIGH-LOW+1},(_,i)=>HIGH-i)
 let previousTrackId: number | null = null
@@ -530,7 +571,15 @@ onUnmounted(()=>{stopDrag();cancelNoteDraw();painting=null;window.removeEventLis
         <option :value="16">1/16</option><option :value="32">1/32</option>
         <option :value="64">1/64</option><option :value="12">1/8T</option><option :value="24">1/16T</option>
       </select></label>
-      <label>Zoom <input v-model.number="pixelsPerSecond" type="range" min="18" max="140" step="2"></label>
+      <div class="mx-roll-zoom-nav" role="group" aria-label="Điều hướng Piano Roll">
+        <label>Zoom <input :value="pixelsPerSecond" @input="onZoomInput" aria-label="Zoom Piano Roll" type="range" min="1" max="160" step="1"></label>
+        <button type="button" aria-label="Thu nhỏ Piano Roll" title="Thu nhỏ quanh vị trí đang xem" @click="zoomBy(-1)">−</button>
+        <button type="button" aria-label="Phóng to Piano Roll" title="Phóng to quanh vị trí đang xem" @click="zoomBy(1)">+</button>
+        <button type="button" aria-label="Vừa toàn bài" title="Thu phóng vừa toàn bộ nốt MIDI của track" @click="fitAllNotes"><i class="fas fa-compress-arrows-alt"></i> Toàn bài</button>
+        <button type="button" aria-label="Vừa vùng chọn" title="Tập trung vào các nốt đang chọn" :disabled="!selectionCount" @click="fitSelectedNotes">Nốt chọn</button>
+        <button type="button" aria-label="Tới Playhead" title="Cuộn về vạch phát và tiếp tục theo vạch phát" @click="jumpToPlayhead"><i class="fas fa-crosshairs"></i></button>
+        <button type="button" :aria-pressed="followPlayback" aria-label="Theo Playhead" :title="followPlayback ? 'Đang tự theo Playhead' : 'Bật tự theo Playhead'" @click="followPlayback=!followPlayback"><i class="fas fa-link"></i></button>
+      </div>
       <button type="button" title="Đóng Piano Roll" @click="emit('close')"><i class="fas fa-times"></i></button>
     </div>
     <div class="mx-roll-editbar mx-roll-editbar-compact" aria-label="Công cụ soạn MIDI">
