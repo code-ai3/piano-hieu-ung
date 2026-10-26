@@ -6,7 +6,7 @@
 ## I.2 chức năng
 - Công cụ **Chọn** giữ nguyên, Shift/Ctrl/Cmd nhấp để chọn nhiều nốt, hoặc kéo vùng trên lưới để chọn nhóm.
 - Khi nhiều nốt được chọn, **kéo mép phải một nốt được chọn** thay đổi thời lượng tất cả nốt đã chọn với cùng độ tăng/giảm; giữ time, pitch, velocity và track ID; mỗi nốt có tối thiểu 0.04s.
-- **Alt + kéo phần thân nốt** sẽ tạo bản sao chính các nốt được chọn, giữ khoảng cách các nốt và velocity; không sửa nguồn. Nếu chỉ Alt + nhấp không di chuyển sẽ không sinh nốt thừa. Lệnh **Ctrl+D** nhân đôi như trước; Ctrl+C/Ctrl+V vào playhead không bị thay đổi.
+- Nút **Kéo sao chép** trong thanh công cụ cho phép kéo sao chép nốt hoặc cả nhóm mà **không cần giữ phím**; hỗ trợ thao tác trên Linux, Windows và màn hình cảm ứng có pointer phù hợp. **Alt + kéo phần thân nốt** cũng được hỗ trợ khi trình duyệt không chặn phím Alt. Chỉ nhấp mà không kéo sẽ không sinh nốt thừa. Cả hai giữ khoảng cách các nốt, velocity và track; không sửa nguồn. **Ctrl+D** nhân đôi như trước; Ctrl+C/Ctrl+V vào playhead không bị thay đổi.
 - **Mũi tên trái/phải** dịch nhóm một ô Snap (Snap Off thì 0.05s); **lên/xuống** đổi cao độ nhóm ±1 semitone. Giới hạn MIDI note [21,108], thời gian không âm; áp dụng thay đổi trong track đang chỉnh. Phím tắt không cướp sự kiện khi người dùng đang nhập ở input/select.
 - Mỗi thao tác kéo hoàn tất hoặc phím mũi tên là **một lần Undo/Redo**; `pointercancel` khôi phục trước khi kéo (không lưu dữ liệu bị hỏng) và đóng editor không commit một drag dở.
 - Phần hướng dẫn ở cuối editor cập nhật phím tắt, không thêm panel chiếm chỗ.
