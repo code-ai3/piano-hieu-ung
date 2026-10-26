@@ -268,3 +268,12 @@
 .mx-track-inspector-btn:hover:not(:disabled){background:#745032;color:#fff}
 .mx-track-inspector-btn:focus-visible{outline:2px solid #f3a567;outline-offset:2px}
 .mx-track-inspector-btn:disabled{opacity:.45;cursor:default}
+
+/* Stage I.1: compact, keyboard-accessible viewport navigation, no extra row. */
+.mx-roll-zoom-nav{display:flex;align-items:center;gap:3px;flex:none}
+.mx-roll-zoom-nav label{flex:none}
+.mx-roll-zoom-nav input[type=range]{width:62px;accent-color:#ffad66}
+.mx-roll-top .mx-roll-zoom-nav button{flex:none;min-height:23px;padding:3px 6px;font-size:10px;white-space:nowrap}
+.mx-roll-top .mx-roll-zoom-nav button[aria-pressed=true]{border-color:#c58b50;color:#ffd4a1}
+.mx-roll-zoom-nav button:focus-visible{outline:2px solid #ffd298;outline-offset:1px}
+@media(max-width:760px){.mx-roll-zoom-nav{gap:2px}.mx-roll-zoom-nav input[type=range]{width:42px}}
