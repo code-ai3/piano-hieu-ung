@@ -77,29 +77,17 @@ try{
  assert.equal(await page.getByRole('button',{name:'Kéo để sao chép'}).getAttribute('aria-pressed'),'true')
  // Clicking the toolbar can scroll the docked editor into view; refresh
  // note coordinates AFTER the toggle rather than dragging a stale box.
+ await row.first().scrollIntoViewIfNeeded()
  const oy=await row.first().boundingBox()
  assert.ok(oy)
- await page.evaluate(()=>{
-  window.__i2DragTrace=[]
-  for(const type of ['pointerdown','pointermove','pointerup','pointercancel']){
-   window.addEventListener(type,e=>{if(e.buttons||type!=='pointermove'){
-    window.__i2DragTrace.push({type,alt:e.altKey,buttons:e.buttons,x:e.clientX,y:e.clientY,
-      target:String(e.target.className).slice(0,80)})
-   }},true)
-  }
- })
  const px=oy.x+Math.min(9,oy.width*.35),py=oy.y+oy.height*.5
- console.log('DEBUG pre',await page.evaluate(([x,y])=>({
-  target:document.elementFromPoint(x,y)?.className,
-  copyPressed:document.querySelector('[aria-label="Kéo để sao chép"]')?.getAttribute('aria-pressed')
- }),[px,py]))
+ // A note may have DOM layout behind the velocity lane if offscreen.
+ // Verify the actual hit target rather than dragging a clipped box.
+ const hit=await page.evaluate(([x,y])=>Boolean(document.elementFromPoint(x,y)?.closest('.mx-roll-note')),[px,py])
+ assert.ok(hit,'selected note must be visible before starting a pointer drag')
  await page.mouse.move(px,py)
  await page.mouse.down()
  await page.mouse.move(oy.x+94,py,{steps:12})
- console.log('DEBUG post drag',await page.evaluate(()=>({
-  notes:document.querySelectorAll('.mx-roll-note').length,
-  trace:window.__i2DragTrace?.slice(-18)
- })))
  await page.mouse.up()
  await page.getByRole('button',{name:'Kéo để sao chép'}).click()
  assert.equal(await page.getByRole('button',{name:'Kéo để sao chép'}).getAttribute('aria-pressed'),'false')
