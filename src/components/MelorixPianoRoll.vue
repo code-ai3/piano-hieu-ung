@@ -8,6 +8,7 @@ import type {PedalMode,PedalPoint} from '@/util/melorix-auto-pedal'
 import { playheadLeft, rulerSeekTime } from '@/util/piano-roll-playhead'
 import { clampPianoRollZoom, fitPianoRollZoom, pianoRollRulerStep, pianoRollScrollForTime, pianoRollTimeAtCenter, stepPianoRollZoom } from '@/util/melorix-stage-i1-piano-navigation'
 import { cloneNotes, sameNotes, copyMidiNotes, pasteMidiNotes, moveMidiNotes, selectMidiInBox } from '@/util/piano-roll-selection'
+import { duplicateDraggedMidiNotes, nudgeSelectedMidiNotes, resizeSelectedMidiNotes } from '@/util/melorix-stage-i2-group-edit'
 import { midiGridStep, quantizeMidiNotes } from '@/util/piano-roll-quantize'
 import { setMidiVelocities, shiftMidiVelocities, rampMidiVelocities, humanizeMidiVelocities, drawMidiVelocityLine, velocityNumber } from '@/util/piano-roll-velocity'
 import { isPitchInScale, isScaleRoot, snapPitchToScale, correctMidiNotesToScale } from '@/util/piano-roll-scale'
@@ -116,6 +117,7 @@ const velocityDrawing=ref(false)
 const velocityWindow=ref<HTMLElement|null>(null)
 let humanizeSeed=0
 const tool=ref<'select'|'draw'|'erase'>('draw')
+const copyOnDrag=ref(false)
 const draft=ref<MidiNoteEvent[]>([])
 const selected=ref(-1)
 const selectedIndices=ref<number[]>([])
@@ -405,6 +407,13 @@ function removeSelected(){
  commit(before)
 }
 function cutSelection(){copySelection();removeSelected()}
+// I.2 keyboard nudges are atomic edits: the selected group remains selected.
+function nudgeSelection(direction:'left'|'right'|'up'|'down'){
+ if(props.disabled||!selectionCount.value)return
+ const before=cloneNotes(draft.value)
+ draft.value=nudgeSelectedMidiNotes(before,selectedIndices.value,direction,snap.value)
+ commit(before)
+}
 function duplicateSelection(){
  if(!selectionCount.value)return
  copySelection()
@@ -439,15 +448,32 @@ function onEditorKeyDown(e:KeyboardEvent){
   else if(key==='z'){e.preventDefault();if(e.shiftKey)redoEdit();else undoEdit()}
   else if(key==='y'){e.preventDefault();redoEdit()}
  }else if(!e.altKey && !mod && key==='q'){e.preventDefault();applyQuantize()}
+ else if(!e.altKey&&!mod&&selectionCount.value&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){
+  e.preventDefault()
+  const direction={ArrowLeft:'left',ArrowRight:'right',ArrowUp:'up',ArrowDown:'down'} as const
+  nudgeSelection(direction[e.key as keyof typeof direction])
+ }
  else if((e.key==='Delete'||e.key==='Backspace')&&selectionCount.value){
   e.preventDefault();removeSelected()
  }
 }
-let dragging:{index:number;kind:'move'|'resize'|'velocity';x:number;y:number;original:MidiNoteEvent;before:MidiNoteEvent[];indices:number[]}|null=null
-function stopDrag(){
- if(dragging){const snapshot=dragging.before;dragging=null;commit(snapshot)}
+let dragging:{index:number;kind:'move'|'resize'|'velocity';x:number;y:number;original:MidiNoteEvent;before:MidiNoteEvent[];indices:number[];copy:boolean}|null=null
+function clearDragListeners(){
  window.removeEventListener('pointermove',moveDrag)
  window.removeEventListener('pointerup',stopDrag)
+ window.removeEventListener('pointercancel',cancelDrag)
+}
+function stopDrag(){
+ if(dragging){const snapshot=dragging.before;dragging=null;commit(snapshot)}
+ clearDragListeners()
+}
+function cancelDrag(){
+ if(dragging){
+  draft.value=cloneNotes(dragging.before)
+  setSelection(dragging.indices)
+  dragging=null
+ }
+ clearDragListeners()
 }
 function startDrag(e:PointerEvent,index:number,kind:'move'|'resize'|'velocity'){
  if(props.disabled)return
@@ -458,10 +484,11 @@ function startDrag(e:PointerEvent,index:number,kind:'move'|'resize'|'velocity'){
   else setSelection([...selectedIndices.value,index])
   return
  }
- if(kind!=='move'||!selectedIndices.value.includes(index))setSelection([index])
- dragging={index,kind,x:e.clientX,y:e.clientY,original:{...draft.value[index]},before:cloneNotes(draft.value),indices:[...selectedIndices.value]}
+ if(!selectedIndices.value.includes(index))setSelection([index])
+ dragging={index,kind,x:e.clientX,y:e.clientY,original:{...draft.value[index]},before:cloneNotes(draft.value),indices:[...selectedIndices.value],copy:kind==='move'&&(copyOnDrag.value||e.altKey)}
  window.addEventListener('pointermove',moveDrag)
  window.addEventListener('pointerup',stopDrag)
+ window.addEventListener('pointercancel',cancelDrag)
 }
 function moveDrag(e:PointerEvent){
  const d=dragging;if(!d)return
@@ -476,13 +503,23 @@ function moveDrag(e:PointerEvent){
   if(!movedX)return
   const desiredEnd=n.time+n.duration+dt
   const end=snap.value?snapMidiTime(desiredEnd,snap.value):desiredEnd
-  draft.value[d.index]={...n,duration:Math.max(.04,end-n.time)}
+  // I.2: the right edge of any selected note resizes the whole selection.
+  draft.value=resizeSelectedMidiNotes(d.before,d.indices,end-(n.time+n.duration))
   return
  }
  const shiftPitch=-Math.round((e.clientY-d.y)/ROW)
  const anchor=Math.min(...d.indices.map(i=>d.before[i].time))
  // Snap absolute group onset, preserving relative offsets between selected notes.
  const delta=movedX?(snap.value?snapMidiTime(anchor+dt,snap.value)-anchor:dt):0
+ if(d.copy){
+  // Alt+drag duplicates only after actual motion, never on an Alt-click.
+  if(!movedX&&shiftPitch===0)return
+  let copies=duplicateDraggedMidiNotes(d.before,d.indices,delta,shiftPitch)
+  if(scaleSnap.value&&shiftPitch!==0)copies=correctMidiNotesToScale(copies,copies.map((_,i)=>i),scaleRoot.value,scaleMode.value,LOW,HIGH)
+  draft.value=[...cloneNotes(d.before),...copies]
+  setSelection(copies.map((_,i)=>d.before.length+i))
+  return
+ }
  const moved=moveMidiNotes(d.before,d.indices,delta,shiftPitch)
  draft.value=scaleSnap.value&&shiftPitch!==0
   ?correctMidiNotesToScale(moved,d.indices,scaleRoot.value,scaleMode.value,LOW,HIGH)
@@ -552,8 +589,8 @@ function onKeyLostCapture(e:PointerEvent){
  if(auditionPointerId===e.pointerId)stopKeyAudition()
 }
 function keyLabel(midi:number){return midiNoteName(midi)}
-watch(()=>props.disabled,disabled=>{if(disabled){stopKeyAudition();cancelNoteDraw();if(painting){draft.value=painting.before;painting=null}}})
-onUnmounted(()=>{stopDrag();cancelNoteDraw();painting=null;window.removeEventListener('pointermove',moveVelocityDraw);window.removeEventListener('pointerup',endVelocityDraw);window.removeEventListener('pointercancel',endVelocityDraw);window.removeEventListener('pointermove',moveMarquee);window.removeEventListener('pointerup',stopMarquee);stopKeyAudition()})
+watch(()=>props.disabled,disabled=>{if(disabled){stopKeyAudition();cancelDrag();cancelNoteDraw();if(painting){draft.value=painting.before;painting=null}}})
+onUnmounted(()=>{cancelDrag();cancelNoteDraw();painting=null;window.removeEventListener('pointermove',moveVelocityDraw);window.removeEventListener('pointerup',endVelocityDraw);window.removeEventListener('pointercancel',endVelocityDraw);window.removeEventListener('pointermove',moveMarquee);window.removeEventListener('pointerup',stopMarquee);stopKeyAudition()})
 </script>
 
 <template>
@@ -598,6 +635,11 @@ onUnmounted(()=>{stopDrag();cancelNoteDraw();painting=null;window.removeEventLis
       <button type="button" title="Sao chép · Ctrl+C" aria-label="Sao chép" :disabled="disabled || !selectionCount" @click="copySelection"><i class="fas fa-copy"></i></button>
       <button type="button" title="Dán · Ctrl+V" aria-label="Dán" :disabled="disabled || !clipboard.length" @click="pasteSelection()"><i class="fas fa-paste"></i></button>
       <button type="button" title="Nhân đôi · Ctrl+D" aria-label="Nhân đôi" :disabled="disabled || !selectionCount" @click="duplicateSelection"><i class="fas fa-clone"></i></button>
+      <button type="button" class="mx-roll-copy-drag" :class="{ 'mx-roll-panel-active': copyOnDrag }"
+        :aria-pressed="copyOnDrag" aria-label="Kéo để sao chép"
+        :disabled="disabled" title="Bật/tắt sao chép khi kéo nốt (không cần giữ Alt)" @click="copyOnDrag=!copyOnDrag">
+        <i class="fas fa-copy"></i> Kéo sao chép
+      </button>
       <button type="button" title="Xóa · Delete" aria-label="Xóa nốt đã chọn" :disabled="disabled || !selectionCount" @click="removeSelected"><i class="fas fa-trash"></i></button>
       <span class="mx-roll-separator"></span>
       <button type="button" :class="{ 'mx-roll-panel-active': advancedPanel==='quantize' }" :aria-expanded="advancedPanel==='quantize'" title="Bật/tắt công cụ căn nhịp" @click="togglePanel('quantize')"><i class="fas fa-align-left"></i> Nhịp <i class="fas fa-angle-down"></i></button>
@@ -728,7 +770,7 @@ onUnmounted(()=>{stopDrag();cancelNoteDraw();painting=null;window.removeEventLis
           :style="{ left: KEY_W + note.time * pixelsPerSecond + 'px', top: (HIGH - note.midi) * ROW + 1 + 'px', width: Math.max(5, note.duration * pixelsPerSecond) + 'px', height: ROW - 2 + 'px', backgroundColor: part.color }"
           @pointerdown.stop="noteDown($event, i)" @dblclick.stop="noteDbl($event, i)" @contextmenu.prevent.stop="removeNote(i)">
           <span class="mx-roll-note-label">{{ note.name }}</span>
-          <span class="mx-roll-resize" title="Kéo để đổi độ dài" @pointerdown.stop="tool==='erase'?removeNote(i):startDrag($event, i, 'resize')"></span>
+          <span class="mx-roll-resize" title="Kéo cạnh để đổi độ dài · nhiều nốt chọn sẽ cùng thay đổi" @pointerdown.stop="tool==='erase'?removeNote(i):startDrag($event, i, 'resize')"></span>
         </div>
         <div v-if="marquee" class="mx-roll-marquee" :style="{
           left: Math.min(marquee.x1,marquee.x2)+'px', top: Math.min(marquee.y1,marquee.y2)+'px',
@@ -751,6 +793,6 @@ onUnmounted(()=>{stopDrag();cancelNoteDraw();painting=null;window.removeEventLis
           @pointerdown.prevent="velocityBarDown($event, i)"></span>
       </div>
     </div>
-    <div class="mx-roll-hint">Vẽ: kéo trên lưới để tạo nốt · Chọn: kéo nốt/đổi độ dài · Xóa: Delete, chuột phải hoặc thùng rác · Ctrl+Z hoàn tác</div>
+    <div class="mx-roll-hint">Chọn nhiều: Shift+nhấp hoặc kéo vùng · Bật Kéo sao chép (hoặc Alt+kéo) để nhân bản · Kéo mép: đổi dài cả nhóm · Phím mũi tên: dịch nốt · Ctrl+D: nhân đôi · Ctrl+Z: hoàn tác</div>
   </section>
 </template>
