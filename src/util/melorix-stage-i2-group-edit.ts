@@ -1,5 +1,5 @@
 import type { MidiNoteEvent } from './midi-tracks'
-import { cloneNotes, moveMidiNotes } from './piano-roll-selection'
+import { cloneNotes, moveMidiNotes } from './piano-roll-selection.ts'
 
 /** Resize the ends of all selected MIDI notes by the same number of seconds.
  * Clamp each note separately, preserve note start, pitch, velocity and track.
