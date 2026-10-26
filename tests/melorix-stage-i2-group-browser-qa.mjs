@@ -72,11 +72,14 @@ try{
  await page.keyboard.press('Control+z')
  await selectPair()
  // Alt+drag copies both selected notes, leaving original notes intact.
- const ox=await left(row.first()),oy=(await row.first().boundingBox())
- assert.ok(oy)
+ const ox=await left(row.first())
  await page.getByRole('button',{name:'Kéo để sao chép'}).click()
  assert.equal(await page.getByRole('button',{name:'Kéo để sao chép'}).getAttribute('aria-pressed'),'true')
- await page.mouse.move(oy.x+11,oy.y+oy.height*.5)
+ // Clicking the toolbar can scroll the docked editor into view; refresh
+ // note coordinates AFTER the toggle rather than dragging a stale box.
+ const oy=await row.first().boundingBox()
+ assert.ok(oy)
+ await page.mouse.move(oy.x+Math.min(9,oy.width*.35),oy.y+oy.height*.5)
  await page.mouse.down()
  await page.mouse.move(oy.x+94,oy.y+oy.height*.5,{steps:12})
  await page.mouse.up()
