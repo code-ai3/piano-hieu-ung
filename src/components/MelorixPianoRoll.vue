@@ -117,6 +117,7 @@ const velocityDrawing=ref(false)
 const velocityWindow=ref<HTMLElement|null>(null)
 let humanizeSeed=0
 const tool=ref<'select'|'draw'|'erase'>('draw')
+const copyOnDrag=ref(false)
 const draft=ref<MidiNoteEvent[]>([])
 const selected=ref(-1)
 const selectedIndices=ref<number[]>([])
@@ -484,7 +485,7 @@ function startDrag(e:PointerEvent,index:number,kind:'move'|'resize'|'velocity'){
   return
  }
  if(!selectedIndices.value.includes(index))setSelection([index])
- dragging={index,kind,x:e.clientX,y:e.clientY,original:{...draft.value[index]},before:cloneNotes(draft.value),indices:[...selectedIndices.value],copy:kind==='move'&&e.altKey}
+ dragging={index,kind,x:e.clientX,y:e.clientY,original:{...draft.value[index]},before:cloneNotes(draft.value),indices:[...selectedIndices.value],copy:kind==='move'&&(copyOnDrag.value||e.altKey)}
  window.addEventListener('pointermove',moveDrag)
  window.addEventListener('pointerup',stopDrag)
  window.addEventListener('pointercancel',cancelDrag)
@@ -634,6 +635,11 @@ onUnmounted(()=>{cancelDrag();cancelNoteDraw();painting=null;window.removeEventL
       <button type="button" title="Sao chép · Ctrl+C" aria-label="Sao chép" :disabled="disabled || !selectionCount" @click="copySelection"><i class="fas fa-copy"></i></button>
       <button type="button" title="Dán · Ctrl+V" aria-label="Dán" :disabled="disabled || !clipboard.length" @click="pasteSelection()"><i class="fas fa-paste"></i></button>
       <button type="button" title="Nhân đôi · Ctrl+D" aria-label="Nhân đôi" :disabled="disabled || !selectionCount" @click="duplicateSelection"><i class="fas fa-clone"></i></button>
+      <button type="button" class="mx-roll-copy-drag" :class="{ 'mx-roll-panel-active': copyOnDrag }"
+        :aria-pressed="copyOnDrag" aria-label="Kéo để sao chép"
+        :disabled="disabled" title="Bật/tắt sao chép khi kéo nốt (không cần giữ Alt)" @click="copyOnDrag=!copyOnDrag">
+        <i class="fas fa-copy"></i> Kéo sao chép
+      </button>
       <button type="button" title="Xóa · Delete" aria-label="Xóa nốt đã chọn" :disabled="disabled || !selectionCount" @click="removeSelected"><i class="fas fa-trash"></i></button>
       <span class="mx-roll-separator"></span>
       <button type="button" :class="{ 'mx-roll-panel-active': advancedPanel==='quantize' }" :aria-expanded="advancedPanel==='quantize'" title="Bật/tắt công cụ căn nhịp" @click="togglePanel('quantize')"><i class="fas fa-align-left"></i> Nhịp <i class="fas fa-angle-down"></i></button>
@@ -787,6 +793,6 @@ onUnmounted(()=>{cancelDrag();cancelNoteDraw();painting=null;window.removeEventL
           @pointerdown.prevent="velocityBarDown($event, i)"></span>
       </div>
     </div>
-    <div class="mx-roll-hint">Chọn nhiều: Shift+nhấp hoặc kéo vùng · Alt+kéo: sao chép · Kéo mép: đổi dài cả nhóm · Phím mũi tên: dịch nốt · Ctrl+D: nhân đôi · Ctrl+Z: hoàn tác</div>
+    <div class="mx-roll-hint">Chọn nhiều: Shift+nhấp hoặc kéo vùng · Bật Kéo sao chép (hoặc Alt+kéo) để nhân bản · Kéo mép: đổi dài cả nhóm · Phím mũi tên: dịch nốt · Ctrl+D: nhân đôi · Ctrl+Z: hoàn tác</div>
   </section>
 </template>
