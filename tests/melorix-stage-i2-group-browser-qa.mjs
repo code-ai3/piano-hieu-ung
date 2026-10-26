@@ -29,17 +29,6 @@ try{
  const errors=[]
  page.on('pageerror',e=>errors.push(e.message))
  await page.goto(host,{waitUntil:'domcontentloaded'})
- await page.evaluate(()=>{
-  window.__i2Trace=[]
-  for(const name of ['pointerdown','pointermove','pointerup','pointercancel']){
-   window.addEventListener(name,e=>{
-    if(e.target?.closest?.('.mx-roll-grid'))window.__i2Trace.push({
-      type:name,alt:e.altKey,x:e.clientX,y:e.clientY,target:e.target.className,
-      buttons:e.buttons
-    })
-   },true)
-  }
- })
  await page.locator('.mx-track-side-item').first().waitFor()
  const project={format:'melorix-project',version:1,name:'I2 group edits QA',tempo:120,
   parts:[
@@ -85,24 +74,20 @@ try{
  // Alt+drag copies both selected notes, leaving original notes intact.
  const ox=await left(row.first()),oy=(await row.first().boundingBox())
  assert.ok(oy)
- await page.keyboard.down('Alt')
+ await page.getByRole('button',{name:'Kéo để sao chép'}).click()
+ assert.equal(await page.getByRole('button',{name:'Kéo để sao chép'}).getAttribute('aria-pressed'),'true')
  await page.mouse.move(oy.x+11,oy.y+oy.height*.5)
  await page.mouse.down()
  await page.mouse.move(oy.x+94,oy.y+oy.height*.5,{steps:12})
- console.log('DEBUG I2 before mouseup',await page.evaluate(()=>({
-  notes:document.querySelectorAll('.mx-roll-note').length,
-  selection:document.querySelectorAll('.mx-roll-note.selected').length,
-  trace:window.__i2Trace?.slice(-18),
-  piano:document.querySelector('.mx-roll')?.getAttribute('aria-label')
- })))
  await page.mouse.up()
- await page.keyboard.up('Alt')
- assert.equal(await row.count(),5,'Alt+drag must copy exactly 2 notes')
+ await page.getByRole('button',{name:'Kéo để sao chép'}).click()
+ assert.equal(await page.getByRole('button',{name:'Kéo để sao chép'}).getAttribute('aria-pressed'),'false')
+ assert.equal(await row.count(),5,'Copy-drag must copy exactly 2 notes')
  assert.equal(await left(row.first()),ox,'original MIDI note must remain in place')
  await page.locator('.mx-roll').focus();await page.keyboard.press('Control+z')
- assert.equal(await row.count(),3,'Undo Alt+drag must remove duplicate group')
+ assert.equal(await row.count(),3,'Undo Copy-drag must remove duplicate group')
  await page.keyboard.press('Control+y')
- assert.equal(await row.count(),5,'Redo Alt+drag must recreate two notes')
+ assert.equal(await row.count(),5,'Redo Copy-drag must recreate two notes')
  await page.keyboard.press('Control+z')
  // Arrow navigation: selected pair moves one snap division together.
  await selectPair()
@@ -117,7 +102,7 @@ try{
  await page.getByRole('button',{name:'Chọn track I2 Piano LH'}).dblclick()
  assert.equal(await row.count(),1,'group editing must not touch another track')
  assert.deepEqual(errors,[],'No browser errors during editor group operations')
- console.log('PASS Chromium MELORIX I.2: multiselect, group resize, Alt-drag copy, undo/redo, arrow nudge and track isolation')
+ console.log('PASS Chromium MELORIX I.2: multiselect, group resize, copy-drag, undo/redo, arrow nudge and track isolation')
 }finally{
  try{await browser?.close()}catch{}
  server.kill('SIGTERM')
