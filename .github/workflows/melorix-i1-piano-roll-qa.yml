@@ -1,0 +1,34 @@
+name: MELORIX I.1 Piano Roll QA
+
+on:
+  push:
+    branches:
+      - feature/melorix-i1-piano-roll-navigation
+  pull_request:
+    branches:
+      - feature/melorix-h3de-windows-real-uat
+
+permissions:
+  contents: read
+
+jobs:
+  piano-roll:
+    name: I.1 Piano Roll UI, TypeScript and Chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout I1
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install existing dependencies
+        run: npm ci
+      - name: Build, typecheck and regression suite
+        run: npm run build
+      - name: Install ephemeral browser test driver
+        run: npm install --no-save --package-lock=false playwright-core@1.55.0
+      - name: Verify Piano Roll controls with real Chromium
+        run: node tests/melorix-stage-i1-piano-browser-qa.mjs
